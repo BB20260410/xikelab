@@ -1,0 +1,21 @@
+{
+  "name": "claude-panel",
+  "version": "0.1.0",
+  "description": "可视化多 Claude 聊天框管理面板，UI 参考 Codex",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "electron": "electron electron-main.js",
+    "start:electron": "electron electron-main.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^42.1.0"
+  }
+}

@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Claude Panel</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<!-- 四象限对齐参考线（按 prompt 规范）-->
+<div class="zone-guide-v1"></div>
+<div class="zone-guide-v2"></div>
+<div class="zone-guide-h"></div>
+
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">✦</div>
+      <div class="brand-text">
+        <div class="brand-title">Claude Panel</div>
+        <div class="brand-subtitle">多会话管理 · v0.6</div>
+      </div>
+      <button class="theme-toggle" id="btnLoginClaude" title="在外部 Terminal 跑 claude /login（OAuth 浏览器跳转）" aria-label="登录 Claude Code">🔐</button>
+      <button class="theme-toggle" id="themeToggle" title="切换暗/亮主题 (⌘D)" aria-label="切换暗亮主题">🌓</button>
+    </div>
+
+    <button class="btn-new" id="btnNew">
+      <span class="plus">＋</span> 新建会话
+    </button>
+
+    <div class="session-list" id="sessionList"></div>
+
+    <div class="archived-section" id="archivedSection" style="display:none;">
+      <button class="archived-toggle" id="archivedToggle" aria-expanded="false" aria-controls="archivedList" aria-label="展开/折叠已归档会话列表">
+        <span class="arch-arrow" id="archArrow" aria-hidden="true">▶</span>
+        <span>📦 已归档 (<span id="archivedCount">0</span>)</span>
+      </button>
+      <div class="archived-list" id="archivedList" style="display:none;" role="list"></div>
+    </div>
+
+    <div class="sidebar-foot">
+      <div class="hint">参考 Codex UI</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="main-header" id="mainHeader">
+      <div class="empty-state">
+        <div class="empty-icon">✦</div>
+        <h2>欢迎使用 Claude Panel</h2>
+        <p>左侧「＋ 新建会话」开始管理多个 Claude Code 实例。</p>
+        <p class="hint-text">⌘N 新建 · ⌘1..9 切换 · ⌘↵ 发送</p>
+      </div>
+    </header>
+    <div class="chat" id="chatArea" style="display:none;">
+      <div class="chat-header">
+        <div class="chat-header-text">
+          <div class="chat-header-name" id="chatHeaderName"></div>
+          <div class="chat-header-info" id="chatHeaderInfo"></div>
+          <div class="chat-header-goal" id="chatHeaderGoal" style="display:none;"></div>
+        </div>
+        <div class="chat-header-actions">
+          <button class="cxbtn cxbtn-danger cxbtn-sm btn-interrupt-pulse" id="btnInterrupt"
+                  title="中断当前 claude turn (Esc)"
+                  aria-label="中断当前 claude 任务"
+                  style="display:none;">⏸ 停止</button>
+          <span class="state-chip" id="stateChip" title="claude 当前运行状态" style="display:none;">idle</span>
+          <span class="cost-chip" id="costChip" title="本 session 累计成本（估算）" style="display:none;">$0.00</span>
+          <div class="ctx-meter" id="ctxMeter" title="claude 上下文占用率（基于 transcript 末次 usage 估算）" style="display:none;">
+            <div class="ctx-bar"><div class="ctx-fill" id="ctxFill"></div></div>
+            <span class="ctx-label" id="ctxLabel">—</span>
+          </div>
+          <span class="chain-badge" id="chainBadge" title="点击查看接力 history 归档" style="display:none;cursor:pointer;"></span>
+          <button class="btn-icon" id="btnHandoff" title="把当前 snapshot 归档 + 在 panel 内新建同 cwd 的新 session 接力">🔄 接力</button>
+          <button class="btn-icon" id="btnExternal" title="在 Terminal 中独立打开（macOS 窗口）">⤴ Terminal</button>
+          <button class="btn-icon" id="btnSpawnAll" title="为所有 session 各开一个 Terminal 窗口">⤴⤴ 全开</button>
+        </div>
+      </div>
+      <div class="ctx-warn-banner" id="ctxWarnBanner" style="display:none;">
+        ⚠️ <span id="ctxWarnText">上下文已达 90%，建议立即点 🔄 接力换 session</span>
+      </div>
+      <div class="alert-banner danger-banner" id="dangerBanner" style="display:none;">
+        🛑 <span id="dangerBannerText"></span>
+        <button class="btn-tiny" id="btnDangerDismiss" style="margin-left:auto;">关闭</button>
+      </div>
+      <div class="alert-banner loopguard-banner" id="loopGuardBanner" style="display:none;">
+        🔁 <span id="loopGuardBannerText"></span>
+        <button class="btn-tiny" id="btnLoopGuardDismiss" style="margin-left:auto;">关闭</button>
+      </div>
+      <div class="alert-banner focus-chain-banner" id="focusChainBanner" style="display:none;">
+        🎯 <span id="focusChainBannerText"></span>
+      </div>
+      <div class="chat-output" id="chatOutput"></div>
+      <div class="chat-input-wrap">
+        <textarea id="chatInput" placeholder="给当前 Claude 发消息…  ⌘+Enter 发送" rows="3"></textarea>
+        <div class="chat-actions">
+          <span class="chat-info muted small">支持 markdown · stream-json</span>
+          <button class="btn-send" id="btnSend">发送 ↵</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="inspector">
+    <div class="ins-tabs">
+      <button class="ins-tab active" data-tab="info">信息</button>
+      <button class="ins-tab" data-tab="snapshot">事实</button>
+      <button class="ins-tab" data-tab="projects">项目</button>
+      <button class="ins-tab" data-tab="files">文件</button>
+      <button class="ins-tab" data-tab="help">帮助</button>
+    </div>
+
+    <div class="ins-content" data-content="info">
+      <div id="sessionInfo" class="muted">— 未选中 —</div>
+    </div>
+
+    <div class="ins-content" data-content="snapshot" style="display:none;">
+      <div class="snapshot-head">
+        <span class="muted small" id="snapshotMeta">—</span>
+        <button class="btn-icon" id="btnSnapRefresh" title="重新读取 snapshot.md">↻</button>
+      </div>
+      <div class="snapshot-body" id="snapshotBody">
+        <div class="muted small" style="padding:8px;">— 未选中 session —</div>
+      </div>
+    </div>
+
+    <div class="ins-content" data-content="projects" style="display:none;">
+      <div class="snapshot-head">
+        <span class="muted small">方案 B 项目监控（~/Desktop/00_项目/）</span>
+        <button class="btn-icon" id="btnProjectsRefresh" title="重新扫描">↻</button>
+      </div>
+      <div class="project-list" id="projectList">
+        <div class="muted small" style="padding:8px;">加载中…</div>
+      </div>
+    </div>
+
+    <div class="ins-content" data-content="files" style="display:none;">
+      <div class="file-path" id="filePath">—</div>
+      <div class="file-list" id="fileList"></div>
+    </div>
+
+    <!-- 项目详情 modal -->
+    <div class="modal" id="projectModal" style="display:none;">
+      <div class="modal-bg" data-close-project></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2 id="projectModalTitle">项目详情</h2>
+          <button class="btn-icon" data-close-project>✕</button>
+        </div>
+        <div class="project-modal-body" id="projectModalBody">加载中…</div>
+      </div>
+    </div>
+
+    <!-- 接力链 history modal -->
+    <div class="modal" id="historyModal" style="display:none;">
+      <div class="modal-bg" data-close-history></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>接力链 history</h2>
+          <button class="btn-icon" data-close-history>✕</button>
+        </div>
+        <div class="history-modal-body" id="historyModalBody">加载中…</div>
+      </div>
+    </div>
+
+    <div class="ins-content" data-content="help" style="display:none;">
+      <div class="ins-section">
+        <h3>快捷键</h3>
+        <ul class="muted small">
+          <li><kbd>⌘N</kbd> 新建会话</li>
+          <li><kbd>⌘1..9</kbd> 切换会话</li>
+          <li><kbd>⌘↵</kbd> 发送消息</li>
+          <li>右键会话项 关闭</li>
+        </ul>
+      </div>
+      <div class="ins-section">
+        <h3>Continuum 集成</h3>
+        <div class="muted small">
+          "事实" tab 显示 07 Continuum 的 snapshot.md。<br>
+          点 🔄 接力：归档当前 snapshot + 在 panel 内新建同 cwd 的 session，新 session 第一条让新 claude 读 ~/HANDOFF_LATEST.md 即可接手。<br>
+          snapshot 若为空，先装 07：<code>cd ~/Desktop/00_项目/07_Continuum_会话接力工具 && ./install.sh</code>
+        </div>
+      </div>
+      <div class="ins-section">
+        <h3>关于</h3>
+        <div class="muted small">
+          Claude Panel v0.3<br>
+          多 Claude Code 会话管理 + 接力<br>
+          UI 参考 Codex 设计语言<br>
+          数据保存于 ~/.claude-panel/<br>
+          快照存于 ~/.claude/state/&lt;md5(cwd)&gt;/
+        </div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<div class="modal" id="newModal" style="display:none;">
+  <div class="modal-bg" data-close></div>
+  <div class="modal-body">
+    <h2>新建 Claude 会话</h2>
+    <label>
+      <span>会话名称</span>
+      <input type="text" id="newName" placeholder="例如：FreelancerTimer 调试" />
+    </label>
+    <label>
+      <span>工作目录（cwd）</span>
+      <input type="text" id="newCwd" placeholder="例如：~/Desktop/项目（留空 = ~）" />
+    </label>
+    <label>
+      <span>🎯 主目标（可选，每 5 轮自动提醒 claude 防漂移）</span>
+      <input type="text" id="newMainGoal" placeholder="例如：实现并发布 v0.5 思维镜融合" />
+    </label>
+    <div class="hint muted small" style="margin-bottom:8px;">快速选 Desktop 子目录：</div>
+    <div class="quick-cwd" id="quickCwd"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" data-close>取消</button>
+      <button class="btn-primary" id="btnCreateConfirm">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- v0.6 全局底部 StatusBar -->
+<div class="status-bar" id="statusBar">
+  <span class="status-item"><span class="status-dot" id="statusDotSync"></span><span id="statusSync">同步中…</span></span>
+  <span class="status-item" id="statusActive">活跃 0</span>
+  <span class="status-item" id="statusBusy">在跑 0</span>
+  <span class="status-item" id="statusArchived">归档 0</span>
+  <span class="status-spacer"></span>
+  <span class="status-item" id="statusCost">$0.00</span>
+  <span class="status-item" id="statusVersion">v0.6 · ⌘K 命令面板</span>
+</div>
+
+<!-- v0.6 ⌘K 命令面板 -->
+<div class="cmdk-modal" id="cmdkModal" style="display:none;">
+  <div class="cmdk-body">
+    <input type="text" id="cmdkInput" class="cmdk-input" placeholder="搜索会话 / 命令…  ↑↓ 选择 · ⏎ 执行 · Esc 关闭" />
+    <div class="cmdk-list" id="cmdkList"></div>
+    <div class="cmdk-footer">
+      <span>⏎ 跳转</span>
+      <span>⌘N 新建</span>
+      <span>⌘D 切主题</span>
+      <span>Esc 关闭</span>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

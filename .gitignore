@@ -1,0 +1,47 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json.bak
+
+# macOS
+.DS_Store
+*.swp
+.AppleDouble
+.LSOverride
+
+# Electron build
+out/
+dist/
+build/
+*.dmg
+*.app
+*.pkg
+
+# Editor
+.vscode/
+.idea/
+*.iml
+
+# Logs / runtime
+*.log
+.RUNNING_LOCK/
+.heartbeat
+iter_logs/
+
+# Loop runtime（这些是 cron 自维护的，不进版本）
+STOP
+ALL_DONE.md
+BUDGET_HIT.md
+RATE_LIMITED.md
+ERROR_LOG.md
+
+# Test screenshots
+/05-v*.png
+/cmdk-*.png
+.playwright-mcp/
+test-results/
+
+# Env
+.env
+.env.local
