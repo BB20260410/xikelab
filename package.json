@@ -1,14 +1,19 @@
 {
   "name": "claude-panel",
-  "version": "0.1.0",
-  "description": "可视化多 Claude 聊天框管理面板，UI 参考 Codex",
-  "main": "server.js",
+  "version": "0.30.0",
+  "productName": "Claude Panel",
+  "description": "可视化多 Claude Code 会话管理面板：多 session / 流式输出 / 内嵌真终端 / 思维镜 5 套安全机制 / Codex 风格设计",
+  "author": "hxx",
+  "main": "electron-main.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "electron": "electron electron-main.js",
-    "start:electron": "electron electron-main.js"
+    "start:electron": "electron electron-main.js",
+    "package": "electron-builder --mac --dir",
+    "dist": "electron-builder --mac",
+    "dist:all": "electron-builder --mac --win --linux"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -17,6 +22,60 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "electron": "^42.1.0"
+    "electron": "^42.1.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.hxx.claude-panel",
+    "productName": "Claude Panel",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
+    ],
+    "directories": {
+      "output": "out"
+    },
+    "files": [
+      "server.js",
+      "electron-main.js",
+      "public/**",
+      "src/**",
+      "package.json",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+    ],
+    "extraMetadata": {
+      "main": "electron-main.js"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null
+    },
+    "dmg": {
+      "title": "Claude Panel v${version}",
+      "writeUpdateInfo": false
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development"
+    },
+    "win": {
+      "target": "nsis"
+    }
   }
 }

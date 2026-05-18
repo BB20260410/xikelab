@@ -922,13 +922,31 @@ async function send() {
   const input = $('#chatInput');
   const val = input.value.trim();
   if (!val || state.activeBusy || !state.activeId) return;
+  const savedVal = val;
   input.value = '';
   try {
-    await api(`/api/sessions/${state.activeId}/messages`, {
+    const r = await api(`/api/sessions/${state.activeId}/messages`, {
       method: 'POST',
       body: JSON.stringify({ text: val }),
     });
+    // v0.31 真测 P2.2 fix: server 可能返回 ok:false（busy / loop_guard_break）
+    if (r && r.ok === false) {
+      input.value = savedVal; // 回填，让用户能修改
+      if (r.error === 'busy') {
+        toast(r.message || '上一条还在处理，等完成或点 ⏸', 'warn', 4000);
+      } else if (r.error === 'loop_guard_break') {
+        const rsn = r.reason || {};
+        let label = rsn.type;
+        if (rsn.type === 'repeated_instruction') label = `连续 ${rsn.count} 次相同指令被熔断`;
+        else if (rsn.type === 'steps_exceeded') label = `任务步数超 ${rsn.max}`;
+        else if (rsn.type === 'cost_surge') label = `5min 成本 $${rsn.usdInWindow} 超阈值`;
+        toast('🔁 LoopGuard 熔断：' + label, 'error', 5000);
+      } else {
+        toast('发送被拒：' + (r.message || r.error), 'error', 4000);
+      }
+    }
   } catch (e) {
+    input.value = savedVal;
     appendMessage({ role: 'tool_use', content: `❌ 发送失败: ${e.message}`, ts: new Date().toISOString() });
   }
 }

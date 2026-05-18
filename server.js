@@ -180,7 +180,11 @@ function broadcastSession(session, msg) {
 }
 
 function sendMessageToClaude(session, userText) {
-  if (session.busy) return { ok: false, error: 'busy' };
+  if (session.busy) return {
+    ok: false,
+    error: 'busy',
+    message: '上一条消息 claude 还在处理。等流式输出完成，或点 ⏸ 中断按钮（双击强制释放）后再发。',
+  };
 
   // ===== LoopGuard 前置卫兵 =====
   const guard = ensureGuard(session);
@@ -584,6 +588,17 @@ app.get('/api/sessions/:id', (req, res) => {
     createdAt: s.createdAt, busy: s.busy,
     messages: s.messages,
     claudeSessionId: s.claudeSessionId,
+    // v0.31 真测 P2.3 fix: 加全字段返回
+    mainGoal: s.mainGoal || null,
+    runState: s.runState || 'idle',
+    guardLevel: s.guardLevel || 'standard',
+    model: s.model || null,
+    totalUSD: s.costTracker ? s.costTracker.totalUSD() : 0,
+    chainDepth: s.chainDepth || 0,
+    parentSessionId: s.parentSessionId || null,
+    archived: !!s.archived,
+    archivedAt: s.archivedAt || null,
+    handoffPrimed: !!s.handoffPrimed,
   });
 });
 
@@ -594,8 +609,8 @@ app.post('/api/sessions/:id/messages', (req, res) => {
   const text = req.body?.text;
   if (!text || !text.trim()) return res.status(400).json({ error: 'empty text' });
   const r = sendMessageToClaude(s, text.trim());
-  if (!r.ok) return res.status(409).json(r);
-  res.json({ ok: true });
+  // v0.31 真测 P2.2 fix: busy / loop_guard 不算 HTTP error，200 + ok=false 让前端能正常解析
+  res.json(r);
 });
 
 // 关闭 session
@@ -1137,6 +1152,16 @@ app.post('/api/sessions/:id/handoff', (req, res) => {
     usage: { inputTokens: 0, outputTokens: 0 },
     parentSessionId: s.id,
     chainDepth,
+    // v0.31 fix: 补全字段，让 newSession 跟普通 session 字段一致
+    mainGoal: s.mainGoal || null, // 继承父 session 主目标
+    runState: 'idle',
+    guardLevel: s.guardLevel || 'standard',
+    model: null,
+    dangerHistory: [],
+    loopGuardHistory: [],
+    archived: false,
+    archivedAt: null,
+    handoffPrimed: false,
   };
   sessions.set(newId, newSession);
   debouncedSave();
