@@ -17,6 +17,10 @@ import { DangerousPatternDetector } from './src/safety/DangerousPatternDetector.
 import { focusChainHeader, buildDoneSummaries } from './src/planner/FocusChain.js';
 import { AgentStateMachine } from './src/state/AgentStateMachine.js';
 import { CostTracker, estimateUsdFromUsage } from './src/cost/CostTracker.js';
+import { MiniMaxAdapter } from './src/watcher/MiniMaxAdapter.js';
+import { OllamaAdapter } from './src/watcher/OllamaAdapter.js';
+import { loadWatcherConfig, saveWatcherConfig, maskedConfig } from './src/watcher/WatcherConfig.js';
+import { WatcherDispatcher } from './src/watcher/WatcherDispatcher.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLAUDE_BIN = process.env.CLAUDE_BIN || '/Users/hxx/.npm-global/bin/claude';
@@ -72,6 +76,9 @@ function saveData() {
       totalUSD: s.costTracker ? s.costTracker.totalUSD() : 0,
       dangerHistory: (s.dangerHistory || []).slice(-50),
       loopGuardHistory: (s.loopGuardHistory || []).slice(-50),
+      // v0.36 真测 P1 fix: 补 watcher 字段持久化
+      watcherEnabled: !!s.watcherEnabled,
+      watcherHistory: (s.watcherHistory || []).slice(-50),
     }));
     writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   } catch (e) {
@@ -103,6 +110,9 @@ function loadData() {
         model: s.model || null,
         dangerHistory: s.dangerHistory || [],
         loopGuardHistory: s.loopGuardHistory || [],
+        // v0.36 真测 P1 fix: load watcher 字段
+        watcherEnabled: !!s.watcherEnabled,
+        watcherHistory: s.watcherHistory || [],
       });
     }
     console.log(`📂 恢复 ${sessions.size} 个 session`);
@@ -446,11 +456,23 @@ function sendMessageToClaude(session, userText) {
     broadcastSession(session, { type: 'stderr', data: d.toString() });
   });
 
-  child.on('exit', (code) => {
+  child.on('exit', async (code) => {
     session.busy = false;
     session.child = null;
     if (primedThisTurn) session.handoffPrimed = true;
     broadcastSession(session, { type: 'busy', busy: false, exitCode: code });
+    // v0.34 Watcher: turn 结束（exit code=0）触发 dispatcher
+    if (code === 0 && watcherDispatcher && session.watcherEnabled) {
+      try {
+        const r = await watcherDispatcher.onResultEvent(session, { is_error: false });
+        // 自动模式 + verdict.continue + 安全过 → 自动把 next_action.prompt 发回 claude
+        if (r?.autoExecute && r.prompt) {
+          setTimeout(() => sendMessageToClaude(session, r.prompt), 1000);
+        }
+      } catch (e) {
+        console.warn('watcher dispatch error:', e.message);
+      }
+    }
   });
 
   child.on('error', (e) => {
@@ -468,6 +490,86 @@ function sendMessageToClaude(session, userText) {
 
   return { ok: true };
 }
+
+// ============ v0.32 Watcher 监视者接口（多 LLM 监督 Claude 任务）============
+let watcherAdapter = null;
+let watcherConfig = loadWatcherConfig();
+
+let watcherDispatcher = null;
+
+function rebuildAdapter() {
+  watcherAdapter = null;
+  if (!watcherConfig.enabled) return;
+  const provider = watcherConfig.provider;
+  // ollama 本地不需要 apiKey
+  if (provider === 'ollama') {
+    watcherAdapter = new OllamaAdapter({
+      apiKey: watcherConfig.apiKey || 'ollama',
+      model: watcherConfig.model || undefined,
+      baseUrl: watcherConfig.baseUrl || undefined,
+    });
+    return;
+  }
+  if (!watcherConfig.apiKey) return; // 其他 provider 都需要 key
+  if (provider === 'minimax') {
+    watcherAdapter = new MiniMaxAdapter({
+      apiKey: watcherConfig.apiKey,
+      model: watcherConfig.model || undefined,
+      baseUrl: watcherConfig.baseUrl || undefined,
+    });
+  }
+  // 未来：gemini / openai / custom
+}
+function rebuildDispatcher() {
+  if (!watcherAdapter) { watcherDispatcher = null; return; }
+  watcherDispatcher = new WatcherDispatcher({
+    adapter: watcherAdapter,
+    config: watcherConfig,
+    broadcastFn: (session, msg) => broadcastSession(session, msg),
+    dangerDetector: sharedDetector,
+  });
+}
+rebuildAdapter();
+rebuildDispatcher();
+
+app.get('/api/watcher/config', (req, res) => {
+  res.json({ ok: true, config: maskedConfig(watcherConfig) });
+});
+
+app.put('/api/watcher/config', (req, res) => {
+  const incoming = req.body || {};
+  // 如果 apiKey 是脱敏后的（含 ...），保留原值不覆盖
+  if (typeof incoming.apiKey === 'string' && incoming.apiKey.includes('...')) {
+    delete incoming.apiKey;
+  }
+  watcherConfig = { ...watcherConfig, ...incoming };
+  const r = saveWatcherConfig(watcherConfig);
+  if (!r.ok) return res.status(500).json({ error: r.error });
+  rebuildAdapter();
+  rebuildDispatcher();
+  res.json({ ok: true, config: maskedConfig(watcherConfig), adapterActive: !!watcherAdapter });
+});
+
+// 测试 adapter 连通性（dry-run）
+app.post('/api/watcher/test', async (req, res) => {
+  if (!watcherAdapter) return res.json({ ok: false, error: '监视者未启用或未配置 API key' });
+  try {
+    const verdict = await watcherAdapter.judge({
+      id: 'test',
+      name: '连通性测试',
+      cwd: '/tmp',
+      mainGoal: '测试 watcher 是否可达',
+      messages: [
+        { role: 'user', content: '请帮我写一个 hello world Python 脚本', ts: new Date().toISOString() },
+        { role: 'assistant', content: '好的：\n```python\nprint("Hello, World!")\n```\n已完成。', ts: new Date().toISOString() },
+      ],
+      runState: 'completed',
+    });
+    res.json({ ok: true, verdict });
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
+});
 
 // v0.30 fix: 动态版本号端点（前端 brand-subtitle 显示用）
 app.get('/api/version', (req, res) => {
@@ -554,6 +656,7 @@ app.get('/api/sessions', (req, res) => {
       runState: s.runState || 'idle',
       model: s.model,
       totalUSD: s.costTracker ? s.costTracker.totalUSD() : 0,
+      watcherEnabled: !!s.watcherEnabled,
     }));
   res.json(list);
 });
@@ -575,8 +678,13 @@ app.patch('/api/sessions/:id', (req, res) => {
   if (typeof req.body?.guardLevel === 'string' && ['strict', 'standard', 'loose'].includes(req.body.guardLevel)) {
     s.guardLevel = req.body.guardLevel;
   }
-  debouncedSave();
-  res.json({ ok: true, archived: !!s.archived, name: s.name, mainGoal: s.mainGoal, guardLevel: s.guardLevel });
+  // v0.34 Watcher per-session toggle
+  if (typeof req.body?.watcherEnabled === 'boolean') {
+    s.watcherEnabled = req.body.watcherEnabled;
+  }
+  // v0.36 真测 P1 fix: PATCH 立即 save（不 debounce 避免 kill 时丢数据）
+  saveData();
+  res.json({ ok: true, archived: !!s.archived, name: s.name, mainGoal: s.mainGoal, guardLevel: s.guardLevel, watcherEnabled: !!s.watcherEnabled });
 });
 
 // 拿 session 详情（含历史）
@@ -599,6 +707,8 @@ app.get('/api/sessions/:id', (req, res) => {
     archived: !!s.archived,
     archivedAt: s.archivedAt || null,
     handoffPrimed: !!s.handoffPrimed,
+    watcherEnabled: !!s.watcherEnabled,
+    watcherHistory: (s.watcherHistory || []).slice(-20),
   });
 });
 
@@ -1353,9 +1463,16 @@ server.listen(PORT, () => {
   console.log(`   Using claude bin: ${CLAUDE_BIN}`);
 });
 
-process.on('SIGINT', () => {
+function gracefulShutdown(signal) {
+  console.log(`收到 ${signal}，force save data + 关 child...`);
+  try { saveData(); } catch (e) { console.error('save fail:', e.message); }
   for (const s of sessions.values()) {
     if (s.child) try { s.child.kill(); } catch {}
   }
+  for (const [, t] of terminals) {
+    try { t.term.kill(); } catch {}
+  }
   process.exit(0);
-});
+}
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

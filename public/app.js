@@ -641,6 +641,8 @@ async function selectSession(id) {
   refreshSnapshot();
   refreshCtx();
   startSnapshotPolling();
+  updateWatcherToggleUI();
+  $('#watcherVerdictBanner').style.display = 'none'; // 切 session 关闭旧 verdict
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   state.ws = new WebSocket(`${proto}://${location.host}/ws/${id}`);
@@ -691,6 +693,16 @@ async function selectSession(id) {
         maybeRefreshSafetyIfOpen();
       } else if (msg.type === 'focus_chain_injected') {
         showFocusChainBanner(msg);
+      } else if (msg.type === 'watcher_judging') {
+        toast(`👁️ ${msg.provider} 监视者分析中…`, 'info', 2500);
+      } else if (msg.type === 'watcher_verdict') {
+        showWatcherVerdict(msg);
+      } else if (msg.type === 'watcher_skipped') {
+        toast(`👁️ 监视者跳过：${msg.reason}（${msg.limit || msg.max || ''}）`, 'warn', 3000);
+      } else if (msg.type === 'watcher_error') {
+        toast('👁️ 监视者出错：' + msg.error, 'error', 4000);
+      } else if (msg.type === 'watcher_auto_executing') {
+        toast(`🤖 监视者自动发送：${msg.prompt.slice(0, 60)}…（第 ${msg.autoPromptCount} 次）`, 'info', 4000);
       } else if (msg.type === 'partial_start') {
         handlePartialStart(msg);
       } else if (msg.type === 'partial_delta') {
@@ -872,6 +884,103 @@ function showFocusChainBanner(msg) {
 }
 
 $('#btnDangerDismiss')?.addEventListener('click', () => $('#dangerBanner').style.display = 'none');
+
+// ─── v0.35 Watcher 监视者 UI ─────
+let _lastVerdictPrompt = null;
+
+function showWatcherVerdict(msg) {
+  const banner = $('#watcherVerdictBanner');
+  const verdict = msg.verdict || {};
+  const statusMap = {
+    completed: { icon: '✅', label: '已完成', color: 'verdict-completed' },
+    partial: { icon: '🟡', label: '部分完成', color: 'verdict-partial' },
+    stuck: { icon: '⚠️', label: '卡住了', color: 'verdict-stuck' },
+    need_user: { icon: '🙋', label: '需要你介入', color: 'verdict-need-user' },
+    failed: { icon: '❌', label: '失败', color: 'verdict-failed' },
+    drifted: { icon: '🌀', label: '偏离主目标', color: 'verdict-drifted' },
+  };
+  const meta = statusMap[verdict.status] || statusMap.partial;
+  $('#watcherVerdictIcon').textContent = meta.icon;
+  $('#watcherVerdictStatus').textContent = meta.label;
+  $('#watcherVerdictConf').textContent = `置信 ${(verdict.confidence * 100).toFixed(0)}%`;
+  $('#watcherVerdictProvider').textContent = msg.provider || '';
+  $('#watcherVerdictReasoning').textContent = verdict.reasoning || '';
+  banner.className = 'watcher-verdict-banner ' + meta.color;
+  if (verdict.drift_detected) banner.classList.add('verdict-drift');
+
+  const promptWrap = $('#watcherVerdictPromptWrap');
+  const next = verdict.next_action || {};
+  if (next.prompt && (next.type === 'continue' || next.type === 'retry_with_hint')) {
+    $('#watcherVerdictPrompt').textContent = next.prompt;
+    if (next.danger_level === 'needs_review') {
+      $('#watcherVerdictPrompt').classList.add('verdict-prompt-danger');
+    } else {
+      $('#watcherVerdictPrompt').classList.remove('verdict-prompt-danger');
+    }
+    _lastVerdictPrompt = next.prompt;
+    promptWrap.style.display = '';
+  } else {
+    promptWrap.style.display = 'none';
+    _lastVerdictPrompt = null;
+  }
+  banner.style.display = '';
+}
+
+$('#btnWatcherDismiss')?.addEventListener('click', () => {
+  $('#watcherVerdictBanner').style.display = 'none';
+  _lastVerdictPrompt = null;
+});
+$('#btnWatcherReject')?.addEventListener('click', () => {
+  $('#watcherVerdictBanner').style.display = 'none';
+  _lastVerdictPrompt = null;
+  toast('已拒绝监视者建议', 'info', 1500);
+});
+$('#btnWatcherAccept')?.addEventListener('click', async () => {
+  if (!_lastVerdictPrompt || !state.activeId) return;
+  try {
+    const r = await api(`/api/sessions/${state.activeId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ text: _lastVerdictPrompt }),
+    });
+    if (r && r.ok === false) {
+      toast('发送失败：' + (r.message || r.error), 'error');
+    } else {
+      $('#watcherVerdictBanner').style.display = 'none';
+      _lastVerdictPrompt = null;
+      toast('已接受并发送', 'success', 2000);
+    }
+  } catch (e) {
+    toast('发送失败：' + e.message, 'error');
+  }
+});
+
+// 👁️ 监视者 toggle 按钮
+$('#btnWatcherToggle')?.addEventListener('click', async () => {
+  if (!state.activeId) return;
+  const cur = state.sessions.find(s => s.id === state.activeId);
+  const next = !(cur?.watcherEnabled);
+  try {
+    await api(`/api/sessions/${state.activeId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ watcherEnabled: next }),
+    });
+    toast(next ? '👁️ 监视者已启用（claude turn 完成时分析）' : '监视者已关闭', next ? 'success' : 'info', 2500);
+    await listSessions();
+    updateWatcherToggleUI();
+  } catch (e) {
+    toast('切换失败: ' + e.message, 'error');
+  }
+});
+
+function updateWatcherToggleUI() {
+  const btn = $('#btnWatcherToggle');
+  if (!btn) return;
+  const cur = state.sessions.find(s => s.id === state.activeId);
+  const on = !!cur?.watcherEnabled;
+  btn.textContent = on ? '👁️ 监视中' : '👁️ 监视';
+  btn.classList.toggle('cxbtn-primary', on);
+  btn.classList.toggle('cxbtn-secondary', !on);
+}
 $('#btnLoopGuardDismiss')?.addEventListener('click', () => $('#loopGuardBanner').style.display = 'none');
 
 function updateBusyUI() {
@@ -1243,12 +1352,122 @@ async function refreshSafety() {
       }
       html += '</div>';
     }
+    // v0.37 watcher 历史 + 配置段
+    html += await renderWatcherSection();
+
     body.innerHTML = html;
+    attachWatcherSectionHandlers();
   } catch (e) {
     body.innerHTML = `<div class="muted small" style="padding:8px;color:#c00;">${escapeHtml(e.message)}</div>`;
   }
 }
 $('#btnSafetyRefresh')?.addEventListener('click', refreshSafety);
+
+// v0.37 watcher 配置 + 历史
+async function renderWatcherSection() {
+  let cfg = null;
+  let history = [];
+  try {
+    const r = await api('/api/watcher/config');
+    cfg = r.config;
+    if (state.activeId) {
+      const sess = await api(`/api/sessions/${state.activeId}`);
+      history = sess.watcherHistory || [];
+    }
+  } catch (e) {
+    return `<h3 class="safety-sec-h">👁️ 监视者</h3><div class="muted small">加载失败: ${escapeHtml(e.message)}</div>`;
+  }
+  let html = '<h3 class="safety-sec-h">👁️ 监视者（其他 LLM 监督 Claude）</h3>';
+
+  // 配置段
+  html += `<div class="watcher-config-box">
+    <div class="watcher-cfg-row">
+      <label>启用</label>
+      <input type="checkbox" id="cfgWatcherEnabled" ${cfg.enabled ? 'checked' : ''} />
+      <label style="margin-left:12px;">自动模式</label>
+      <input type="checkbox" id="cfgWatcherAuto" ${cfg.autoMode ? 'checked' : ''} title="开启后 verdict 通过安全检查就自动发回 claude（默认半自动需点接受）" />
+    </div>
+    <div class="watcher-cfg-row">
+      <label>Provider</label>
+      <select id="cfgWatcherProvider">
+        <option value="ollama" ${cfg.provider==='ollama'?'selected':''}>Ollama（本地，零成本）</option>
+        <option value="minimax" ${cfg.provider==='minimax'?'selected':''}>MiniMax（需 chat plan）</option>
+      </select>
+    </div>
+    <div class="watcher-cfg-row">
+      <label>Model</label>
+      <input type="text" id="cfgWatcherModel" value="${escapeHtml(cfg.model || '')}" placeholder="gemma3:4b / qwen2.5:7b / abab6.5s-chat" />
+    </div>
+    <div class="watcher-cfg-row">
+      <label>API Key</label>
+      <input type="password" id="cfgWatcherKey" value="${escapeHtml(cfg.apiKey || '')}" placeholder="Ollama 留 'ollama' 即可" />
+    </div>
+    <div class="watcher-cfg-row">
+      <label>Base URL</label>
+      <input type="text" id="cfgWatcherBaseUrl" value="${escapeHtml(cfg.baseUrl || '')}" placeholder="留空走 provider 默认" />
+    </div>
+    <div class="watcher-cfg-actions">
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnWatcherTest">测试连通</button>
+      <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnWatcherSave">保存</button>
+    </div>
+  </div>`;
+
+  // 历史段
+  if (history.length === 0) {
+    html += '<div class="muted small" style="padding:8px;">本 session 暂无监视者历史</div>';
+  } else {
+    html += `<div class="watcher-history-list">`;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      const v = h.verdict || {};
+      const time = new Date(h.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      html += `<div class="watcher-hist-item watcher-status-${v.status}">
+        <div class="watcher-hist-row1">
+          <span class="watcher-hist-status">${escapeHtml(v.status)}</span>
+          <span class="watcher-hist-conf">${(v.confidence*100).toFixed(0)}%</span>
+          <span class="watcher-hist-provider">${escapeHtml(h.provider)}</span>
+          <span class="watcher-hist-time">${time}</span>
+        </div>
+        <div class="watcher-hist-reason">${escapeHtml((v.reasoning || '').slice(0, 200))}</div>
+        ${v.next_action?.prompt ? `<div class="watcher-hist-prompt">→ ${escapeHtml(v.next_action.prompt.slice(0, 120))}</div>` : ''}
+      </div>`;
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+function attachWatcherSectionHandlers() {
+  $('#btnWatcherSave')?.addEventListener('click', async () => {
+    const body = {
+      enabled: $('#cfgWatcherEnabled').checked,
+      autoMode: $('#cfgWatcherAuto').checked,
+      provider: $('#cfgWatcherProvider').value,
+      model: $('#cfgWatcherModel').value.trim(),
+      baseUrl: $('#cfgWatcherBaseUrl').value.trim(),
+    };
+    const keyVal = $('#cfgWatcherKey').value;
+    // 含 "..." 的脱敏值不覆盖原 key
+    if (keyVal && !keyVal.includes('...')) body.apiKey = keyVal;
+    try {
+      const r = await api('/api/watcher/config', { method: 'PUT', body: JSON.stringify(body) });
+      if (r.ok) toast('监视者配置已保存' + (r.adapterActive ? '（adapter active）' : ''), 'success', 3000);
+      else toast('保存失败', 'error');
+    } catch (e) { toast('保存失败: ' + e.message, 'error'); }
+  });
+  $('#btnWatcherTest')?.addEventListener('click', async () => {
+    toast('测试中…', 'info', 1500);
+    try {
+      const r = await api('/api/watcher/test', { method: 'POST' });
+      if (r.ok) {
+        const v = r.verdict;
+        toast(`✅ 测试通过：${v.status} (${(v.confidence*100).toFixed(0)}%) — ${v.reasoning.slice(0,80)}`, 'success', 5000);
+      } else {
+        toast('测试失败: ' + (r.error || '').slice(0, 200), 'error', 5000);
+      }
+    } catch (e) { toast('测试失败: ' + e.message, 'error', 5000); }
+  });
+}
 
 // 实时增量：WS 收到危险/熔断时如果当前 safety tab 打开就刷新
 function maybeRefreshSafetyIfOpen() {

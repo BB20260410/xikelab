@@ -745,6 +745,186 @@ html.dark .modal-body { background: #2A2826; color: var(--gray-deep); }
   50% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-red) 0%, transparent); }
 }
 
+/* ===== v0.37 Watcher 配置盒 + 历史列表 ===== */
+.watcher-config-box {
+  background: color-mix(in oklab, var(--color-text-foreground) 4%, transparent);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-cx-sm);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.watcher-cfg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+}
+.watcher-cfg-row label {
+  width: 70px;
+  flex-shrink: 0;
+  color: var(--color-text-foreground-secondary);
+}
+.watcher-cfg-row input[type="text"],
+.watcher-cfg-row input[type="password"],
+.watcher-cfg-row select {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  background: var(--bg-inset);
+  color: var(--color-text-foreground);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-xs);
+  outline: none;
+  min-width: 0;
+}
+.watcher-cfg-row input[type="text"]:focus,
+.watcher-cfg-row input[type="password"]:focus,
+.watcher-cfg-row select:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-border-focus) 25%, transparent);
+}
+.watcher-cfg-row input[type="checkbox"] {
+  accent-color: var(--orange);
+}
+.watcher-cfg-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.watcher-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.watcher-hist-item {
+  background: color-mix(in oklab, var(--color-text-foreground) 4%, transparent);
+  border-left: 3px solid var(--color-border-heavy);
+  padding: 6px 9px;
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  font-size: 11px;
+}
+.watcher-status-completed { border-left-color: var(--accent-green); }
+.watcher-status-partial { border-left-color: var(--accent-amber); }
+.watcher-status-stuck { border-left-color: var(--accent-amber); background: color-mix(in oklab, var(--accent-amber) 8%, transparent); }
+.watcher-status-failed { border-left-color: var(--accent-red); }
+.watcher-status-drifted { border-left-color: #7c3aed; }
+.watcher-hist-row1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  margin-bottom: 3px;
+}
+.watcher-hist-status {
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  padding: 0 4px;
+  background: color-mix(in oklab, var(--color-text-foreground) 8%, transparent);
+  border-radius: var(--radius-2xs);
+}
+.watcher-hist-conf { color: var(--color-text-foreground-tertiary); }
+.watcher-hist-provider {
+  color: var(--blue-300);
+  padding: 0 4px;
+  background: color-mix(in oklab, var(--blue-300) 12%, transparent);
+  border-radius: var(--radius-2xs);
+}
+.watcher-hist-time { margin-left: auto; color: var(--color-text-foreground-tertiary); opacity: 0.7; }
+.watcher-hist-reason {
+  font-size: 10.5px;
+  color: var(--color-text-foreground-secondary);
+  line-height: 1.5;
+  word-break: break-word;
+}
+.watcher-hist-prompt {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--orange);
+  padding: 2px 6px;
+  background: color-mix(in oklab, var(--orange) 8%, transparent);
+  border-radius: var(--radius-2xs);
+  word-break: break-word;
+}
+
+/* ===== v0.35 Watcher 监视者 verdict banner ===== */
+.watcher-verdict-banner {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--color-border-light);
+  background: color-mix(in oklab, var(--accent-blue) 8%, transparent);
+  border-left: 3px solid var(--accent-blue);
+  font-size: 13px;
+  animation: toast-open 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.watcher-verdict-banner.verdict-completed { background: color-mix(in oklab, var(--accent-green) 10%, transparent); border-left-color: var(--accent-green); }
+.watcher-verdict-banner.verdict-partial { background: color-mix(in oklab, var(--accent-amber) 10%, transparent); border-left-color: var(--accent-amber); }
+.watcher-verdict-banner.verdict-stuck { background: color-mix(in oklab, var(--accent-amber) 14%, transparent); border-left-color: var(--accent-amber); }
+.watcher-verdict-banner.verdict-failed { background: color-mix(in oklab, var(--accent-red) 10%, transparent); border-left-color: var(--accent-red); }
+.watcher-verdict-banner.verdict-drifted,
+.watcher-verdict-banner.verdict-drift { background: color-mix(in oklab, #7c3aed 12%, transparent); border-left-color: #7c3aed; }
+
+.watcher-verdict-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.watcher-verdict-status { font-weight: var(--font-weight-semibold); }
+.watcher-verdict-conf { color: var(--color-text-foreground-tertiary); }
+.watcher-verdict-provider {
+  margin-left: auto;
+  padding: 1px 6px;
+  background: color-mix(in oklab, var(--color-text-foreground) 8%, transparent);
+  border-radius: var(--radius-2xs);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.watcher-verdict-reasoning {
+  font-size: 12px;
+  color: var(--color-text-foreground-secondary);
+  line-height: 1.55;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+.watcher-verdict-prompt-wrap {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border-light);
+}
+.watcher-verdict-prompt-label {
+  font-size: 11px;
+  color: var(--color-text-foreground-tertiary);
+  margin-bottom: 4px;
+  font-weight: var(--font-weight-medium);
+}
+.watcher-verdict-prompt {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 8px 12px;
+  background: color-mix(in oklab, var(--color-text-foreground) 5%, transparent);
+  border-radius: var(--radius-cx-sm);
+  color: var(--color-text-foreground);
+  word-break: break-word;
+  white-space: pre-wrap;
+  margin-bottom: 8px;
+}
+.watcher-verdict-prompt.verdict-prompt-danger {
+  background: color-mix(in oklab, var(--accent-red) 12%, transparent);
+  border-left: 3px solid var(--accent-red);
+}
+.watcher-verdict-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* ===== v0.21 stderr 流式聚合 + 折叠 ===== */
 .msg-stderr {
   margin-bottom: 16px;

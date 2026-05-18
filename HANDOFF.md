@@ -6,7 +6,19 @@
 
 ## 0. 一句话
 
-**多 Claude Code 会话的可视化管理面板**：Web GUI（Electron 可包成原生 app），后端 Node.js 用 `claude --print --input-format stream-json` spawn 真实 claude 子进程，前端 3 栏布局参考 Codex 设计，配色用 Anthropic 品牌规范，附带 8K 桌面壁纸（与 panel 视觉一致）。**v0.30** 自查 bug 修复轮（不走任务池）：(1) brand-subtitle 写死 "v0.6" → 后端新端点 `GET /api/version` 从 HANDOFF.md 顶部正则解析 + package.json fallback，前端启动时拉一次写到 #brandSubtitle，从此版本号永远跟 HANDOFF 同步；(2) 流式 div 兜底 finalize：busy=false 时遍历 state.streamingDivs，对所有未 finalize 的 div 强制 finalize（防 partial_stop 事件丢失导致光标 ▍ 卡死）+ 清 Map；(3) selectSession 切换的 streaming state 清理已在 v0.15 完成（确认）。
+**多 Claude Code 会话的可视化管理面板**：Web GUI（Electron 可包成原生 app），后端 Node.js 用 `claude --print --input-format stream-json` spawn 真实 claude 子进程，前端 3 栏布局参考 Codex 设计，配色用 Anthropic 品牌规范，附带 8K 桌面壁纸（与 panel 视觉一致）。**v0.37** Watcher Phase 1.6 — 历史 review + Settings UI（**Watcher Phase 1 完整结束**）✅：🛑 安全 tab 底部加 👁️ 监视者段：**配置盒**（启用/自动模式 toggle + provider 选择 + model/apiKey/baseUrl 输入 + 测试连通 / 保存按钮）+ **历史时间线**（每条 verdict 含 status pill + confidence + provider chip + 时间戳 + reasoning 200 字 + next_action 120 字 prompt，按 status 5 色板分边条）。前端按钮：测试连通直接调 `/api/watcher/test`，保存调 PUT `/api/watcher/config`（脱敏 apiKey 不覆盖原值）。
+
+**v0.36** Watcher 真测整链路 + P1 持久化 fix ✅：派 sub-agent 真测 claude turn 触发 Ollama gemma3:4b judge 整链路：**3.4 秒延迟**，verdict.status=completed, confidence=0.95, reasoning 中文流畅, next_action 合理。发现 2 个 P1 bug：(1) `saveData()` 漏 `watcherEnabled` + `watcherHistory` 字段，重启丢；(2) PATCH 用 debouncedSave 500ms，kill server 时未触发 save。修复：saveData/loadData 补字段；PATCH 改 saveData() 立即写；新 `gracefulShutdown(signal)` SIGINT/SIGTERM 触发 force save + kill children + kill terminals。重启验证：watcherEnabled=True 真持久化。
+
+**v0.35** Watcher Phase 1.4 — 前端 UI（**Phase 1 全部完成**）✅：chat-header 加 `👁️ 监视` toggle 按钮（点击 PATCH per-session watcherEnabled）；主区底部 verdict banner（按 status 6 色板：completed 绿/partial 琥珀/stuck 黄/failed 红/drifted 紫）显示监视者结论 + reasoning + 建议下一步 prompt；半自动审核流：[✕拒绝] / [✓接受并发送]；监视者 5 WS 事件全部处理（watcher_judging toast 提示分析中 / watcher_verdict 弹 banner / watcher_skipped 提示限流原因 / watcher_error / watcher_auto_executing 自动模式 toast）；danger_level=needs_review 时 prompt 加红边视觉警告。
+
+**v0.34** Watcher Phase 1.3 — Dispatcher + 触发器 ✅：`src/watcher/WatcherDispatcher.js` 7 条触发条件链（enabled / watcherEnabled / result success / min interval 60s 防抖 / per-session rate limit / global rate limit / maxAutoPromptsPerSession）+ DangerDetector 扫 next_action.prompt + 自动模式 verdict.continue + confidence≥0.6 + 安全过 → 自动 sendMessageToClaude。server.js child.on('exit') async + await dispatcher.onResultEvent → autoExecute 时 1s 后真发 prompt 回 claude session。PATCH /api/sessions/:id 加 `watcherEnabled` per-session toggle。WS 新事件：watcher_judging / watcher_verdict / watcher_skipped / watcher_error / watcher_auto_executing。
+
+**v0.33** Watcher Phase 1.2 — Ollama Adapter 真测连通 ✅：用户 MiniMax 账号 plan 无 chat completion 权限（仅 t2a/music），自主切换到本地 Ollama（用户已装 + gemma3:4b 3.3GB / gemma4:31b 19.9GB）。加 `src/watcher/OllamaAdapter.js`（OpenAI 兼容协议 + JSON mode + 60s timeout 适配本地慢推理）；server.js rebuildAdapter 接 ollama 分支（不需要 apiKey）；watcher.json 配 `provider=ollama, model=gemma3:4b, baseUrl=http://localhost:11434`。POST /api/watcher/test **真调 ollama 返回完整结构化 verdict**：status=completed, confidence=0.95, reasoning 中文流畅, next_action 可执行。**零成本 + 任务不外传 + 跨模型独立验证 + Anthropic 风控零触发**——比用 MiniMax 更优。
+
+**v0.32** Watcher Phase 1.1 — 多 LLM 监督 Claude 框架（用户 2026-05-18 需求）：建 watcher 基础设施。`src/watcher/WatcherAdapter.js` 抽象基类（含 buildJudgePrompt + validateVerdict + JSON schema 校验）；`src/watcher/MiniMaxAdapter.js` 实现 MiniMax chat completion API（OpenAI 兼容协议 + JSON mode + AbortController timeout）；`src/watcher/WatcherConfig.js` 读写 `~/.claude-panel/watcher.json`（含 enabled / autoMode / provider / apiKey / model / baseUrl / rateLimit / triggers / safety 完整字段）+ 默认全关 + apiKey 600 权限 + 脱敏返回前端。server.js 3 个端点：`GET /api/watcher/config`（脱敏）/ `PUT /api/watcher/config`（含"...含..."的 apiKey 不覆盖）/ `POST /api/watcher/test`（dry-run 调 adapter.judge 验证连通）。**Phase 1 第 1/7 步：基础设施可用，未集成主流程**。
+
+**v0.30** 自查 bug 修复轮（不走任务池）：(1) brand-subtitle 写死 "v0.6" → 后端新端点 `GET /api/version` 从 HANDOFF.md 顶部正则解析 + package.json fallback，前端启动时拉一次写到 #brandSubtitle，从此版本号永远跟 HANDOFF 同步；(2) 流式 div 兜底 finalize：busy=false 时遍历 state.streamingDivs，对所有未 finalize 的 div 强制 finalize（防 partial_stop 事件丢失导致光标 ▍ 卡死）+ 清 Map；(3) selectSession 切换的 streaming state 清理已在 v0.15 完成（确认）。
 
 **v0.29** 数据接出·步骤 3（任务池 4.3）：session 状态 timeline。AgentStateMachine 已有 transitions 数组（每个 from/to/reason/at），接进 `/api/sessions/:id/safety-history` 端点返回 stateHistory + currentState。前端 refreshSafety 加 "📈 状态时序" 段，最近 20 次转移倒序展示：时间戳 + state-pill(from) → state-pill(to) + reason。state-pill 5 种状态各自配色（idle/completed 绿 / thinking 琥珀 / running 橙 / error 红）。**20 cycle 上限达到，cron 自动停止**。
 
@@ -142,6 +154,67 @@
 - [x] 长任务实测（21 + 14 msgs 完成项目分析 + 方案 B 维护循环，真 git commit `1fb1aed`）
 - [x] 抗锯齿放大验证图（4 个采样区域 4x 上采样对比）
 - [x] **07 Continuum 集成**（v0.3，2026-05-17）：3 个后端端点（snapshot/handoff-meta/handoff）+ 右侧"事实"tab + chain badge + 🔄 接力按钮 + system 角色 banner 样式
+- [x] **v0.37 Watcher Phase 1.6 历史 review + Settings UI（Phase 1 完整结束）**（2026-05-18 cycle_26）：
+  - refreshSafety 末尾加 `renderWatcherSection()` async：fetch /api/watcher/config + 当前 session.watcherHistory
+  - 配置盒 5 行表单（enabled/autoMode/provider/model/apiKey/baseUrl）+ 测试连通 + 保存按钮
+  - apiKey input type=password + 脱敏值（含 "..."）不覆盖原值
+  - 历史列表按 status 5 色边条（completed 绿/partial 琥珀/stuck 琥珀深/failed 红/drifted 紫）
+  - 每条 verdict 显示 status pill + confidence + provider chip + 时间戳 + reasoning + next_action prompt 摘要
+  - attachWatcherSectionHandlers：保存调 PUT config，测试连通调 POST /test，toast 反馈
+  - CSS .watcher-config-box + .watcher-cfg-row + .watcher-history-list + .watcher-hist-item 完整样式
+  - 自检：server 起 + API 响应正常 + SIGTERM gracefulShutdown 工作
+
+- [x] **v0.36 Watcher 真测 + P1 持久化 fix**（2026-05-18 cycle_25.5）：
+  - sub-agent 真测：claude → exit 0 → dispatcher → Ollama gemma3:4b → broadcast verdict 全链路 3.4s 通过 ✅
+  - Bug P1.1 saveData/loadData 漏 watcherEnabled + watcherHistory 字段 → 补全
+  - Bug P1.2 PATCH debouncedSave 在 kill 时丢数据 → 改 saveData() 立即写
+  - 新 gracefulShutdown(signal)：SIGINT + SIGTERM 触发 force save + kill children + kill terminals
+  - GET /api/sessions/:id 加 watcherEnabled + watcherHistory 字段返前端
+  - GET /api/sessions 列表加 watcherEnabled
+  - 自检 2 轮通过：PATCH → data.json 真写 ✅ → 重启 server → watcherEnabled=True 持久化 ✅
+
+- [x] **v0.35 Watcher Phase 1.4 前端 UI（Phase 1 完成）**（2026-05-18 cycle_25）：
+  - index.html chat-header 加 `#btnWatcherToggle` 按钮（cxbtn-sm）+ verdict banner（含 head/reasoning/prompt/actions 4 块）
+  - app.js 5 个 WS 事件处理 + showWatcherVerdict 按 status 6 色板渲染（icon + label + confidence% + provider chip）
+  - 半自动流程：[✕拒绝] 仅关 banner；[✓接受并发送] 调 POST /messages 真发回 claude
+  - per-session 切 watcherEnabled + updateWatcherToggleUI 切按钮样式（primary 启用/secondary 关闭）
+  - selectSession 切换时自动关旧 verdict banner（防跨 session 串扰）
+  - CSS verdict banner 6 状态色（color-mix oklab）+ danger prompt 红边 + cubic-bezier 弹入动画
+  - 自检：mock server 起 + API 响应正常（真 verdict 显示要 panel UI 真用时验）
+
+- [x] **v0.34 Watcher Phase 1.3 Dispatcher + 触发器（自检通过）**（2026-05-18 cycle_24）：
+  - `src/watcher/WatcherDispatcher.js`：onResultEvent 7 条触发条件链 + setImmediate 异步 + 直接 await（不阻塞 stream-json）
+  - 防抖：minIntervalSec 60s（同 session 两次 judge 间隔）
+  - rate limit：per-session 10/h + global 60/h 滑窗
+  - 失控保护：maxAutoPromptsPerSession 20（单 session 自动注入上限）
+  - DangerDetector 扫 verdict.next_action.prompt，命中 HIGH+ 标 needs_review 阻自动执行
+  - 自动模式条件：autoMode=true + drift_detected=false + danger_level=safe + type=continue + confidence≥0.6
+  - server.js child.on('exit') 接入 async dispatcher + 自动模式 setTimeout 1s 后 sendMessageToClaude
+  - PATCH /api/sessions/:id 加 watcherEnabled
+  - watcherHistory 字段持久化最近 50 条 verdict
+  - 5 个 WS 新事件：watcher_judging / watcher_verdict / watcher_skipped / watcher_error / watcher_auto_executing
+  - 自检：POST /test 返 verdict ✅ + PATCH watcherEnabled 工作 ✅
+
+- [x] **v0.33 Watcher Phase 1.2 Ollama Adapter（真测通过）**（2026-05-18 cycle_23）：
+  - 切换原因：用户 MiniMax key 在 `~/.config/minimax/.env` 有效但 plan=2061（无 chat completion 权限）
+  - 自主决策切 Ollama 本地（用户已装 /usr/local/bin/ollama + gemma3:4b + gemma4:31b）
+  - 启 `nohup ollama serve` 后台
+  - `src/watcher/OllamaAdapter.js`：OpenAI 兼容协议（/v1/chat/completions）+ JSON mode + 60s timeout
+  - rebuildAdapter ollama 分支不需要 apiKey（local 服务）
+  - 写 `~/.claude-panel/watcher.json` provider=ollama / model=gemma3:4b / baseUrl=http://localhost:11434
+  - 真测 POST /api/watcher/test → ollama 真回 verdict：status=completed, confidence=0.95, reasoning 中文, next_action 可执行 ✅
+  - **优势 vs MiniMax**：零成本 + 任务不外传第三方 + 跨模型独立验证 + Anthropic 风控零触发
+
+- [x] **v0.32 Watcher Phase 1.1 框架 + MiniMax Adapter**（2026-05-18 cycle_22，用户跳序需求）：
+  - `src/watcher/WatcherAdapter.js` 抽象基类：`judge(sessionState)` 接口 + buildJudgePrompt（含主目标 + 最近 30 条 messages，每条截 800 字）+ validateVerdict（schema 校验 + 容错剥 markdown fence）
+  - WatcherVerdict 契约：status (6 类) / confidence / completed_items / remaining_items / next_action {type, prompt, danger_level} / drift_detected / reasoning
+  - `src/watcher/MiniMaxAdapter.js`：MiniMax chat completion v2（OpenAI 兼容协议）+ default base URL `https://api.minimaxi.com/v1` + model `abab6.5s-chat` + JSON mode + 30s timeout + AbortController
+  - `src/watcher/WatcherConfig.js`：`~/.claude-panel/watcher.json` 读写 + 深合并默认 + apiKey 600 权限 + 脱敏 helper
+  - server.js 3 端点：GET config（脱敏）/ PUT config（脱敏 apiKey 不覆盖原值）/ POST test（dry-run adapter.judge）
+  - rebuildAdapter() 在启动时 + 每次 PUT config 后调
+  - 端到端验证：PUT fake key → adapter active → /test 调真 MiniMax → 401 authorized_error（网络层通）
+  - **下次 cycle**：1.2 触发器（result success + 启发式 + 防抖）
+
 - [x] **v0.30 自查 bug 修复轮**（2026-05-18 08:50 cycle_21，用户「查问题修复优化完善」）：
   - 修 #1 brand-subtitle 写死 v0.6 → 新端点 `GET /api/version`（HANDOFF 解析 + package.json fallback）+ 前端启动拉取动态写入
   - 修 #2 流式光标卡死兜底：busy=false 事件触发时遍历 state.streamingDivs，对未 finalize 的 div 强制 renderMarkdown + msg-finalized class + 清 Map（防 partial_stop 丢失导致 ▍ 永远闪）

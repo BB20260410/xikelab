@@ -83,6 +83,7 @@
                   title="中断当前 claude turn (Esc)"
                   aria-label="中断当前 claude 任务"
                   style="display:none;">⏸ 停止</button>
+          <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnWatcherToggle" title="启用/关闭监视者（用其他模型监督 Claude 任务进展）" aria-label="监视者开关">👁️ 监视</button>
           <span class="state-chip" id="stateChip" title="claude 当前运行状态" style="display:none;">idle</span>
           <span class="cost-chip" id="costChip" title="本 session 累计成本（估算）" style="display:none;">
             <span id="costChipText">$0.00</span>
@@ -113,6 +114,25 @@
       </div>
       <div class="alert-banner focus-chain-banner" id="focusChainBanner" style="display:none;">
         🎯 <span id="focusChainBannerText"></span>
+      </div>
+      <!-- v0.35 Watcher 监视者 verdict banner -->
+      <div class="watcher-verdict-banner" id="watcherVerdictBanner" style="display:none;">
+        <div class="watcher-verdict-head">
+          <span id="watcherVerdictIcon">👁️</span>
+          <span class="watcher-verdict-status" id="watcherVerdictStatus">—</span>
+          <span class="watcher-verdict-conf" id="watcherVerdictConf"></span>
+          <span class="watcher-verdict-provider" id="watcherVerdictProvider"></span>
+          <button class="btn-tiny" id="btnWatcherDismiss" style="margin-left:auto;" aria-label="关闭 verdict">✕</button>
+        </div>
+        <div class="watcher-verdict-reasoning" id="watcherVerdictReasoning"></div>
+        <div class="watcher-verdict-prompt-wrap" id="watcherVerdictPromptWrap" style="display:none;">
+          <div class="watcher-verdict-prompt-label">📌 监视者建议下一步：</div>
+          <div class="watcher-verdict-prompt" id="watcherVerdictPrompt"></div>
+          <div class="watcher-verdict-actions">
+            <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnWatcherReject">✕ 拒绝</button>
+            <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnWatcherAccept">✓ 接受并发送</button>
+          </div>
+        </div>
       </div>
       <div class="chat-output" id="chatOutput"></div>
       <div class="chat-input-wrap">

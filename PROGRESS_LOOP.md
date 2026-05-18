@@ -29,3 +29,9 @@ cycle_18 @ 2026-05-17T23:42:39Z | v0.27 | 4.1 inspector 🛑 安全 tab | substa
 cycle_19 @ 2026-05-18T00:11:40Z | v0.28 | 4.2 cost 30min mini sparkline | substantive | files: src/cost/CostTracker.js, server.js, public/index.html, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
 cycle_20 @ 2026-05-18T00:41:46Z | v0.29 | 4.3 状态 timeline + 20 cycle 上限达成 | substantive | files: server.js, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md, BUDGET_HIT.md
 cycle_21 @ 2026-05-18T04:24:39Z | v0.30 | 自查 bug 修复轮（version 动态/流式兜底）| substantive | files: server.js, public/index.html, public/app.js, HANDOFF.md, PROGRESS_LOOP.md
+cycle_22 @ 2026-05-18T07:02:20Z | v0.32 | Watcher Phase 1.1 框架 + MiniMaxAdapter | substantive | files: src/watcher/*.js (3), server.js, HANDOFF.md, PROGRESS_LOOP.md
+cycle_23 @ 2026-05-18T07:15:04Z | v0.33 | Watcher Phase 1.2 Ollama Adapter（真测通过 gemma3:4b 回 verdict）| substantive | files: src/watcher/OllamaAdapter.js, server.js, ~/.claude-panel/watcher.json, HANDOFF.md, PROGRESS_LOOP.md
+cycle_24 @ 2026-05-18T07:20:11Z | v0.34 | Watcher Phase 1.3 Dispatcher + 触发器（7 条触发条件 + 自动模式 + 5 个 WS 事件） | substantive | files: src/watcher/WatcherDispatcher.js, server.js, HANDOFF.md, PROGRESS_LOOP.md
+cycle_25 @ 2026-05-18T07:25:48Z | v0.35 | Watcher Phase 1.4 前端 UI（Phase 1 完成 - 5 个 WS 事件 + verdict banner 6 色板 + 半自动审核）| substantive | files: public/index.html, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_25.5 @ 2026-05-18T07:48:29Z | v0.36 | Watcher 真测整链路（3.4s）+ P1 持久化 fix（gracefulShutdown + 立即 save）| substantive | files: server.js, HANDOFF.md, PROGRESS_LOOP.md
+cycle_26 @ 2026-05-18T07:54:49Z | v0.37 | Watcher Phase 1.6 历史 review + Settings UI（Phase 1 完整结束）| substantive | files: public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
