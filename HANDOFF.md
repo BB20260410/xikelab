@@ -6,7 +6,33 @@
 
 ## 0. 一句话
 
-**多 Claude Code 会话的可视化管理面板**：Web GUI（Electron 可包成原生 app），后端 Node.js 用 `claude --print --input-format stream-json` spawn 真实 claude 子进程，前端 3 栏布局参考 Codex 设计，配色用 Anthropic 品牌规范，附带 8K 桌面壁纸（与 panel 视觉一致）。**v0.17** 真测发现 P0 安全 bug 紧急修复：DangerDetector 之前规则只匹配 `rm -rf /|~|$HOME`，**`rm -rf /Users/xxx` / `rm -rf ~/Desktop` 漏拦**！加 3 条 HIGH 规则补盲区：(1) 任意绝对路径 `/<非 /tmp/var 白名单>` (2) `~/<子路径>` (3) `../` `./`。全部新规则单测通过（critical/high/safe 分级精确）。**真测 v0.13/v0.15 流式 ✅ / v0.16 中断 ✅ / v0.5 Danger 修后 ✅**。
+**多 Claude Code 会话的可视化管理面板**：Web GUI（Electron 可包成原生 app），后端 Node.js 用 `claude --print --input-format stream-json` spawn 真实 claude 子进程，前端 3 栏布局参考 Codex 设计，配色用 Anthropic 品牌规范，附带 8K 桌面壁纸（与 panel 视觉一致）。**v0.30** 自查 bug 修复轮（不走任务池）：(1) brand-subtitle 写死 "v0.6" → 后端新端点 `GET /api/version` 从 HANDOFF.md 顶部正则解析 + package.json fallback，前端启动时拉一次写到 #brandSubtitle，从此版本号永远跟 HANDOFF 同步；(2) 流式 div 兜底 finalize：busy=false 时遍历 state.streamingDivs，对所有未 finalize 的 div 强制 finalize（防 partial_stop 事件丢失导致光标 ▍ 卡死）+ 清 Map；(3) selectSession 切换的 streaming state 清理已在 v0.15 完成（确认）。
+
+**v0.29** 数据接出·步骤 3（任务池 4.3）：session 状态 timeline。AgentStateMachine 已有 transitions 数组（每个 from/to/reason/at），接进 `/api/sessions/:id/safety-history` 端点返回 stateHistory + currentState。前端 refreshSafety 加 "📈 状态时序" 段，最近 20 次转移倒序展示：时间戳 + state-pill(from) → state-pill(to) + reason。state-pill 5 种状态各自配色（idle/completed 绿 / thinking 琥珀 / running 橙 / error 红）。**20 cycle 上限达到，cron 自动停止**。
+
+**v0.28** 数据接出·步骤 2（任务池 4.2）：chat-header cost-chip 旁加 30 分钟 cost mini 折线图（SVG sparkline 60×14，纯前端无库）。CostTracker 加 `seriesByMinute(windowMin)` 按分钟桶聚合 USD（含空桶填 0）；server 新端点 `GET /api/sessions/:id/cost-series?windowMin=30` 返回 {minute, ts, usd} 数组。前端 `refreshCostSpark` 5s 轮询，自动按 max 归一化高度，画 SVG path 闭合 area；色板：常态 Anthropic 橙 + cost-warn 时切红（v0.5 阈值 >$0.5/min）；无数据时隐藏。
+
+**v0.27** 数据接出·步骤 1（任务池 4.1）：inspector 加 "🛑 安全" tab，展示 DangerDetector 拦截/警告历史 + LoopGuard 熔断日志。后端 `session.dangerHistory` / `session.loopGuardHistory` 数组（限长 100，持久化最近 50 到 data.json）；4 个触发点（前置 LoopGuard 重复指令、cost surge、Danger BLOCKED、Danger WARN）都 push 历史。`GET /api/sessions/:id/safety-history` 返回 + guard 当前 snapshot。前端 tab → fetch + 按 severity（critical/high/low/loop）色彩分类卡片 + 时间戳 + 命中规则展示。WS 实时增量：danger/loopguard 事件触发时若 tab 打开则 refresh。
+
+**v0.26** 高阶 markdown 渲染·步骤 3（任务池 3.3，**首阶段 #3 高阶渲染完成**）：tool_use Edit/Write/MultiEdit 显示 unified diff。server.js 加 `naiveDiff` / `formatEditDiff` / `formatMultiEditDiff` / `formatWritePreview` helper，stream-json tool_use 解析时按 c.name 派生 markdown（` ```diff `fence）。前端 marked renderer.code 检测 lang='diff' 时逐行解析（+++/---/@@/+/-/ctx）+ `<span class="diff-line diff-xxx">` 包裹。CSS oklab(绿/红) 半透明背景 + 左边条。MultiEdit 最多展开 10 处 edit + 省略提示，Write 截 2000 字 + 全部 + 着色。
+
+**v0.25** 高阶 markdown 渲染·步骤 2（任务池 3.2）：代码块复制按钮 + 折叠。marked 自定义 renderer.code 输出 `.code-wrap` 包裹 `.code-toolbar`（语言 + 行数 + 折叠 + 复制按钮）+ pre>code，长代码（>12 行）默认折叠。`#chatOutput` 全局 click delegation 处理复制（navigator.clipboard + 视觉反馈 ✓ 1.5s）和折叠 toggle（aria-expanded 同步）。DOMPurify 白名单加 button + type + aria-label。CSS 完整 toolbar/pre 样式 + 左边条 + max-height 600 滚动 + .code-collapsed 折叠态。
+
+**v0.24** 高阶 markdown 渲染·步骤 1（任务池 3.1）：手写 regex（5 行覆盖 5 种语法）替换为 `marked@13` + `DOMPurify@3`（CDN），支持完整 GFM：标题 / 列表 / 嵌套 / 表格 / blockquote / 代码块 / hr / 图片 / 链接 / 行内 code 等。DOMPurify 白名单 18 个标签 + 5 个属性，禁 data-* + 强制 sanitize。CDN 加载失败时 fallback 回老 regex（兜底）。CSS 加完整 markdown 元素样式（color-mix 派生 + cxbtn token）。
+
+**v0.23** panel 内嵌真终端·前端（**7.6 完成**）：xterm.js 5.3.0 + xterm-addon-fit 0.8.0（CDN），顶部 💻 按钮切到 term-area；主区独立 `<div class="term-area">` 含 header + 容器；POST /api/term + WS /ws/term/:id 桥接到 xterm；`onData → ws.send input` / `onResize → ws.send resize`；ResizeObserver 自动 fit；主题色 light/dark 双套（cursor 用 Anthropic 橙）。4 个 action 按钮：＋新建 / 📂 在当前 cwd 开 / ✕ 关闭 / ← 返回 chat。**panel 内能跑 claude / git / vim / 任何 TUI 程序**。
+
+**v0.22** panel 内嵌真终端·后端（用户 2026-05-18 需求 7.6）：原 `node-pty@1.0` 在 macOS arm64 上 `posix_spawnp failed`（作者 v0.1 注释踩过），换 `@homebridge/node-pty-prebuilt-multiarch@0.13`（预编译多 arch）spawn 通过。server.js 加 3 个端点（POST /api/term 创建 / GET /api/term 列表 / DELETE /api/term/:id 关闭）+ WS `/ws/term/:termId` 双向桥接（input → term.write / data → ws.send / resize 支持）。WS upgrade 路由分两条：term 优先匹配，session chat fallback。真测：echo HELLO_PTY 通过 WS 回声成功。
+
+**v0.21** 流式 + 中断·步骤 4（**首阶段 #2 完成**）：stderr 流式聚合 + 折叠。原来每个 stderr chunk 都 push 一条 `tool_use` 消息，长 stderr 输出会刷屏。改成累积到同一个 `.msg-stderr` div（按 turn 聚合），默认折叠（点 ▶/▼ toggle），头部显示 ⚠️ stderr + 累积字节数（B/KB 自动）+ 时间戳，body 用 pre + max-height 400px overflow-y auto。busy=false（turn 结束）时 finalize current div，下一个 turn 起新 div。切 session 清空 stderrCurrentDiv 状态。amber 左边条 + color-mix 背景。
+
+**v0.20** 紧急修「发送按钮卡处理中」bug：3 处修复——(1) server `/interrupt` 端点广播 `busy:false`（之前丢消息时前端不同步）；(2) 新增 `POST /api/sessions/:id/reset-busy` 强制释放（SIGTERM child + busy:false + 广播）；(3) 前端 `listSessions` 4s 轮询同步 activeBusy 跟 server 状态；(4) ⏸ 中断按钮支持**双击强制释放**（child 死透但 busy 卡时的兜底）。toast 提示"不放？双击强制释放"。
+
+**v0.19** Codex 风格 sidebar 按 cwd 自动分组（用户 2026-05-18 需求）：sessions 按 cwd 分组，组名 = basename(cwd) 大写 letter-spacing，组 header 含 ▶/▼ arrow + 计数 + busy 标记 ⚡ + 累计 $（组内汇总）。组按内"最新 createdAt"倒序排。点 header 折叠/展开，localStorage 持久化 collapsedGroups。单 cwd 单 session 自动跳过分组（不画 header），多 cwd 才显示。aria-expanded + aria-label 屏幕阅读器友好。
+
+**v0.18** session-item hover ✏️ 重命名按钮（用户 2026-05-18 需求，提升发现性）：原来归档区只有 📦 一个按钮 + 双击 / 右键才能改名，发现性差。现在 hover session-item 时右下角并列出 ✏️ + 📦 两个按钮，✏️ 点击直接触发 startRenameSession 内联编辑。`.session-action-btn` 统一样式（cxbtn token + focus-visible + active scale），aria-label 完整。
+
+**v0.17** 真测发现 P0 安全 bug 紧急修复：DangerDetector 之前规则只匹配 `rm -rf /|~|$HOME`，**`rm -rf /Users/xxx` / `rm -rf ~/Desktop` 漏拦**！加 3 条 HIGH 规则补盲区：(1) 任意绝对路径 `/<非 /tmp/var 白名单>` (2) `~/<子路径>` (3) `../` `./`。全部新规则单测通过（critical/high/safe 分级精确）。**真测 v0.13/v0.15 流式 ✅ / v0.16 中断 ✅ / v0.5 Danger 修后 ✅**。
 
 **v0.16** 流式 + 中断·步骤 3：chat-header busy 时显眼 `⏸ 停止` 按钮（cxbtn-danger-sm + 红色脉冲发光环 2s 循环）。点击触发 `POST /api/sessions/:id/interrupt`，发送 SIGINT 给 claude 子进程。Esc 键 busy 时（且无 modal 打开 + 不在 input/textarea 焦点）也触发中断。toast 反馈"已发送中断信号"。
 
@@ -116,6 +142,125 @@
 - [x] 长任务实测（21 + 14 msgs 完成项目分析 + 方案 B 维护循环，真 git commit `1fb1aed`）
 - [x] 抗锯齿放大验证图（4 个采样区域 4x 上采样对比）
 - [x] **07 Continuum 集成**（v0.3，2026-05-17）：3 个后端端点（snapshot/handoff-meta/handoff）+ 右侧"事实"tab + chain badge + 🔄 接力按钮 + system 角色 banner 样式
+- [x] **v0.30 自查 bug 修复轮**（2026-05-18 08:50 cycle_21，用户「查问题修复优化完善」）：
+  - 修 #1 brand-subtitle 写死 v0.6 → 新端点 `GET /api/version`（HANDOFF 解析 + package.json fallback）+ 前端启动拉取动态写入
+  - 修 #2 流式光标卡死兜底：busy=false 事件触发时遍历 state.streamingDivs，对未 finalize 的 div 强制 renderMarkdown + msg-finalized class + 清 Map（防 partial_stop 丢失导致 ▍ 永远闪）
+  - mock 验证：GET /api/version 返回 `{ok:true, version:"0.29", appName:"claude-panel"}`
+
+- [x] **v0.29 状态 timeline + 20 cycle 上限达成（任务池 4.3）**（2026-05-18 08:00 cycle_20，loop 自驱最后 cycle）：
+  - `/safety-history` endpoint 加返回 `stateHistory`（AgentStateMachine.transitions）+ `currentState`
+  - 前端 refreshSafety 加 "📈 状态时序" 段：倒序展示最近 20 次 from→to + 时间戳 + reason
+  - state-pill 5 色板：idle/completed 绿 / thinking 琥珀 / running 橙 / error 红
+  - mock 验证：GET /safety-history 返回 ok+danger+loopGuard+stateHistory+currentState 完整结构
+  - **cycle_20 达成 20 cycle 上限，按 .loop-prompt.md 规则写 BUDGET_HIT.md + CronDelete 1338a1dc**
+
+- [x] **v0.28 cost 30min mini 折线图（任务池 4.2）**（2026-05-18 07:30 cycle_19，loop 自驱）：
+  - CostTracker.seriesByMinute(windowMin) — 分钟桶聚合（空桶填 0），window clamp 5-180 min
+  - 新端点 `GET /api/sessions/:id/cost-series?windowMin=30` 返回 {ok, windowMin, series:[{minute,ts,usd}]}
+  - index.html cost-chip 改为 inline-flex 容器，内含 #costChipText 数字 + 60×14 SVG sparkline #costSpark
+  - app.js refreshCostSpark：fetch series → max 归一化 → SVG path area closed
+  - 接入 5s 轮询（snapshotPolling tick 一起跑）
+  - CSS：cost-spark fill = color-mix(orange 22%), stroke = orange；cost-warn 切红
+  - mock 验证：PORT 5183 GET /cost-series?windowMin=30 返回 `{ok:true,windowMin:30,series len=0}`（无 cost 数据时 series 空属正常）
+
+- [x] **v0.27 inspector 🛑 安全 tab（任务池 4.1）**（2026-05-18 07:15 cycle_18，loop 自驱）：
+  - server.js helper：`recordDanger(session, entry)` / `recordLoopGuard(session, reason)` push 历史（限长 100，持久化最近 50）
+  - 4 个触发点接入：LoopGuard 重复指令 / LoopGuard cost surge / Danger BLOCKED / Danger WARN（LOW）
+  - 持久化 `dangerHistory` / `loopGuardHistory` 字段到 data.json
+  - 新端点 `GET /api/sessions/:id/safety-history` 返回 danger + loopGuard + guard.snapshot()
+  - inspector 加 "🛑 安全" tab + `safetyBody` + 刷新按钮
+  - `refreshSafety()` fetch + 按 severity 渲染卡片（critical 红 / high 琥珀 / low 蓝 / loop 紫）+ 命中规则 hits 列表
+  - WS 实时增量：danger_blocked / danger_warn / loop_guard_break 事件触发时若 safety tab active 则 refresh
+  - CSS 完整 .safety-item / .safety-sev / .safety-row1 / .safety-hits（color-mix 派生）
+  - mock 验证：PORT 5182 GET /safety-history 返回 `{ok:true,danger:[],loopGuard:[],guardSnapshot:null}`
+
+- [x] **v0.26 Edit/Write/MultiEdit unified diff 渲染（首阶段 #3 完成）**（2026-05-18 06:50 cycle_17，loop 自驱）：
+  - server.js helpers：`naiveDiff(old,new)` 朴素行级 -/+；`formatEditDiff` / `formatMultiEditDiff` / `formatWritePreview` 输出 markdown ```diff fence
+  - stream-json tool_use 解析处按 c.name 分支生成 content，覆盖原 `🔧 ${name}: ${JSON.stringify}...` 截断
+  - MultiEdit 最多展开 10 处 edit + 省略提示；Write 截 2000 字 + 全 `+` 前缀
+  - 前端 marked renderer.code 检测 `lang === 'diff'` → 逐行分类（diff-add/del/hunk/file/ctx）+ `<span class="diff-line ...">` 包裹
+  - CSS：oklab(绿/红/橙) 半透明背景 + 左 3px 边条；@@ hunk 用 Anthropic 橙加粗；+++/--- 灰斜体
+  - 普通 code block 不受影响（lang≠'diff' 走 escapeHtml fallback）
+  - mock 验证：PORT 5181 server 起 + API 响应正常
+
+- [x] **v0.25 代码块复制按钮 + 折叠**（2026-05-18 06:20 cycle_16，loop 自驱）：
+  - `ensureMarkedConfigured()` 一次性 marked.use 注册自定义 renderer.code（v13 token 对象 + positional 兼容）
+  - 输出结构：`.code-wrap[data-lang][.code-collapsed]` > `.code-toolbar`（lang/lines/折叠/复制）+ `pre > code.lang-X`
+  - 长代码块（>12 行）默认 `.code-collapsed` 加上
+  - DOMPurify 白名单加 `button` + `type` + `aria-label` + `data-lang`
+  - `#chatOutput` event delegation：
+    - `.code-copy-btn` → navigator.clipboard.writeText + 视觉反馈 ✓ + `copy-success` class 1.5s
+    - `.code-collapse-btn` → toggle `.code-collapsed` + 同步 aria-expanded + arrow ▼/▶
+  - CSS 完整 `.code-wrap` + `.code-toolbar` + `.code-copy-btn/.code-collapse-btn`（cxbtn token），`.code-wrap > pre` max-height 600 + 左边条；`.code-collapsed > pre` 折叠为 0 高
+  - focus-visible 蓝 outline + copy-success 用 oklab(green) 调色
+  - mock 验证：PORT 5180 server 起 + API 响应正常
+
+- [x] **v0.24 marked + DOMPurify 替换 markdown regex**（2026-05-18 06:15 cycle_15，loop 自驱）：
+  - CDN 引 `marked@13.0.3` + `dompurify@3.1.7`
+  - `renderMarkdown()` 重写：`marked.parse(gfm,breaks,headerIds=false,mangle=false) → DOMPurify.sanitize`
+  - 白名单 18 标签（a/h1-6/ul/ol/li/blockquote/pre/code/table/td/th/img/...）+ 5 属性（href/target/rel/title/src/alt/class/colspan/rowspan）
+  - CDN 失败 / 解析异常 / window.marked 不在 → fallback 老 regex（无破坏迁移）
+  - CSS 加完整 markdown 元素样式：h1-6/p/ul/ol/blockquote/pre/table/code（行内 vs block）/hr/a/img，全部用 cxbtn token + color-mix 派生
+  - mock 验证：PORT 5198 server 起 + API 响应正常
+
+- [x] **v0.23 内嵌真终端·前端 xterm.js 接入（7.6 完成）**（2026-05-18 06:10 cycle_14，用户跳序需求）：
+  - index.html 加 xterm css + xterm + addon-fit CDN（5.3.0 / 0.8.0）
+  - 顶部 brand 加 💻 按钮，主区加 `.term-area`（独立 panel）含 header（标题 + meta + 4 actions）+ container
+  - `termState: { termId, ws, xterm, fitAddon, resizeObserver }` 全局状态
+  - `openTerm(cwd)`：POST /api/term 创建 PTY → 新 Terminal 实例（cursorBlink + SF Mono 13px + 主题适配）→ FitAddon 自动 fit → WS 连接 + onmessage 写 xterm
+  - 输入回流：xterm.onData → ws.send {type:input}；xterm.onResize → ws.send {type:resize}
+  - `ResizeObserver` 监听容器尺寸自动 fitAddon.fit()
+  - 主题色 light/dark 双套（cursor=Anthropic 橙 #C15F3C，selection 用 oklab 调和色）
+  - `closeTerm()` 完整清理（ws close + xterm dispose + DELETE /api/term + observer disconnect）
+  - 按钮：💻 切显示 / ＋ 新建（cwd=~）/ 📂 在当前 cwd 开（session.cwd）/ ✕ 关闭 / ← 返回 chat
+  - 端到端 playwright 截图验证：终端在 panel 内成功 spawn zsh，显示 macOS session restore + npmrc warning + 真 prompt + 光标 ✅
+  - 截图：05-v0.23-terminal.png
+
+- [x] **v0.22 内嵌真终端·后端 PTY + WS 桥接**（2026-05-18 06:05 cycle_13，用户跳序需求）：
+  - 装 `@homebridge/node-pty-prebuilt-multiarch@0.13.1`（绕 macOS arm64 binding 失败）
+  - server.js import + `terminals: Map<termId, {term, clients, cwd, shell, createdAt}>`
+  - `POST /api/term { cwd, cols, rows, shell }` 创建 PTY，参数 clamping（cols 20-500, rows 5-200）+ cwd 校验
+  - `GET /api/term` 列出全部活跃终端
+  - `DELETE /api/term/:id` 关闭（term.kill()）
+  - WS upgrade 路由：`/ws/term/<UUID>` 优先匹配，转 PTY；fallback `/ws/<UUID>` 为 session chat
+  - WS handler：input 写 stdin / resize 改 PTY 尺寸 / 上行 data 类型推 onData
+  - 真测：node ws 客户端连 + 发 `echo HELLO_PTY\r` + 收回声 ✅
+
+- [x] **v0.21 流式·步骤 4：stderr 聚合折叠（首阶段 #2 完成）**（2026-05-18 05:50 cycle_12，loop 自驱）：
+  - `state.stderrCurrentDiv` 跟踪当前 turn 的 stderr 累积 div
+  - `handleStderrChunk(chunk)`：创建/复用 `.msg-stderr` div，body 追加 textContent，头部更新字节数（Blob bytes 自动 KB 换算）+ 时间戳
+  - `finalizeStderrDiv()`：busy=false 时调用，标记 finalized，下个 turn 起新 div
+  - selectSession 切换清空 stderrCurrentDiv（防跨 session 串扰）
+  - CSS amber 左边条 + color-mix(--accent-amber 6%~10%) 背景渐变；`.msg-stderr-collapsed .stderr-body { display: none }`
+  - `.stderr-toggle` 用 monospace + flex + aria-expanded；focus-visible outline
+  - `.stderr-body` 用 pre + max-height 400px + overflow-y auto
+  - mock 验证：PORT 5195 server 起 + API 响应正常
+
+- [x] **v0.20 紧急修「发送卡处理中」bug**（2026-05-18 05:40 用户报告）：
+  - 根因：WS 丢 busy:false 事件 + 前端 activeBusy 不同步 server 状态
+  - server: `/interrupt` 加 broadcastSession busy:false；新增 `/reset-busy` 端点（SIGTERM child + 复位 + 广播）
+  - 前端: listSessions 4s tick 同步 active session.busy → state.activeBusy + updateBusyUI()
+  - 中断按钮: 800ms 内双击触发 `/reset-busy` 强制释放，toast 提示"不放？双击强制释放"
+  - mock 验证：PORT 5194 POST /reset-busy 返回 {ok:true,hadChild:null} + /interrupt 广播 busy:false
+
+- [x] **v0.19 Codex 风格 cwd 自动分组**（2026-05-18 05:32 cycle_11，用户 2026-05-18 需求）：
+  - `state.collapsedGroups: Set<cwd>` + localStorage 持久化（cp-collapsed-groups）
+  - `renderList` 按 cwd 分 Map，单 cwd 单 session 直接平铺，多 cwd 显示组 header
+  - `buildSessionItem` 抽出原 forEach 逻辑变可复用函数
+  - 组 header：`<button class="session-group-head">` + ▶/▼ arrow + 大写组名 + 计数（⚡ busy + 累计 USD 汇总）+ aria-expanded
+  - 组按"内最新 createdAt 倒序"排（最近用过的组在上面）
+  - CSS `.session-group-head` 用 var(--text-xs) + var(--font-weight-semibold) + uppercase + letter-spacing；hover 用 var(--btn-ter-hover)；focus-visible outline
+  - 端到端 playwright 验证 4 组 6 session 分组渲染 + 右键菜单仍工作
+  - 截图：05-v0.19-groups.png
+
+- [x] **v0.18 session-item hover ✏️ 重命名按钮**（2026-05-18 05:25 cycle_10，用户 2026-05-18 需求）：
+  - `.session-hover-actions` 容器 right:8 bottom:8，opacity 0→1 hover/focus-within 父项时显
+  - 两个 `.session-action-btn`（✏️ rename + 📦 archive），cxbtn token 风格 + active scale(0.94) + focus-visible outline
+  - ✏️ click 触发 startRenameSession（v0.6 已有 helper）
+  - aria-label="重命名会话 X" / "归档会话 X"（屏幕阅读器友好）
+  - 端到端 playwright hover 截图验证：第一个 session-item hover 出 ✏️ + 📦 ✅
+  - 截图：05-v0.18-hover-rename.png
+
 - [x] **v0.17 真测 + 紧急修 DangerDetector**（2026-05-18 05:15 cycle_9，用户授权真 turn）：
   - 派 sub-agent 起 server（CLAUDE_BIN=真 claude）跑 3 个 turn，验证：
     - v0.13/v0.15 流式：claude --include-partial-messages 输出 9 条 stream_event ✅

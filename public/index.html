@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Claude Panel</title>
 <link rel="stylesheet" href="/style.css" />
+<!-- v0.23 xterm.js CDN -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
 </head>
 <body>
 <!-- 四象限对齐参考线（按 prompt 规范）-->
@@ -18,9 +20,10 @@
     <div class="brand">
       <div class="brand-icon">✦</div>
       <div class="brand-text">
-        <div class="brand-title">Claude Panel</div>
-        <div class="brand-subtitle">多会话管理 · v0.6</div>
+        <div class="brand-title" id="brandTitle">Claude Panel</div>
+        <div class="brand-subtitle" id="brandSubtitle">多会话管理 · v…</div>
       </div>
+      <button class="theme-toggle" id="btnTerminal" title="在 panel 内打开真终端（PTY，可跑 claude / git / 任意命令）" aria-label="打开内嵌终端">💻</button>
       <button class="theme-toggle" id="btnLoginClaude" title="在外部 Terminal 跑 claude /login（OAuth 浏览器跳转）" aria-label="登录 Claude Code">🔐</button>
       <button class="theme-toggle" id="themeToggle" title="切换暗/亮主题 (⌘D)" aria-label="切换暗亮主题">🌓</button>
     </div>
@@ -53,6 +56,21 @@
         <p class="hint-text">⌘N 新建 · ⌘1..9 切换 · ⌘↵ 发送</p>
       </div>
     </header>
+    <!-- v0.23 内嵌真终端 panel -->
+    <div class="term-area" id="termArea" style="display:none;">
+      <div class="term-header">
+        <span class="term-title">💻 终端</span>
+        <span class="term-meta" id="termMeta">未打开</span>
+        <div class="term-actions">
+          <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnTermNew" title="新建 PTY 在 ~/">＋ 新建</button>
+          <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnTermInCwd" title="新建 PTY 在当前 session 的 cwd（若有）">📂 在当前 cwd 开</button>
+          <button class="cxbtn cxbtn-danger cxbtn-sm" id="btnTermClose" title="关闭当前终端" style="display:none;">✕ 关闭</button>
+          <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="btnTermBack" title="返回 chat">← 返回</button>
+        </div>
+      </div>
+      <div class="term-container" id="termContainer"></div>
+    </div>
+
     <div class="chat" id="chatArea" style="display:none;">
       <div class="chat-header">
         <div class="chat-header-text">
@@ -66,7 +84,12 @@
                   aria-label="中断当前 claude 任务"
                   style="display:none;">⏸ 停止</button>
           <span class="state-chip" id="stateChip" title="claude 当前运行状态" style="display:none;">idle</span>
-          <span class="cost-chip" id="costChip" title="本 session 累计成本（估算）" style="display:none;">$0.00</span>
+          <span class="cost-chip" id="costChip" title="本 session 累计成本（估算）" style="display:none;">
+            <span id="costChipText">$0.00</span>
+            <svg class="cost-spark" id="costSpark" viewBox="0 0 60 14" xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
+              <path id="costSparkPath" d=""></path>
+            </svg>
+          </span>
           <div class="ctx-meter" id="ctxMeter" title="claude 上下文占用率（基于 transcript 末次 usage 估算）" style="display:none;">
             <div class="ctx-bar"><div class="ctx-fill" id="ctxFill"></div></div>
             <span class="ctx-label" id="ctxLabel">—</span>
@@ -106,6 +129,7 @@
     <div class="ins-tabs">
       <button class="ins-tab active" data-tab="info">信息</button>
       <button class="ins-tab" data-tab="snapshot">事实</button>
+      <button class="ins-tab" data-tab="safety">🛑 安全</button>
       <button class="ins-tab" data-tab="projects">项目</button>
       <button class="ins-tab" data-tab="files">文件</button>
       <button class="ins-tab" data-tab="help">帮助</button>
@@ -121,6 +145,16 @@
         <button class="btn-icon" id="btnSnapRefresh" title="重新读取 snapshot.md">↻</button>
       </div>
       <div class="snapshot-body" id="snapshotBody">
+        <div class="muted small" style="padding:8px;">— 未选中 session —</div>
+      </div>
+    </div>
+
+    <div class="ins-content" data-content="safety" style="display:none;">
+      <div class="snapshot-head">
+        <span class="muted small" id="safetyMeta">—</span>
+        <button class="btn-icon" id="btnSafetyRefresh" title="刷新安全历史">↻</button>
+      </div>
+      <div class="safety-body" id="safetyBody">
         <div class="muted small" style="padding:8px;">— 未选中 session —</div>
       </div>
     </div>
@@ -246,6 +280,13 @@
     </div>
   </div>
 </div>
+
+<!-- v0.23 xterm.js -->
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<!-- v0.24 markdown 渲染 -->
+<script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/lib/marked.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
 
 <script src="/app.js"></script>
 </body>

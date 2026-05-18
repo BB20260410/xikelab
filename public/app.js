@@ -11,7 +11,15 @@ const state = {
   snapshotTimer: null,
   archivedExpanded: false,
   streamingDivs: new Map(), // v0.15 流式：blockIndex → DOM div
+  stderrCurrentDiv: null,    // v0.21 当前 turn 的 stderr 累积 div
+  collapsedGroups: new Set((() => {
+    try { return JSON.parse(localStorage.getItem('cp-collapsed-groups') || '[]'); }
+    catch { return []; }
+  })()),
 };
+function persistCollapsedGroups() {
+  try { localStorage.setItem('cp-collapsed-groups', JSON.stringify([...state.collapsedGroups])); } catch {}
+}
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
@@ -150,6 +158,14 @@ async function listSessions() {
   ]);
   state.sessions = active;
   state.archivedSessions = archived;
+  // v0.20 同步当前 activeBusy 跟 server 状态（防 WS 丢消息导致卡 busy）
+  if (state.activeId) {
+    const cur = active.find(s => s.id === state.activeId);
+    if (cur && typeof cur.busy === 'boolean' && cur.busy !== state.activeBusy) {
+      state.activeBusy = cur.busy;
+      if (typeof updateBusyUI === 'function') updateBusyUI();
+    }
+  }
   renderList();
   renderArchived();
   if (typeof updateStatusBar === 'function') updateStatusBar();
@@ -286,8 +302,80 @@ function shortenPath(p) {
   return p.replace(home, '~');
 }
 
+// v0.25 marked 自定义 code renderer：输出 .code-wrap 含 toolbar + 行号 + 折叠
+let _markedConfigured = false;
+function ensureMarkedConfigured() {
+  if (_markedConfigured || !window.marked) return;
+  try {
+    const renderer = {
+      code(token) {
+        // marked v13 token object: { text, lang, escaped, ... }
+        const text = (token && typeof token === 'object') ? (token.text || '') : (arguments[0] || '');
+        const lang = ((token && token.lang) || arguments[1] || 'plaintext').toString().toLowerCase().slice(0, 30);
+        const lines = text.split('\n').length;
+        const collapsed = lines > 12;
+        // v0.26 diff 专属逐行 span 着色
+        let body;
+        if (lang === 'diff') {
+          body = text.split('\n').map(ln => {
+            let cls = 'diff-ctx';
+            if (ln.startsWith('+++') || ln.startsWith('---')) cls = 'diff-file';
+            else if (ln.startsWith('@@')) cls = 'diff-hunk';
+            else if (ln.startsWith('+')) cls = 'diff-add';
+            else if (ln.startsWith('-')) cls = 'diff-del';
+            return `<span class="diff-line ${cls}">${escapeHtmlEarly(ln)}</span>`;
+          }).join('\n');
+        } else {
+          body = escapeHtmlEarly(text);
+        }
+        return [
+          `<div class="code-wrap${collapsed ? ' code-collapsed' : ''}" data-lang="${escapeHtmlEarly(lang)}">`,
+          `<div class="code-toolbar">`,
+          `<span class="code-lang">${escapeHtmlEarly(lang)}</span>`,
+          `<span class="code-lines">${lines} 行</span>`,
+          `<button type="button" class="code-collapse-btn" aria-label="折叠/展开代码块" title="折叠/展开">${collapsed ? '▶' : '▼'}</button>`,
+          `<button type="button" class="code-copy-btn" aria-label="复制代码到剪贴板" title="复制">📋</button>`,
+          `</div>`,
+          `<pre><code class="lang-${escapeHtmlEarly(lang)}">${body}</code></pre>`,
+          `</div>`,
+        ].join('');
+      },
+    };
+    window.marked.use({ renderer });
+    _markedConfigured = true;
+  } catch (e) {
+    console.warn('marked.use renderer failed:', e.message);
+  }
+}
+
+// v0.24/v0.25 marked + DOMPurify 替换手写 regex；CDN 失败时 fallback 到老 regex
 function renderMarkdown(text) {
   if (!text) return '';
+  // Path A: marked + DOMPurify
+  if (typeof window !== 'undefined' && window.marked && window.DOMPurify) {
+    try {
+      ensureMarkedConfigured();
+      const raw = window.marked.parse(text, {
+        gfm: true,           // GitHub flavored
+        breaks: true,        // \n → <br>（贴近 chat 习惯）
+        headerIds: false,    // 不生成 id（防 XSS）
+        mangle: false,
+      });
+      return window.DOMPurify.sanitize(raw, {
+        ALLOWED_TAGS: ['a','b','strong','i','em','u','s','del','code','pre','p','br','hr',
+                       'ul','ol','li','blockquote','h1','h2','h3','h4','h5','h6',
+                       'table','thead','tbody','tr','th','td','span','div','img','button'],
+        ALLOWED_ATTR: ['href','target','rel','title','alt','src','class','colspan','rowspan',
+                       'type','aria-label','data-lang'],
+        ALLOW_DATA_ATTR: false,
+        ADD_ATTR: ['target'],
+      });
+    } catch (e) {
+      // 解析失败 → fallback
+      console.warn('marked/DOMPurify failed, fallback:', e.message);
+    }
+  }
+  // Path B: fallback 手写 regex（CDN 没加载时）
   let html = escapeHtml(text);
   html = html.replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, (_, lang, code) => {
     return `<pre><code class="lang-${lang}">${code}</code></pre>`;
@@ -306,7 +394,53 @@ function renderList() {
     list.innerHTML = '<div class="muted small" style="padding:12px;text-align:center;">还没有活跃会话</div>';
     return;
   }
-  state.sessions.forEach((s) => {
+  // v0.19 Codex 风格分组：按 cwd 分组
+  const groups = new Map(); // cwd → [sessions]
+  for (const s of state.sessions) {
+    if (!groups.has(s.cwd)) groups.set(s.cwd, []);
+    groups.get(s.cwd).push(s);
+  }
+  // 单 cwd 组（≤1 个 session）不显 header，直接平铺
+  const showGroups = groups.size > 1 || [...groups.values()].some(arr => arr.length > 1);
+  if (!showGroups) {
+    state.sessions.forEach(s => list.appendChild(buildSessionItem(s)));
+    return;
+  }
+  // 按"组内最新 createdAt"倒序
+  const sortedGroups = [...groups.entries()].sort((a, b) => {
+    const aT = Math.max(...a[1].map(s => new Date(s.createdAt).getTime() || 0));
+    const bT = Math.max(...b[1].map(s => new Date(s.createdAt).getTime() || 0));
+    return bT - aT;
+  });
+  for (const [cwd, sessions] of sortedGroups) {
+    const groupName = (cwd.split('/').filter(Boolean).pop()) || cwd;
+    const collapsed = state.collapsedGroups.has(cwd);
+    const groupBusy = sessions.some(s => s.busy);
+    const totalUSD = sessions.reduce((s, x) => s + (x.totalUSD || 0), 0);
+    const head = document.createElement('button');
+    head.className = 'session-group-head' + (collapsed ? ' collapsed' : '');
+    head.setAttribute('type', 'button');
+    head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    head.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'} ${groupName} 组 (${sessions.length} 个会话)`);
+    head.innerHTML = `
+      <span class="group-arrow" aria-hidden="true">${collapsed ? '▶' : '▼'}</span>
+      <span class="group-name" title="${escapeHtml(cwd)}">${escapeHtml(groupName)}</span>
+      <span class="group-count">${sessions.length}${groupBusy ? ' · ⚡' : ''}${totalUSD > 0 ? ` · $${totalUSD.toFixed(2)}` : ''}</span>
+    `;
+    head.addEventListener('click', () => {
+      if (state.collapsedGroups.has(cwd)) state.collapsedGroups.delete(cwd);
+      else state.collapsedGroups.add(cwd);
+      persistCollapsedGroups();
+      renderList();
+    });
+    list.appendChild(head);
+    if (!collapsed) {
+      sessions.forEach(s => list.appendChild(buildSessionItem(s)));
+    }
+  }
+}
+
+function buildSessionItem(s) {
     const div = document.createElement('div');
     div.className = 'session-item' + (s.id === state.activeId ? ' active' : '') + (s.busy ? ' busy' : '');
     const rs = s.runState || 'idle';
@@ -317,7 +451,10 @@ function renderList() {
       <div class="session-meta">${s.msgCount} 消息${s.busy ? ' · ⚡' : ''}${s.totalUSD > 0 ? ` · $${s.totalUSD.toFixed(2)}` : ''}</div>
       ${goalChip}
       <div class="session-status state-${rs}" title="${STATE_LABELS[rs] || rs}"></div>
-      <button class="session-archive-btn" title="归档（不删除，移到底部折叠区）">📦</button>
+      <div class="session-hover-actions">
+        <button class="session-action-btn session-rename-btn" title="重命名（也可双击名称）" aria-label="重命名会话 ${escapeHtml(s.name)}">✏️</button>
+        <button class="session-action-btn session-archive-btn" title="归档（不删除，移到底部折叠区）" aria-label="归档会话 ${escapeHtml(s.name)}">📦</button>
+      </div>
     `;
     div.addEventListener('click', () => selectSession(s.id));
     div.addEventListener('contextmenu', (e) => {
@@ -365,8 +502,13 @@ function renderList() {
       e.stopPropagation();
       setSessionArchived(s.id, true);
     });
-    list.appendChild(div);
-  });
+    // v0.18 ✏️ 重命名按钮（发现性提升）
+    div.querySelector('.session-rename-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nameElInner = div.querySelector('.session-name');
+      if (nameElInner) startRenameSession(s.id, nameElInner);
+    });
+    return div;
 }
 
 function renderArchived() {
@@ -462,6 +604,7 @@ function appendMessage(m) {
 async function selectSession(id) {
   state.activeId = id;
   state.streamingDivs.clear(); // v0.15 切 session 清流式状态
+  state.stderrCurrentDiv = null; // v0.21 切 session 清 stderr 累积
   if (state.ws) { try { state.ws.close(); } catch {} state.ws = null; }
   renderList();
   const s = await api(`/api/sessions/${id}`);
@@ -510,10 +653,27 @@ async function selectSession(id) {
         state.activeBusy = msg.busy;
         updateBusyUI();
         listSessions();
-        // 每次 busy 切换（一次 turn 完成）刷一次 ctx
-        if (!msg.busy) refreshCtx();
+        // 每次 busy 切换（一次 turn 完成）刷一次 ctx + 兜底 finalize 所有流式状态
+        if (!msg.busy) {
+          refreshCtx();
+          finalizeStderrDiv(); // v0.21: turn 完成 → stderr div 收尾
+          // v0.30 fix: partial_stop 可能丢失 → 兜底 finalize 所有 streaming div
+          for (const [idx, div] of state.streamingDivs) {
+            if (div && !div.classList.contains('msg-finalized')) {
+              const body = div.querySelector('.msg-body');
+              if (body) {
+                const fullText = body.dataset.rawText || body.textContent || '';
+                body.innerHTML = renderMarkdown(fullText);
+                div.dataset.fullText = fullText;
+              }
+              div.classList.remove('msg-streaming');
+              div.classList.add('msg-finalized');
+            }
+          }
+          state.streamingDivs.clear();
+        }
       } else if (msg.type === 'stderr') {
-        appendMessage({ role: 'tool_use', content: `⚠️ stderr: ${msg.data}`, ts: new Date().toISOString() });
+        handleStderrChunk(msg.data);
       } else if (msg.type === 'error') {
         appendMessage({ role: 'tool_use', content: `❌ 错误: ${msg.error}`, ts: new Date().toISOString() });
       } else if (msg.type === 'state_change') {
@@ -522,10 +682,13 @@ async function selectSession(id) {
         if (msg.snapshot) updateCostChip(msg.snapshot.totalUSD, msg.snapshot.ratePerMinute);
       } else if (msg.type === 'danger_blocked') {
         showDangerBanner(msg);
+        maybeRefreshSafetyIfOpen();
       } else if (msg.type === 'danger_warn') {
         showDangerBanner({ ...msg, blocked: false });
+        maybeRefreshSafetyIfOpen();
       } else if (msg.type === 'loop_guard_break') {
         showLoopGuardBanner(msg);
+        maybeRefreshSafetyIfOpen();
       } else if (msg.type === 'focus_chain_injected') {
         showFocusChainBanner(msg);
       } else if (msg.type === 'partial_start') {
@@ -537,6 +700,49 @@ async function selectSession(id) {
       }
     } catch (e) {}
   });
+}
+
+// ─── v0.21 stderr 流式聚合 + 折叠 ─────
+function handleStderrChunk(chunk) {
+  if (!chunk) return;
+  let div = state.stderrCurrentDiv;
+  if (!div || div.dataset.finalized === 'true') {
+    div = document.createElement('div');
+    div.className = 'msg msg-stderr msg-stderr-collapsed';
+    div.dataset.finalized = 'false';
+    div.innerHTML = `
+      <button class="stderr-toggle" type="button" aria-expanded="false" aria-label="展开/折叠 stderr">
+        <span class="stderr-arrow" aria-hidden="true">▶</span>
+        <span class="stderr-label">⚠️ stderr</span>
+        <span class="stderr-bytes">0 B</span>
+        <span class="stderr-time">${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+      </button>
+      <pre class="stderr-body"></pre>
+    `;
+    const toggle = div.querySelector('.stderr-toggle');
+    toggle.addEventListener('click', () => {
+      const collapsed = div.classList.toggle('msg-stderr-collapsed');
+      div.querySelector('.stderr-arrow').textContent = collapsed ? '▶' : '▼';
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    });
+    $('#chatOutput').appendChild(div);
+    state.stderrCurrentDiv = div;
+  }
+  const body = div.querySelector('.stderr-body');
+  body.textContent += chunk;
+  // 字节数显示（多字节字符按 byte length）
+  const bytes = new Blob([body.textContent]).size;
+  const fmtBytes = bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
+  div.querySelector('.stderr-bytes').textContent = fmtBytes;
+  const out = $('#chatOutput');
+  out.scrollTop = out.scrollHeight;
+}
+
+function finalizeStderrDiv() {
+  if (state.stderrCurrentDiv) {
+    state.stderrCurrentDiv.dataset.finalized = 'true';
+    state.stderrCurrentDiv = null;
+  }
 }
 
 // ─── v0.15 流式渲染（content_block_delta）─────
@@ -599,11 +805,40 @@ function updateStateChip(state) {
 function updateCostChip(totalUSD, ratePerMin) {
   const chip = $('#costChip');
   if (!totalUSD && !ratePerMin) { chip.style.display = 'none'; return; }
-  chip.style.display = 'inline-block';
+  chip.style.display = 'inline-flex';
   const rate = ratePerMin || 0;
-  chip.textContent = `$${totalUSD.toFixed(3)}${rate > 0 ? ` · $${rate.toFixed(3)}/min` : ''}`;
+  const txt = $('#costChipText');
+  if (txt) txt.textContent = `$${totalUSD.toFixed(3)}${rate > 0 ? ` · $${rate.toFixed(3)}/min` : ''}`;
   if (rate > 0.5) chip.classList.add('cost-warn');
   else chip.classList.remove('cost-warn');
+}
+
+// v0.28 cost 30min mini 折线图
+async function refreshCostSpark() {
+  const svg = $('#costSpark');
+  const path = $('#costSparkPath');
+  if (!state.activeId || !svg || !path) return;
+  try {
+    const r = await api(`/api/sessions/${state.activeId}/cost-series?windowMin=30`);
+    const series = (r.series || []).map(p => p.usd);
+    if (series.length < 2 || series.every(v => v === 0)) {
+      svg.style.display = 'none';
+      return;
+    }
+    svg.style.display = 'inline-block';
+    const w = 60, h = 14;
+    const max = Math.max(...series, 0.0001);
+    const points = series.map((v, i) => {
+      const x = (i / (series.length - 1)) * w;
+      const y = h - 1 - (v / max) * (h - 2);
+      return [x, y];
+    });
+    // area path: 起点底 → 折线 → 终点底 close
+    const d = `M 0,${h} L ${points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' L ')} L ${w},${h} Z`;
+    path.setAttribute('d', d);
+  } catch {
+    svg.style.display = 'none';
+  }
 }
 function showDangerBanner(msg) {
   const banner = $('#dangerBanner');
@@ -656,17 +891,32 @@ function updateBusyUI() {
   }
 }
 
-// v0.16 中断当前 turn
+// v0.16/v0.20 中断当前 turn — 双击立即 force reset
+let lastInterruptClickTs = 0;
 async function interruptCurrentTurn() {
-  if (!state.activeId || !state.activeBusy) return;
+  if (!state.activeId) return;
+  const now = Date.now();
+  const doubleClick = now - lastInterruptClickTs < 800;
+  lastInterruptClickTs = now;
   try {
-    await api(`/api/sessions/${state.activeId}/interrupt`, { method: 'POST' });
-    toast('已发送中断信号 (SIGINT)', 'warn', 2500);
+    if (doubleClick) {
+      // 第二次快速点 = 强制重置（child 卡死时用）
+      await api(`/api/sessions/${state.activeId}/reset-busy`, { method: 'POST' });
+      toast('已强制释放 busy 状态（SIGTERM child）', 'warn', 3000);
+    } else {
+      await api(`/api/sessions/${state.activeId}/interrupt`, { method: 'POST' });
+      toast('已发送中断 SIGINT · 不放？双击此按钮强制释放', 'warn', 3500);
+    }
   } catch (e) {
-    toast('中断失败: ' + e.message, 'error');
+    toast('中断失败: ' + e.message + ' · 尝试双击强制释放', 'error');
   }
 }
 $('#btnInterrupt')?.addEventListener('click', interruptCurrentTurn);
+// busy 时按钮总是显示（即使非 busy 也允许用户点中断当作 reset）
+function alwaysShowInterruptWhenStuck() {
+  // 如果 send 按钮 disabled 但其实 server 已不 busy（>5s 没活动），显式让用户能强释
+  // 这个 4s tick 由 setInterval(listSessions) 触发，listSessions 已经同步 activeBusy
+}
 
 async function send() {
   const input = $('#chatInput');
@@ -742,6 +992,7 @@ function startSnapshotPolling() {
   state.snapshotTimer = setInterval(() => {
     refreshSnapshot();
     refreshCtx();
+    refreshCostSpark();
   }, 5000);
 }
 
@@ -891,8 +1142,101 @@ $$('.ins-tab').forEach(btn => {
     if (tab === 'files' && state.activeCwd) loadFiles(state.activeCwd);
     if (tab === 'snapshot') refreshSnapshot();
     if (tab === 'projects') loadProjects();
+    if (tab === 'safety') refreshSafety();
   });
 });
+
+// v0.27 安全历史 tab
+async function refreshSafety() {
+  const body = $('#safetyBody');
+  const meta = $('#safetyMeta');
+  if (!state.activeId) {
+    body.innerHTML = '<div class="muted small" style="padding:8px;">— 未选中 session —</div>';
+    meta.textContent = '—';
+    return;
+  }
+  try {
+    const r = await api(`/api/sessions/${state.activeId}/safety-history`);
+    const dangers = r.danger || [];
+    const breaks = r.loopGuard || [];
+    meta.textContent = `🛑 ${dangers.length} 危险 · 🔁 ${breaks.length} 熔断`;
+    if (dangers.length === 0 && breaks.length === 0) {
+      body.innerHTML = '<div class="muted small" style="padding:12px;">本 session 暂无安全事件记录 ✅</div>';
+      return;
+    }
+    let html = '';
+    if (dangers.length > 0) {
+      html += '<h3 class="safety-sec-h">🛑 DangerDetector 拦截/警告</h3>';
+      html += '<div class="safety-list">';
+      for (const d of dangers.slice().reverse()) {
+        const t = new Date(d.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const sev = d.severity || 'unknown';
+        const tag = d.blocked ? '已拦截' : '仅警告';
+        html += `<div class="safety-item safety-${sev}">
+          <div class="safety-row1">
+            <span class="safety-sev sev-${sev}">${escapeHtml(sev)}</span>
+            <span class="safety-tag">${tag}</span>
+            <span class="safety-time">${t}</span>
+          </div>
+          <div class="safety-cmd"><code>${escapeHtml((d.command || '').slice(0, 200))}</code></div>
+          <div class="safety-hits">
+            ${(d.hits || []).slice(0, 3).map(h => `<div>• <b>[${escapeHtml(h.severity)}] ${escapeHtml(h.category)}</b> — ${escapeHtml(h.advice || '')}</div>`).join('')}
+          </div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    // v0.29 状态时序（最近 20 次转移）
+    const stateHist = (r.stateHistory || []).slice(-20);
+    if (stateHist.length > 0) {
+      html += `<h3 class="safety-sec-h">📈 状态时序（最近 ${stateHist.length} 次，当前: ${escapeHtml(r.currentState || 'idle')}）</h3>`;
+      html += '<div class="state-timeline">';
+      for (let i = stateHist.length - 1; i >= 0; i--) {
+        const t = stateHist[i];
+        const time = new Date(t.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        html += `<div class="state-tx">
+          <span class="state-time">${time}</span>
+          <span class="state-from state-pill state-${escapeHtml(t.from)}">${escapeHtml(t.from)}</span>
+          <span class="state-arrow">→</span>
+          <span class="state-to state-pill state-${escapeHtml(t.to)}">${escapeHtml(t.to)}</span>
+          <span class="state-reason">${escapeHtml(t.reason || '')}</span>
+        </div>`;
+      }
+      html += '</div>';
+    }
+
+    if (breaks.length > 0) {
+      html += '<h3 class="safety-sec-h">🔁 LoopGuard 熔断</h3>';
+      html += '<div class="safety-list">';
+      for (const b of breaks.slice().reverse()) {
+        const t = new Date(b.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        let label = b.type;
+        if (b.type === 'steps_exceeded') label = `单任务步数 ${b.current}/${b.max}`;
+        else if (b.type === 'repeated_instruction') label = `重复指令 ×${b.count}: "${(b.text || '').slice(0, 60)}"`;
+        else if (b.type === 'cost_surge') label = `5min 成本激增 $${b.usdInWindow} > $${b.threshold}`;
+        else if (b.type === 'file_churn') label = `${b.file} 颤动 ${b.churnCount} 次`;
+        html += `<div class="safety-item safety-loop">
+          <div class="safety-row1">
+            <span class="safety-sev sev-high">${escapeHtml(b.type)}</span>
+            <span class="safety-time">${t}</span>
+          </div>
+          <div class="safety-cmd">${escapeHtml(label)}</div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = `<div class="muted small" style="padding:8px;color:#c00;">${escapeHtml(e.message)}</div>`;
+  }
+}
+$('#btnSafetyRefresh')?.addEventListener('click', refreshSafety);
+
+// 实时增量：WS 收到危险/熔断时如果当前 safety tab 打开就刷新
+function maybeRefreshSafetyIfOpen() {
+  const safetyTab = document.querySelector('.ins-tab[data-tab="safety"]');
+  if (safetyTab?.classList.contains('active')) refreshSafety();
+}
 
 // ───── 方案 B 项目监控 ─────
 async function loadProjects() {
@@ -1288,6 +1632,194 @@ document.addEventListener('keydown', e => {
     toggleTheme();
   }
 });
+
+// ─── v0.23 内嵌真终端（PTY + xterm.js）─────
+const termState = {
+  termId: null,
+  ws: null,
+  xterm: null,
+  fitAddon: null,
+  resizeObserver: null,
+};
+
+function showTermArea() {
+  $('#mainHeader').style.display = 'none';
+  $('#chatArea').style.display = 'none';
+  $('#termArea').style.display = 'flex';
+}
+
+function hideTermArea() {
+  $('#termArea').style.display = 'none';
+  if (state.activeId) {
+    $('#chatArea').style.display = 'flex';
+  } else {
+    $('#mainHeader').style.display = 'flex';
+  }
+}
+
+async function openTerm(cwd) {
+  showTermArea();
+  if (termState.termId) {
+    // 关闭旧 term
+    await closeTerm();
+  }
+  const container = $('#termContainer');
+  container.innerHTML = '';
+  try {
+    const r = await api('/api/term', {
+      method: 'POST',
+      body: JSON.stringify({ cwd: cwd || null, cols: 100, rows: 30 }),
+    });
+    termState.termId = r.termId;
+    $('#termMeta').textContent = `pid ${r.pid} · ${shortenPath(r.cwd)} · ${r.shell.split('/').pop()}`;
+    $('#btnTermClose').style.display = 'inline-flex';
+
+    // 启 xterm
+    const xterm = new window.Terminal({
+      cursorBlink: true,
+      fontFamily: '"SF Mono", Menlo, monospace',
+      fontSize: 13,
+      theme: getXtermTheme(),
+      scrollback: 2000,
+      convertEol: false,
+    });
+    const fitAddon = new window.FitAddon.FitAddon();
+    xterm.loadAddon(fitAddon);
+    xterm.open(container);
+    fitAddon.fit();
+    xterm.focus();
+    termState.xterm = xterm;
+    termState.fitAddon = fitAddon;
+
+    // 连 WS
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/term/${r.termId}`);
+    termState.ws = ws;
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'data') xterm.write(msg.data);
+        else if (msg.type === 'exit') {
+          xterm.write(`\r\n\x1b[33m[终端退出 code=${msg.exitCode}]\x1b[0m\r\n`);
+          $('#termMeta').textContent = `已退出 (code ${msg.exitCode})`;
+          termState.termId = null;
+        }
+      } catch {}
+    };
+    ws.onopen = () => {
+      // 立即发一次 resize 给服务端，让 PTY 大小跟 xterm 对齐
+      const cols = xterm.cols, rows = xterm.rows;
+      try { ws.send(JSON.stringify({ type: 'resize', cols, rows })); } catch {}
+    };
+    xterm.onData(d => {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data: d }));
+    });
+    xterm.onResize(({ cols, rows }) => {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    });
+
+    // 容器 resize 自动 fit
+    if (termState.resizeObserver) termState.resizeObserver.disconnect();
+    termState.resizeObserver = new ResizeObserver(() => { try { fitAddon.fit(); } catch {} });
+    termState.resizeObserver.observe(container);
+
+    toast('终端已打开 · 跑 `claude` 试试 TUI 模式', 'success', 3500);
+  } catch (e) {
+    toast('开终端失败: ' + e.message, 'error');
+    $('#termMeta').textContent = '失败';
+  }
+}
+
+function getXtermTheme() {
+  const isDark = document.documentElement.classList.contains('dark') ||
+    (!document.documentElement.classList.contains('light') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  return isDark ? {
+    background: '#0d0e14', foreground: '#e5e2db', cursor: '#C15F3C', selectionBackground: '#3a3733',
+    black: '#181818', red: '#b3322f', green: '#138a36', yellow: '#d97706',
+    blue: '#339cff', magenta: '#7c3aed', cyan: '#06b6d4', white: '#afafaf',
+  } : {
+    background: '#F8F6F2', foreground: '#2D2D2D', cursor: '#C15F3C', selectionBackground: '#e8e3d8',
+    black: '#0d0d0d', red: '#b3322f', green: '#138a36', yellow: '#d97706',
+    blue: '#0285ff', magenta: '#7c3aed', cyan: '#06b6d4', white: '#5d5d5d',
+  };
+}
+
+async function closeTerm() {
+  if (termState.ws) { try { termState.ws.close(); } catch {} }
+  if (termState.termId) {
+    try { await api(`/api/term/${termState.termId}`, { method: 'DELETE' }); } catch {}
+  }
+  if (termState.xterm) { try { termState.xterm.dispose(); } catch {} }
+  if (termState.resizeObserver) { try { termState.resizeObserver.disconnect(); } catch {} }
+  termState.termId = null;
+  termState.ws = null;
+  termState.xterm = null;
+  termState.fitAddon = null;
+  termState.resizeObserver = null;
+  $('#termContainer').innerHTML = '';
+  $('#btnTermClose').style.display = 'none';
+  $('#termMeta').textContent = '未打开';
+}
+
+$('#btnTerminal')?.addEventListener('click', () => {
+  if (termState.termId) {
+    showTermArea(); // 已开就切回显示
+  } else {
+    openTerm(null);
+  }
+});
+$('#btnTermNew')?.addEventListener('click', () => openTerm(null));
+$('#btnTermInCwd')?.addEventListener('click', () => openTerm(state.activeCwd || null));
+$('#btnTermClose')?.addEventListener('click', async () => {
+  await closeTerm();
+  toast('终端已关闭', 'info', 1500);
+});
+$('#btnTermBack')?.addEventListener('click', hideTermArea);
+
+// v0.25 代码块复制 + 折叠（event delegation on #chatOutput）
+document.addEventListener('click', (e) => {
+  const copyBtn = e.target.closest('.code-copy-btn');
+  if (copyBtn) {
+    e.stopPropagation();
+    const wrap = copyBtn.closest('.code-wrap');
+    const code = wrap?.querySelector('pre > code');
+    if (code) {
+      const text = code.textContent || '';
+      navigator.clipboard?.writeText(text).then(() => {
+        const orig = copyBtn.textContent;
+        copyBtn.textContent = '✓';
+        copyBtn.classList.add('copy-success');
+        setTimeout(() => {
+          copyBtn.textContent = orig;
+          copyBtn.classList.remove('copy-success');
+        }, 1500);
+      }).catch(err => toast('复制失败: ' + err.message, 'error'));
+    }
+    return;
+  }
+  const collapseBtn = e.target.closest('.code-collapse-btn');
+  if (collapseBtn) {
+    e.stopPropagation();
+    const wrap = collapseBtn.closest('.code-wrap');
+    if (wrap) {
+      const nowCollapsed = wrap.classList.toggle('code-collapsed');
+      collapseBtn.textContent = nowCollapsed ? '▶' : '▼';
+      collapseBtn.setAttribute('aria-expanded', nowCollapsed ? 'false' : 'true');
+    }
+    return;
+  }
+});
+
+// v0.30 fix: 启动时拉动态版本号写到 brand-subtitle
+(async () => {
+  try {
+    const r = await api('/api/version');
+    const sub = $('#brandSubtitle');
+    if (sub && r.version) sub.textContent = `多会话管理 · v${r.version}`;
+    const title = $('#brandTitle');
+    if (title && r.appName) title.textContent = r.appName;
+  } catch {}
+})();
 
 // 启动
 listSessions();

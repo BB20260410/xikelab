@@ -66,4 +66,24 @@ export class CostTracker {
       ratePerMinute: this.ratePerMinute(),
     };
   }
+
+  // v0.28 按分钟桶聚合：返回最近 windowMin 分钟的 USD 时序（含空桶填 0）
+  seriesByMinute(windowMin = 30) {
+    const win = Math.max(5, Math.min(180, windowMin));
+    const now = Date.now();
+    const cutoff = now - win * 60 * 1000;
+    const buckets = new Map();
+    for (const s of this.samples) {
+      if (s.at < cutoff) continue;
+      const bucket = Math.floor(s.at / 60000);
+      buckets.set(bucket, (buckets.get(bucket) || 0) + s.usd);
+    }
+    const startMin = Math.floor(cutoff / 60000);
+    const endMin = Math.floor(now / 60000);
+    const series = [];
+    for (let m = startMin; m <= endMin; m++) {
+      series.push({ minute: m, ts: m * 60 * 1000, usd: Math.round((buckets.get(m) || 0) * 10000) / 10000 });
+    }
+    return series;
+  }
 }

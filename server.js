@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readdirSync, statSync, readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync, copyFileSync, appendFileSync } from 'fs';
 import { homedir } from 'os';
+import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 import { LoopGuard } from './src/safety/LoopGuard.js';
 import { DangerousPatternDetector } from './src/safety/DangerousPatternDetector.js';
 import { focusChainHeader, buildDoneSummaries } from './src/planner/FocusChain.js';
@@ -69,6 +70,8 @@ function saveData() {
       guardLevel: s.guardLevel || 'standard',
       model: s.model || null,
       totalUSD: s.costTracker ? s.costTracker.totalUSD() : 0,
+      dangerHistory: (s.dangerHistory || []).slice(-50),
+      loopGuardHistory: (s.loopGuardHistory || []).slice(-50),
     }));
     writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   } catch (e) {
@@ -98,6 +101,8 @@ function loadData() {
         runState: s.runState || 'idle',
         guardLevel: s.guardLevel || 'standard',
         model: s.model || null,
+        dangerHistory: s.dangerHistory || [],
+        loopGuardHistory: s.loopGuardHistory || [],
       });
     }
     console.log(`📂 恢复 ${sessions.size} 个 session`);
@@ -107,12 +112,55 @@ function loadData() {
 }
 loadData();
 
+// ============ v0.26 tool_use Edit/Write/MultiEdit → markdown diff ============
+function naiveDiff(oldStr, newStr) {
+  const oldLines = String(oldStr || '').split('\n');
+  const newLines = String(newStr || '').split('\n');
+  // 朴素 diff：先全删旧 + 再全加新（不做 LCS，避免引入 diff lib 依赖）
+  const out = [];
+  for (const ln of oldLines) out.push('- ' + ln);
+  for (const ln of newLines) out.push('+ ' + ln);
+  return out.join('\n');
+}
+function formatEditDiff(input) {
+  const path = input.file_path || '?';
+  const diff = naiveDiff(input.old_string, input.new_string);
+  return `🔧 **Edit** \`${path}\`\n\n\`\`\`diff\n${diff}\n\`\`\``;
+}
+function formatMultiEditDiff(input) {
+  const path = input.file_path || '?';
+  const blocks = (input.edits || []).slice(0, 10).map((ed, i) => {
+    return `**Edit ${i + 1}/${input.edits.length}**\n\`\`\`diff\n${naiveDiff(ed.old_string, ed.new_string)}\n\`\`\``;
+  });
+  const more = input.edits.length > 10 ? `\n\n_（还有 ${input.edits.length - 10} 个 edit 省略）_` : '';
+  return `🔧 **MultiEdit** \`${path}\` (${input.edits.length} 处)\n\n${blocks.join('\n\n')}${more}`;
+}
+function formatWritePreview(input) {
+  const path = input.file_path || '?';
+  const content = String(input.content || '');
+  const truncated = content.length > 2000 ? content.slice(0, 2000) + '\n…（截断 ' + (content.length - 2000) + ' 字符）' : content;
+  // 用 diff fence 全 + 着色，凸显"新写入"
+  const diffStyle = truncated.split('\n').map(l => '+ ' + l).join('\n');
+  return `🔧 **Write** \`${path}\` (${content.length} 字符)\n\n\`\`\`diff\n${diffStyle}\n\`\`\``;
+}
+
 // ============ v0.5 思维镜融合：每个 session 配 5 个机制实例 ============
 const sharedDetector = new DangerousPatternDetector(); // 无状态可共享
 
 function ensureGuard(s) {
   if (!s.guard) s.guard = new LoopGuard();
   return s.guard;
+}
+// v0.27 安全历史：danger + loopGuard 触发记录
+function recordDanger(session, entry) {
+  if (!session.dangerHistory) session.dangerHistory = [];
+  session.dangerHistory.push({ ts: new Date().toISOString(), ...entry });
+  if (session.dangerHistory.length > 100) session.dangerHistory = session.dangerHistory.slice(-100);
+}
+function recordLoopGuard(session, reason) {
+  if (!session.loopGuardHistory) session.loopGuardHistory = [];
+  session.loopGuardHistory.push({ ts: new Date().toISOString(), ...reason });
+  if (session.loopGuardHistory.length > 100) session.loopGuardHistory = session.loopGuardHistory.slice(-100);
 }
 function ensureStateMachine(s) {
   if (!s.stateMachine) s.stateMachine = new AgentStateMachine();
@@ -138,6 +186,7 @@ function sendMessageToClaude(session, userText) {
   const guard = ensureGuard(session);
   const breakReason = guard.recordInstruction(userText);
   if (breakReason) {
+    recordLoopGuard(session, breakReason);
     broadcastSession(session, { type: 'loop_guard_break', reason: breakReason });
     return { ok: false, error: 'loop_guard_break', reason: breakReason };
   }
@@ -300,6 +349,7 @@ function sendMessageToClaude(session, userText) {
           // LoopGuard 成本激增检查
           const surgeBreak = guard.recordCost(tracker.windowUSD(5 * 60 * 1000));
           if (surgeBreak) {
+            recordLoopGuard(session, surgeBreak);
             broadcastSession(session, { type: 'loop_guard_break', reason: surgeBreak });
             try { child.kill('SIGTERM'); } catch {}
             return;
@@ -329,12 +379,14 @@ function sendMessageToClaude(session, userText) {
                     if (sharedDetector.shouldBlock(hits, session.guardLevel || 'standard')) {
                       // CRITICAL/HIGH：立刻 kill + 警告
                       try { child.kill('SIGTERM'); } catch {}
-                      broadcastSession(session, {
-                        type: 'danger_blocked',
-                        command: c.input.command.slice(0, 500),
+                      const dangerEntry = {
+                        blocked: true,
                         severity: worst,
+                        command: c.input.command.slice(0, 500),
                         hits: hits.map(h => ({ severity: h.rule.severity, category: h.rule.category, advice: h.rule.advice, snippet: h.snippet })),
-                      });
+                      };
+                      recordDanger(session, dangerEntry);
+                      broadcastSession(session, { type: 'danger_blocked', ...dangerEntry });
                       const dmsg = {
                         role: 'tool_use',
                         content: `🛑 危险命令被拦截（${worst}）：${c.input.command.slice(0, 200)}\n` +
@@ -348,17 +400,31 @@ function sendMessageToClaude(session, userText) {
                       return;
                     } else {
                       // LOW：只警告不拦
-                      broadcastSession(session, {
-                        type: 'danger_warn',
+                      const warnEntry = {
+                        blocked: false,
                         severity: worst,
+                        command: c.input.command.slice(0, 500),
                         hits: hits.map(h => ({ severity: h.rule.severity, category: h.rule.category, advice: h.rule.advice })),
-                      });
+                      };
+                      recordDanger(session, warnEntry);
+                      broadcastSession(session, { type: 'danger_warn', ...warnEntry });
                     }
                   }
                 }
+                // v0.26 Edit/Write/MultiEdit → markdown diff fence
+                let toolContent = `🔧 ${c.name}: ${JSON.stringify(c.input).substring(0, 300)}`;
+                try {
+                  if (c.name === 'Edit' && c.input?.old_string != null && c.input?.new_string != null) {
+                    toolContent = formatEditDiff(c.input);
+                  } else if (c.name === 'MultiEdit' && Array.isArray(c.input?.edits)) {
+                    toolContent = formatMultiEditDiff(c.input);
+                  } else if (c.name === 'Write' && c.input?.file_path) {
+                    toolContent = formatWritePreview(c.input);
+                  }
+                } catch (e) { /* fallback 用原 JSON 截断 */ }
                 const m = {
                   role: 'tool_use',
-                  content: `🔧 ${c.name}: ${JSON.stringify(c.input).substring(0, 300)}`,
+                  content: toolContent,
                   ts: new Date().toISOString()
                 };
                 session.messages.push(m);
@@ -398,6 +464,24 @@ function sendMessageToClaude(session, userText) {
 
   return { ok: true };
 }
+
+// v0.30 fix: 动态版本号端点（前端 brand-subtitle 显示用）
+app.get('/api/version', (req, res) => {
+  let version = 'unknown';
+  let appName = 'Claude Panel';
+  try {
+    const pkg = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
+    version = pkg.version || version;
+    appName = pkg.productName || pkg.name || appName;
+  } catch {}
+  // 优先从 HANDOFF.md 顶部 "v0.X" 段解析当前业务版本（比 package.json 更新）
+  try {
+    const handoff = readFileSync(join(__dirname, 'HANDOFF.md'), 'utf-8');
+    const m = handoff.match(/\*\*v(0\.\d+)\*\*/);
+    if (m) version = m[1];
+  } catch {}
+  res.json({ ok: true, version, appName });
+});
 
 // 创建 session（I-01/B-01 修：加 cwd 路径合法性校验）
 app.post('/api/sessions', (req, res) => {
@@ -565,6 +649,29 @@ app.get('/api/file', (req, res) => {
   }
 });
 
+// v0.28 cost 时序（每分钟桶聚合）
+app.get('/api/sessions/:id/cost-series', (req, res) => {
+  const s = sessions.get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  const win = Math.max(5, Math.min(180, parseInt(req.query.windowMin || '30', 10)));
+  const series = s.costTracker ? s.costTracker.seriesByMinute(win) : [];
+  res.json({ ok: true, windowMin: win, series });
+});
+
+// v0.27 安全历史（DangerDetector + LoopGuard）
+app.get('/api/sessions/:id/safety-history', (req, res) => {
+  const s = sessions.get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  res.json({
+    ok: true,
+    danger: s.dangerHistory || [],
+    loopGuard: s.loopGuardHistory || [],
+    stateHistory: s.stateMachine ? s.stateMachine.transitions : [],
+    currentState: s.stateMachine ? s.stateMachine.current : (s.runState || 'idle'),
+    guardSnapshot: s.guard ? s.guard.snapshot() : null,
+  });
+});
+
 // 中断 busy
 app.post('/api/sessions/:id/interrupt', (req, res) => {
   const s = sessions.get(req.params.id);
@@ -573,7 +680,23 @@ app.post('/api/sessions/:id/interrupt', (req, res) => {
     try { s.child.kill('SIGINT'); } catch {}
   }
   s.busy = false;
+  broadcastSession(s, { type: 'busy', busy: false }); // v0.20 修：丢消息时让前端能同步
   res.json({ ok: true });
+});
+
+// v0.20 强制释放卡住的 busy 状态（child 已死但 busy 没复位的兜底）
+app.post('/api/sessions/:id/reset-busy', (req, res) => {
+  const s = sessions.get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  const wasChildAlive = s.child && !s.child.killed;
+  if (s.child) {
+    try { s.child.kill('SIGTERM'); } catch {}
+    s.child = null;
+  }
+  s.busy = false;
+  s.pid = null;
+  broadcastSession(s, { type: 'busy', busy: false, forced: true });
+  res.json({ ok: true, hadChild: wasChildAlive });
 });
 
 // ============ 方案 B 项目监控：扫 ~/Desktop/00_项目/ 下有 PROGRESS.md 的项目 ============
@@ -1099,9 +1222,91 @@ app.get('/api/browse', (req, res) => {
   }
 });
 
+// ============ v0.22 PTY 内嵌真终端 ============
+const terminals = new Map(); // termId → { term, clients: Set, cwd, createdAt }
+
+app.post('/api/term', (req, res) => {
+  const { cwd, cols = 80, rows = 24, shell } = req.body || {};
+  const termId = randomUUID();
+  let workDir = (cwd && typeof cwd === 'string' && cwd.trim()) ? cwd.trim() : homedir();
+  if (workDir.startsWith('~')) workDir = workDir.replace(/^~/, homedir());
+  try {
+    const st = statSync(workDir);
+    if (!st.isDirectory()) workDir = homedir();
+  } catch { workDir = homedir(); }
+  const shellBin = shell || process.env.SHELL || '/bin/zsh';
+  try {
+    const term = pty.spawn(shellBin, [], {
+      name: 'xterm-256color',
+      cols: Math.max(20, Math.min(500, cols | 0)),
+      rows: Math.max(5, Math.min(200, rows | 0)),
+      cwd: workDir,
+      env: { ...process.env, TERM: 'xterm-256color', LANG: 'zh_CN.UTF-8' },
+    });
+    const clients = new Set();
+    term.onData(d => {
+      for (const ws of clients) {
+        if (ws.readyState === 1) {
+          try { ws.send(JSON.stringify({ type: 'data', data: d })); } catch {}
+        }
+      }
+    });
+    term.onExit(({ exitCode, signal }) => {
+      for (const ws of clients) {
+        if (ws.readyState === 1) {
+          try { ws.send(JSON.stringify({ type: 'exit', exitCode, signal })); } catch {}
+        }
+      }
+      terminals.delete(termId);
+    });
+    terminals.set(termId, { term, clients, cwd: workDir, shell: shellBin, createdAt: new Date().toISOString() });
+    res.json({ ok: true, termId, cwd: workDir, shell: shellBin, pid: term.pid });
+  } catch (e) {
+    res.status(500).json({ error: 'pty spawn failed: ' + e.message });
+  }
+});
+
+app.get('/api/term', (req, res) => {
+  res.json([...terminals.entries()].map(([id, t]) => ({
+    id, pid: t.term.pid, cwd: t.cwd, shell: t.shell, createdAt: t.createdAt,
+  })));
+});
+
+app.delete('/api/term/:id', (req, res) => {
+  const t = terminals.get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'not found' });
+  try { t.term.kill(); } catch {}
+  terminals.delete(req.params.id);
+  res.json({ ok: true });
+});
+
 // WS upgrade
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  // v0.22 PTY 终端 WS：/ws/term/:termId
+  const termMatch = url.pathname.match(/^\/ws\/term\/([0-9a-f-]{36})$/);
+  if (termMatch) {
+    const termId = termMatch[1];
+    const t = terminals.get(termId);
+    if (!t) return socket.destroy();
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      t.clients.add(ws);
+      ws.send(JSON.stringify({ type: 'connected', termId, cwd: t.cwd }));
+      ws.on('message', raw => {
+        try {
+          const obj = JSON.parse(raw.toString());
+          if (obj.type === 'input' && typeof obj.data === 'string') {
+            t.term.write(obj.data);
+          } else if (obj.type === 'resize' && obj.cols && obj.rows) {
+            t.term.resize(Math.max(20, Math.min(500, obj.cols | 0)), Math.max(5, Math.min(200, obj.rows | 0)));
+          }
+        } catch {}
+      });
+      ws.on('close', () => t.clients.delete(ws));
+    });
+    return;
+  }
+  // session chat WS：/ws/:sessionId
   const m = url.pathname.match(/^\/ws\/([0-9a-f-]{36})$/);
   if (!m) return socket.destroy();
   const id = m[1];

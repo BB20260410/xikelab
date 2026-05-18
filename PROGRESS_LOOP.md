@@ -16,3 +16,16 @@ extra @ 2026-05-17T20:09:04Z | v0.14 | 🔐 Claude 登录按钮（用户需求�
 cycle_7 @ 2026-05-17T20:30:51Z | v0.15 | 2.2 前端流式累积 + 闪烁光标 | substantive | files: public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
 cycle_8 @ 2026-05-17T20:41:20Z | v0.16 | 2.3 chat-header ⏸ 中断按钮 + Esc 快捷键 | substantive | files: public/index.html, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
 cycle_9 @ 2026-05-17T21:16:13Z | v0.17 | 紧急修 DangerDetector 真测盲区 + 真测 v0.13-v0.16 通过 | substantive | files: src/safety/DangerousPatternDetector.js, HANDOFF.md, PROGRESS_LOOP.md
+cycle_10 @ 2026-05-17T21:24:53Z | v0.18 | 1.6 session-item hover ✏️ 重命名按钮 | substantive | files: public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_11 @ 2026-05-17T21:30:04Z | v0.19 | 1.7 Codex 风格 cwd 自动分组 | substantive | files: public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+extra @ 2026-05-17T21:34:53Z | v0.20 | 紧急修 busy 卡处理中 bug（用户报告）| substantive | files: server.js, public/app.js, HANDOFF.md, PROGRESS_LOOP.md
+cycle_12 @ 2026-05-17T21:41:08Z | v0.21 | 2.4 stderr 流式聚合+折叠（首阶段#2完成）| substantive | files: public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_13 @ 2026-05-17T22:02:35Z | v0.22 | 7.6a 后端 PTY + WS 桥接（用户跳序需求）| substantive | files: server.js, package.json, package-lock.json, HANDOFF.md, PROGRESS_LOOP.md
+cycle_14 @ 2026-05-17T22:08:46Z | v0.23 | 7.6b 前端 xterm.js 接入（7.6 完成）| substantive | files: public/index.html, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_15 @ 2026-05-17T22:13:18Z | v0.24 | 3.1 marked + DOMPurify 替换 markdown regex | substantive | files: public/index.html, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_16 @ 2026-05-17T22:40:55Z | v0.25 | 3.2 代码块复制按钮 + 折叠 | substantive | files: public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_17 @ 2026-05-17T23:12:11Z | v0.26 | 3.3 Edit/Write/MultiEdit unified diff（首阶段#3完成）| substantive | files: server.js, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_18 @ 2026-05-17T23:42:39Z | v0.27 | 4.1 inspector 🛑 安全 tab | substantive | files: server.js, public/index.html, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_19 @ 2026-05-18T00:11:40Z | v0.28 | 4.2 cost 30min mini sparkline | substantive | files: src/cost/CostTracker.js, server.js, public/index.html, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md
+cycle_20 @ 2026-05-18T00:41:46Z | v0.29 | 4.3 状态 timeline + 20 cycle 上限达成 | substantive | files: server.js, public/app.js, public/style.css, HANDOFF.md, PROGRESS_LOOP.md, BUDGET_HIT.md
+cycle_21 @ 2026-05-18T04:24:39Z | v0.30 | 自查 bug 修复轮（version 动态/流式兜底）| substantive | files: server.js, public/index.html, public/app.js, HANDOFF.md, PROGRESS_LOOP.md
