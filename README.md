@@ -1,10 +1,10 @@
 # Claude Panel
 
-> 可视化多 Claude Code 会话管理面板 · v0.30
+> 可视化多 Claude Code 会话管理面板 · v0.56
 >
 > 浏览器 GUI / 真终端内嵌 / 思维镜安全机制 / Codex 风格设计
 
-![status](https://img.shields.io/badge/version-0.30-orange) ![macOS](https://img.shields.io/badge/macOS-arm64%20%7C%20x64-blue) ![Electron](https://img.shields.io/badge/Electron-42-9feaf9)
+![status](https://img.shields.io/badge/version-0.56-orange) ![macOS](https://img.shields.io/badge/macOS-arm64%20%7C%20x64-blue) ![Electron](https://img.shields.io/badge/Electron-42-9feaf9)
 
 ---
 
@@ -123,23 +123,48 @@ npm run electron      # Electron 窗口启动
 
 ```
 .
-├── server.js                  Express + WS 后端
+├── server.js                  Express + WS 后端（v0.56 ~4100 行；含路由分发）
 ├── electron-main.js           Electron 主进程
 ├── public/                    前端
 │   ├── index.html
-│   ├── style.css              ~1800 行（Anthropic + Codex token）
-│   └── app.js                 ~1500 行
+│   ├── style.css              ~3900 行（Anthropic + Codex token + @layer 框架）
+│   ├── app.js                 ~6500 行（v0.56 IIFE，S18 已抽 Modal/UI 组件）
+│   ├── main.js                ES module 入口（S18 启动，桥接 window.PanelUtils/Store）
+│   └── src/
+│       ├── components/        Modal.js / UI.js（IIFE 全局组件）
+│       └── web/               utils.js / state.js（ES module，渐进迁移期）
 ├── src/                       后端核心模块
-│   ├── safety/
-│   │   ├── LoopGuard.js
-│   │   └── DangerousPatternDetector.js
+│   ├── safety/                LoopGuard / DangerousPatternDetector
 │   ├── planner/FocusChain.js
 │   ├── state/AgentStateMachine.js
-│   └── cost/CostTracker.js
+│   ├── cost/CostTracker.js
+│   ├── room/                  DebateDispatcher / CollaborationDispatcher / ArenaDispatcher / 各 adapter
+│   ├── mcp/                   McpStore + McpClientManager
+│   ├── webhook/ archive/ autopilot/ skills/ knowledge/ metrics/ templates/ plugin/ watcher/
+│   └── server/routes/         S18-2 抽出的 8 个路由 module（webhook/archive/mcp/autopilot/rooms/roomTemplates/skills/knowledge）
 ├── HANDOFF.md                 项目交接文档（给 AI 接手时读）
 ├── PROGRESS_LOOP.md           cycle 进度档案（loop 自驱时维护）
+├── .audit-progress.json       Sprint 18+ 体检 manifest
 └── .loop-prompt.md            cron 自动迭代任务池
 ```
+
+---
+
+## 📚 文档索引
+
+项目根有多个 .md 文件，各自用途：
+
+| 文件 | 用途 | 谁看 |
+|---|---|---|
+| `README.md` | 本文件，快速上手 + 项目结构 | 新用户 / 浏览者 |
+| `CLAUDE.md` | Claude Code 项目规则（工程约束 / 代码风格 / 目录约定） | AI / Claude Code 自动加载 |
+| `HANDOFF.md` | 完整变更历史 + 设计决策（每版增量） | AI 接手 / 深度排查 |
+| `HANDOFF_NEW_CHAT.md` | 给新会话的初始上下文 prompt 模板 | 新开 Claude 会话时复制 |
+| `项目说明.md` | 早期项目立项说明（偶尔回溯用） | 历史归档 |
+| `BUGS.md` | 已知 bug 列表（实时维护） | 找未修问题 |
+| `IMPROVEMENTS.md` | 改进建议池（未排期） | 灵感参考 |
+| `PROGRESS_LOOP.md` | cycle 进度日志（loop 自驱时追加） | 自动化进度 |
+| `.audit-progress.json` | Sprint 体检 manifest（结构化进度） | 自动化 + Claude Code 恢复 |
 
 ---
 

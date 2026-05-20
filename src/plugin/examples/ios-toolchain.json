@@ -1,0 +1,75 @@
+{
+  "id": "ios-toolchain",
+  "displayName": "📱 iOS 工具链",
+  "version": "0.1.0",
+  "icon": "📱",
+  "type": "spawn",
+  "bin": {
+    "cmd": "xcodebuild",
+    "check": "which xcodebuild"
+  },
+  "input": { "mode": "argv" },
+  "output": {
+    "mode": "stream",
+    "parser": "raw"
+  },
+  "commands": [
+    {
+      "id": "build",
+      "name": "Build (xcodebuild build)",
+      "description": "构建指定 scheme，不跑测试",
+      "args": ["build", "-scheme", "{scheme}", "-configuration", "{configuration}"],
+      "params": [
+        { "name": "scheme", "type": "string", "required": true, "maxLen": 200 },
+        { "name": "configuration", "type": "enum", "enumValues": ["Debug", "Release"], "default": "Debug" }
+      ]
+    },
+    {
+      "id": "test",
+      "name": "Test (xcodebuild test)",
+      "description": "跑指定 scheme 的单元测试 + UI 测试",
+      "args": ["test", "-scheme", "{scheme}", "-destination", "{destination}"],
+      "params": [
+        { "name": "scheme", "type": "string", "required": true, "maxLen": 200 },
+        { "name": "destination", "type": "string", "default": "platform=iOS Simulator,name=iPhone 15", "maxLen": 200 }
+      ]
+    },
+    {
+      "id": "clean",
+      "name": "Clean",
+      "description": "清理 DerivedData",
+      "args": ["clean", "-scheme", "{scheme}"],
+      "params": [
+        { "name": "scheme", "type": "string", "required": true, "maxLen": 200 }
+      ]
+    },
+    {
+      "id": "archive",
+      "name": "Archive",
+      "description": "出 .xcarchive 给上架",
+      "args": ["archive", "-scheme", "{scheme}", "-archivePath", "{archivePath}"],
+      "params": [
+        { "name": "scheme", "type": "string", "required": true, "maxLen": 200 },
+        { "name": "archivePath", "type": "string", "required": true, "maxLen": 500 }
+      ]
+    }
+  ],
+  "events": { "source": "stdout", "schema": "raw" },
+  "dashboard": [
+    {
+      "type": "log",
+      "title": "📋 xcodebuild 输出",
+      "source": "stdout",
+      "maxLines": 1000
+    }
+  ],
+  "sandbox": {
+    "cwdScope": "home-tree",
+    "envWhitelist": ["LANG", "LC_ALL", "PATH", "HOME", "USER", "DEVELOPER_DIR"],
+    "timeoutMs": 3600000
+  },
+  "extra": {
+    "docs": "https://developer.apple.com/documentation/xcode/build-system",
+    "note": "需要 Xcode 已安装并在 PATH 中"
+  }
+}

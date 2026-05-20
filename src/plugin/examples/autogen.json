@@ -1,0 +1,59 @@
+{
+  "id": "autogen",
+  "displayName": "🔄 AutoGen",
+  "version": "0.1.0",
+  "icon": "🔄",
+  "type": "spawn",
+  "bin": {
+    "cmd": "python3",
+    "check": "which python3"
+  },
+  "input": { "mode": "argv" },
+  "output": {
+    "mode": "stream",
+    "parser": "raw"
+  },
+  "commands": [
+    {
+      "id": "two-agent-chat",
+      "name": "两 Agent 互聊",
+      "description": "用一个内置脚本启动 user_proxy + assistant 两 agent，对 topic 互聊到收敛",
+      "args": ["-c", "from autogen import AssistantAgent, UserProxyAgent; a = AssistantAgent('assistant'); u = UserProxyAgent('user', code_execution_config={'work_dir':'/tmp'}); u.initiate_chat(a, message='{topic}')"],
+      "params": [
+        { "name": "topic", "type": "string", "required": true, "maxLen": 4000 }
+      ]
+    },
+    {
+      "id": "run-script",
+      "name": "跑 AutoGen Python 脚本",
+      "description": "跑指定路径的 .py 脚本（脚本里自己 import autogen）",
+      "args": ["{scriptPath}"],
+      "params": [
+        { "name": "scriptPath", "type": "string", "required": true, "maxLen": 500 }
+      ]
+    }
+  ],
+  "events": { "source": "stdout-jsonl", "schema": "openai" },
+  "dashboard": [
+    {
+      "type": "status-bar",
+      "title": "对话统计",
+      "fields": ["round", "tokensUsed", "agentsCount"]
+    },
+    {
+      "type": "log",
+      "title": "📋 完整对话",
+      "source": "stdout",
+      "maxLines": 800
+    }
+  ],
+  "sandbox": {
+    "cwdScope": "home-tree",
+    "envWhitelist": ["LANG", "LC_ALL", "PATH", "HOME", "USER", "OPENAI_API_KEY", "PYTHONPATH"],
+    "timeoutMs": 1800000
+  },
+  "extra": {
+    "install": "pip install pyautogen",
+    "docs": "https://microsoft.github.io/autogen/"
+  }
+}

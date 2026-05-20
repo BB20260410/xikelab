@@ -1,6 +1,6 @@
 {
   "name": "claude-panel",
-  "version": "0.30.0",
+  "version": "0.56.0",
   "productName": "Claude Panel",
   "description": "可视化多 Claude Code 会话管理面板：多 session / 流式输出 / 内嵌真终端 / 思维镜 5 套安全机制 / Codex 风格设计",
   "author": "hxx",
@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "chart.js": "^4.5.1",
     "express": "^4.21.2",
     "node-pty": "^1.0.0",
     "ws": "^8.18.0"
@@ -59,7 +61,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "hardenedRuntime": false,
@@ -71,7 +76,10 @@
       "writeUpdateInfo": false
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Development"
     },
     "win": {

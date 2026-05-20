@@ -1,0 +1,41 @@
+{
+  "id": "jokeapi-http",
+  "displayName": "🃏 JokeAPI",
+  "version": "1.0.0",
+  "icon": "🃏",
+  "type": "http",
+  "http": {
+    "method": "GET",
+    "url": "https://v2.jokeapi.dev/joke/{category}?safe-mode&type=single",
+    "headers": {
+      "Accept": "application/json"
+    },
+    "replyJsonPath": "joke",
+    "timeoutMs": 15000
+  },
+  "commands": [
+    {
+      "id": "joke",
+      "name": "讲个笑话",
+      "description": "免费公开 JokeAPI，按 category 拿单段笑话",
+      "args": [],
+      "params": [
+        {
+          "name": "category",
+          "type": "enum",
+          "enumValues": ["Any", "Programming", "Misc", "Pun", "Spooky", "Christmas"],
+          "default": "Programming",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "dashboard": [
+    {
+      "type": "list",
+      "title": "最近笑话",
+      "source": "stdout",
+      "maxLines": 10
+    }
+  ]
+}

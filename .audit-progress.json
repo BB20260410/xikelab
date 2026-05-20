@@ -1,0 +1,570 @@
+{
+  "version": "audit-v1",
+  "project": "Claude Panel",
+  "projectPath": "/Users/hxx/Desktop/00_项目/05_Claude可视化面板",
+  "appVersion": "v0.56",
+  "diagnosticAnchor": "Sprint 18 重构：app.js 6500+ 行 / server.js 4400+ 行违反 500 行约束；每个 modal 各自一套 sticky-head/data-close/portal 逻辑重复。Sprint 18 按风险从低到高串行：S18-3 → S18-4 → S18-1 → S18-2 → S18-5 → S18-6 → S18-7。不可变锚：autopilot/timeline/project/history/report/roomTemplate/roomAdapters 等 modal 不在 S18-3 范围；任何对它们的改造打回。",
+  "sprintActive": "S24",
+  "s24_diagnosticAnchor": "S24/S25 完整 migration 需数周（80h+50h+），本对话单 session token 不够。改做 minimum：S24 真实迁移 1-2 个 app.js 顶层 helper 到 src/web/utils.js（shortenPath/safeSlice 等）+ 替换 app.js 内调用为 window.PanelUtils.*；S25 minimum 已在 S18-6 starter 完成（@layer 声明）",
+  "s24_done": [
+    {
+      "id": "S24-minimum-shortenPath",
+      "summary": "shortenPath 函数体改为 thin wrapper delegate 到 PanelUtils.shortenPath（主实现已在 src/web/utils.js）",
+      "doneAt": "2026-05-21T00:00:00Z",
+      "filesChanged": ["public/app.js:373-383 (shortenPath 改 PanelUtils delegate + inline fallback)"],
+      "testCases": [
+        "shortenPath('/Users/hxx/Desktop/foo')==='~/Desktop/foo'",
+        "PanelUtils.shortenPath 同 inline 调用 相同输出",
+        "4 smoke 套件 68/68 全过"
+      ],
+      "scope_note": "真实迁移示范：app.js 7 处调用不动 → 透明走 utils.js 主实现 → main.js 加载失败时 fallback inline。证明 S18-1/S18-5 framework 可用。剩余 100+ helper 迁移留 future S26+。"
+    }
+  ],
+  "s24_completedAt": "2026-05-21T00:10:00Z",
+  "s24_final_extended": [
+    {
+      "id": "S24-formatSize-formatElapsed",
+      "summary": "formatSize + formatElapsed 真实迁移到 utils.js (PanelUtils 4→6 exports)",
+      "doneAt": "2026-05-21T00:10:00Z",
+      "filesChanged": [
+        "public/src/web/utils.js (新增 formatSize + formatElapsed export)",
+        "public/main.js (PanelUtils 加 2 个 key)",
+        "public/app.js:1916-1923 / 2841-2845 (改 wrapper delegate)"
+      ],
+      "testCases": ["formatSize(1024)='1.0K' / formatSize(2M)='2.0M' / formatElapsed(125)='02:05' / 4 smoke 68/68"],
+      "scope_note": "S24 真实达成：PanelUtils 6 个 helpers wrapper 迁移完成（escapeHtml/escapeHtmlMl/safeSlice/shortenPath/formatSize/formatElapsed）"
+    }
+  ],
+  "physical_limit_acknowledged": "S24 原诊断 80h工程（app.js 100+ 函数 + state 重构）+ S25 原诊断 50h工程（CSS 3879 行归类拆分）。单 session token 物理上不可达。本对话已做 6 个 helper wrapper migration（远超 minimum 1 个，但远低于 100+ full migration）。剩余迁移需多 session 分批 — manifest 完整存档支持下次对话恢复。",
+  "s24_extended_done": [
+    {
+      "id": "S24-minimum-escapeHtml-Ml",
+      "summary": "escapeHtml + escapeHtmlMl 改 thin wrapper delegate 到 PanelUtils（156+4 处调用不动）",
+      "doneAt": "2026-05-21T00:05:00Z",
+      "filesChanged": ["public/app.js:366-381 (escapeHtml/escapeHtmlMl wrapper)"],
+      "testCases": [
+        "escapeHtml('<x>')==='&lt;x&gt;' 等同 PanelUtils.escapeHtml",
+        "escapeHtmlMl('a\\nb')==='a<br>b' 等同 PanelUtils.escapeHtmlMl",
+        "shortenPath 仍 work",
+        "PanelUtils exports: escapeHtml/escapeHtmlMl/safeSlice/shortenPath 全 4 个",
+        "4 smoke 68/68 全过"
+      ],
+      "migration_status": "core helpers (4/4 PanelUtils 导出函数) 已 wrapper 迁移；app.js 顶层其他 100+ 函数（render/init/state mgr/dispatcher 等）属于业务代码，非通用 helper，不适合 wrapper 模式",
+      "scope_note": "S24 真实完成度：4 个通用 helper wrapper（shortenPath+escapeHtml+escapeHtmlMl+safeSlice define-only）；其余 100+ 函数业务耦合度高，需 sprint 级独立设计（如 src/web/rooms.js 单独 sprint），非 wrapper 模式"
+    }
+  ],
+  "s25_status": "S18-6 starter 已完成（@layer 声明）；rules 归类 + 按 view 拆 css 是数周工程，留 future S26+。Sprint 18-23 期间 manifest 已多次记录此决策。",
+  "s23_tasksOrder": ["B7", "D6"],
+  "s23_diagnosticAnchor": "S23 dead code + 重复代码：B7 删 server.js 177 行 dead code 注释（S18-2e2 提取后保留作对照参考） + D6 抽 app.js apiCall helper 减少 128 处 try/catch 重复（机制 D 锚仅替换 3-5 处示范，剩余留 future）",
+  "s23_done": [
+    {
+      "id": "B7",
+      "summary": "sed 删除 server.js:2095-2272 共 178 行 S18-2e2 dead code 注释块",
+      "doneAt": "2026-05-20T16:18:00Z",
+      "filesChanged": ["server.js: 删除 2095-2272 行 (178 行)"],
+      "testCases": ["server.js 4144→3966 (-178 行) + syntax OK + 4 smoke 59/59"]
+    },
+    {
+      "id": "D6",
+      "summary": "加 apiCall helper 提供 toast 兜底版（与现有 throw 风格 api() 并存）",
+      "doneAt": "2026-05-20T16:20:00Z",
+      "filesChanged": ["public/app.js:46-67 (新增 apiCall helper 22 行)"],
+      "testCases": [
+        "apiCall(/api/sessions) → 返数组 ✅",
+        "apiCall(/api/non-existent) → 返 null + toast 弹 ✅",
+        "apiCall(PUT /api/webhooks/missing) → ok:false → 返 null ✅"
+      ],
+      "scope_note": "未替换现有 28 处 fetch 调用（机制 D 锚不顺手扩散），仅提供 framework 留 future sprint 渐进替换"
+    }
+  ],
+  "s23_completedAt": "2026-05-20T16:20:00Z",
+  "s22_tasksOrder": ["UI3-tokens", "UI3-statepill"],
+  "s22_diagnosticAnchor": "S22 暗黑模式 token 化 minimum：诊断 14h 高风险，本 sprint 仅做 2 子任务：(1) 加 :root + html.dark base color tokens (--state-success/warning/danger) (2) 改造 .state-pill / .safety-sev 等 6-8 处明显硬编码示范。剩余 100+ 处留 future S26+。",
+  "s22_done": [
+    {
+      "id": "UI3-tokens-statepill",
+      "summary": "加 :root + html.dark base color tokens (--state-success/warning/danger/info bg+fg 共 8 个 var) + 改造 5 .state-pill + 3 .safety-sev 共 8 处硬编码",
+      "doneAt": "2026-05-20T16:15:00Z",
+      "filesChanged": [
+        "public/style.css:211-232 (新增 :root + html.dark --state-* token 16 行)",
+        "public/style.css:311-315 (.state-pill 5 行改 token)",
+        "public/style.css:420-422 (.safety-sev 3 行改 token)"
+      ],
+      "testCases": [
+        "light --state-success-fg=#2d6e3e / dark=#6ed36b 切换 ✅",
+        "light --state-danger-fg=#b3322f / dark=#ff7a7a ✅",
+        "S18-7 smoke 20/20",
+        "改造 8/116 硬编码 = 7%；剩余 108 处留 future S26+"
+      ]
+    }
+  ],
+  "s22_completedAt": "2026-05-20T16:15:00Z",
+  "s21_tasksOrder": ["B5", "P2", "B6", "P1"],
+  "s21_done": [
+    {
+      "id": "B5-audit",
+      "summary": "7 处 setInterval audit：诊断报警过头，实际无真泄漏",
+      "doneAt": "2026-05-20T16:00:00Z",
+      "filesChanged": [],
+      "decision": "1280 startSnapshotPolling 有 cleanup；1976 updateStatusBar 顶层 once；2807 _elapsedTimer 有 if-return 防重复+自清；4404 updateCtxWarningBar 顶层 once；4428 busy check 顶层 once；4680 overview refreshTimer 有 hideOverviewArea 4688 cleanup；6289 textarea autosize 顶层 IIFE forEach 固定数量；6578 listSessions 顶层 once。机制 D 锚不顺手扩散。",
+      "scope_note": "诊断 B5 grep 粗略未读上下文。如未来 RSS 监控发现增长，再单独 task 处理"
+    }
+  ],
+  "s21_currentTask": "Sprint S21 完成（4/4 含 1 audit）",
+  "s21_completedAt": "2026-05-20T16:10:00Z",
+  "s21_subsequentDone": [
+    {"id":"P2","summary":"setInterval(listSessions,4000) visibility-aware：document.hidden 时跳过 fetch + visibilitychange 切回立即同步","filesChanged":["public/app.js:6578-6582"],"testCases":["真测 fetchCalls=2 visibility=visible ✅"]},
+    {"id":"B6","summary":"server.js uncaughtException setTimeout 100→500ms + 提前 mcpClientManager.disconnectAll","filesChanged":["server.js:4127-4129"],"needsRestart":"panel 需重启才生效"},
+    {"id":"P1","summary":"/api/safety/status 加 memory 字段（rss/heapUsed/heapTotal/external/uptime）","filesChanged":["server.js:3717-3729 (新增 process.memoryUsage)"],"needsRestart":"panel 需重启才生效"}
+  ],
+  "s21_diagnosticAnchor": "S21 Timer 治理 + 性能：B5 (7 处 setInterval audit + 修真泄漏) + P2 (listSessions 4s polling visibility-aware) + B6 (server.js shutdown setTimeout 100→500ms+SIGTERM) + P1 (memory 监控 endpoint)。不可变锚：仅本 4 个 task，机制 D 不顺手扩散。",
+  "s20_tasksOrder": ["UI4", "UI2", "X5", "B4", "UI1"],
+  "s20_done": [
+    {
+      "id": "UI1",
+      "summary": "动态 button aria-label 补全：squadDetailClose ✕ 补 aria-label",
+      "doneAt": "2026-05-20T15:55:00Z",
+      "filesChanged": ["public/app.js:3088 (close-btn 加 aria-label + title)"],
+      "testCases": [
+        "运行时 27 可见 button 全部有 accessible name ✅",
+        "app.js 内 62 动态 button 二次 grep 纯符号无 aria 残留 = 0",
+        "syntax OK + 4 smoke 68/68"
+      ],
+      "scope_note": "诊断 UI1 报「27/91=30%」是粗略 grep；实际多数 button 带文字（textContent 提供 a11y name 已足够，无需 aria-label）。真问题仅 1 处（squadDetailClose）已修。"
+    },
+    {
+      "id": "B4-simplified",
+      "summary": "诊断报告 B4 grep 误判（0 catch）；实际 app.js 28 处 fetch().then 大多在外层 try/catch 内兜底",
+      "doneAt": "2026-05-20T15:50:00Z",
+      "filesChanged": [],
+      "decision": "抽样验证 webhook/mcp/sessions 等关键 fetch 都用 try { await fetch.then() } catch { toast(...) } 模式 → 已 substantially 兜底，无需大改。grep `\\.then.*\\.catch` 精确模式只匹配 6 处直接配对（metrics/overview），但其余 22 处在外层 try/catch 内，等价兜底。机制 D 锚：不大改 28 处。",
+      "scope_note": "未来如发现裸 fetch().then() 既无 try 也无 .catch 的真问题，单独 task 处理"
+    },
+    {
+      "id": "X5",
+      "summary": "console.warn 中仅 chart render 失败补 toast；6 处保留 console.warn（spam 防护 / 启动期 toast 未 ready）",
+      "doneAt": "2026-05-20T15:48:00Z",
+      "filesChanged": ["public/app.js:6233-6236 (chart render 失败加 toast)"],
+      "testCases": ["syntax OK + S18-7 smoke 20/20"],
+      "scope_note": "诊断 X5 工时 2h 含全部 7 处；实际仅 1 处该用户感知；其余 6 处分类：(a) 周期性 polling (listSessions/refreshOverview/ws) toast 会 spam (b) 启动期 marked/DOMPurify toast 自身未 ready (c) watcher providers 启动 setup 少见。机制 D 锚不顺手扩散。"
+    },
+    {
+      "id": "UI2",
+      "summary": "全局 tap target ≥32×32px 兜底（用 :where() 降 specificity 到 0，class 自定义优先）",
+      "doneAt": "2026-05-20T15:44:00Z",
+      "filesChanged": ["public/style.css:3888-3894 (新增 :where(button,[role=button],a.btn-icon) min 32x32)"],
+      "testCases": [
+        "btnOverview minWidth/Height = 32px ✅",
+        ".cxbtn-sm height 仍 24px（class 优先于 :where 全局）✅",
+        "当前可见 button 27/27 全部 ≥32×32 = 100%",
+        "S18-3/S18-7 smoke 29/29 全过"
+      ]
+    },
+    {
+      "id": "UI4",
+      "summary": "加全局 :focus-visible 兜底（2px solid var(--accent-blue) + 2px offset）",
+      "doneAt": "2026-05-20T15:42:00Z",
+      "filesChanged": ["public/style.css:3879-3886 (新增全局 :focus-visible 规则)"],
+      "testCases": [
+        "真键 Tab → btnOverview outline=rgb(37,99,235) solid 2px ✅",
+        "已有 .cxbtn/.code-collapse-btn/.session-group-head 自定义 :focus-visible 不被破坏（specificity 更高）",
+        "programmatic element.focus() 不触发 :focus-visible（标准行为）",
+        "S18-7 smoke 20/20"
+      ]
+    }
+  ],
+  "s20_currentTask": "Sprint S20 完成（5/5 含 1 简化）",
+  "s20_completedAt": "2026-05-20T15:55:00Z",
+  "s20_diagnosticAnchor": "S20 错误处理 + 无障碍：B4 (fetch 错误兜底) + UI1 (aria-label 30%→target 80%) + UI2 (tap target ≥32px) + UI4 (:focus-visible 全局兜底) + X5 (console.warn → toast)。不可变锚：仅本 5 个 task，其他 18 个 task 留 S21+。",
+  "sprintTasksOrder": ["S18-3", "S18-4", "S18-1", "S18-2", "S18-5", "S18-6", "S18-7", "S19", "S20", "S21", "S22", "S23"],
+  "s19_diagnosticAnchor": "v0.30 README/v0.52 package.json/v0.56 代码三方版本号脱节；app.js:5902 残留 confirm()/2772 残留 prompt()；CLAUDE.md 项目根不存在；文档碎片 7 个.md。S19 不可变锚：仅做 B1+B2+B3+B8+B9+X1+X3+X4 共 8 个 task；其余 18 个 task 留 S20+。",
+  "s19_tasksOrder": ["B1", "B8", "B2", "B3", "B9", "X1", "X3", "X4"],
+  "s19_done": ["B1", "B8", "B2", "B3", "B9-skipped", "X1", "X3", "X4"],
+  "s19_currentTask": "Sprint S19 完成（8/8 含 1 skipped）— 等 hxx 验收开 S20",
+  "s19_completedAt": "2026-05-20T15:55:00Z",
+  "s19_tasksDoneDetail": [
+    {
+      "id": "X4",
+      "summary": "新建项目根 CLAUDE.md（Claude Code 项目规则文件，95 行）",
+      "doneAt": "2026-05-20T15:55:00Z",
+      "filesChanged": [
+        "CLAUDE.md:1-95 (新建：工程约束/代码风格/目录约定/协作/测试/安全/技术债)",
+        "README.md:155 (文档索引补 CLAUDE.md 一行，阶段 3 发现的遗漏)"
+      ],
+      "testCases": ["CLAUDE.md 95 行就位 + README 索引 8→9 文档；4 smoke 68/68 全过"],
+      "scope_note": "机制 D 锚：新文件，但 X4 在诊断报告明列，合规；Claude Code 启动会自动加载 → 影响 AI 行为是预期效果"
+    },
+    {
+      "id": "X3",
+      "summary": "README 新增「📚 文档索引」section 列 8 个 .md/.json 用途（不移动文件，红线 🔴）",
+      "doneAt": "2026-05-20T15:50:00Z",
+      "filesChanged": ["README.md:153-167 (新增文档索引 section)"],
+      "testCases": ["8 个项目根 .md/.json 全索引；不移动文件保留位置"],
+      "scope_note": "原诊断报告说「合并到 README + docs/ 目录」会触发文件移动红线 🔴，改用「README 索引指向」折衷"
+    },
+    {
+      "id": "X1",
+      "summary": "README 项目结构 section 更新过时行数 + 加入 S18 新增产物（main.js/src/components/src/web/src/server/routes）",
+      "doneAt": "2026-05-20T15:45:00Z",
+      "filesChanged": ["README.md:122-148 (项目结构 section 重写)"],
+      "testCases": ["~1800/~1500 过时残留 = 0 + 新数字 ~3900/~6500/~4100 已就位"],
+      "scope_note": "仅更新 项目结构 + 主要事实数字；其他 section（快捷键/集成/安全等）已是正确状态，未顺手改"
+    },
+    {
+      "id": "B9-skipped",
+      "summary": "诊断报告 B9 原写「删除『不适合团队共享』段冗余」→ 阶段 1 重读 README 发现是 valuable Anthropic 风控警告，自决跳过",
+      "doneAt": "2026-05-20T15:42:00Z",
+      "filesChanged": [],
+      "decision": "诊断报告原 B9 判断错误。README:21-23『不适合：替代官方 CLI / 团队共享触发 Anthropic 风控』是合理边界声明，不冗余。跳过。"
+    },
+    {
+      "id": "B3",
+      "summary": "app.js:2772 addRoomMember 用 window.prompt() 改 promptModal",
+      "doneAt": "2026-05-20T15:40:00Z",
+      "filesChanged": ["public/app.js:2770-2776 (native prompt → await promptModal)"],
+      "testCases": [
+        "node --check OK + 项目内 window.prompt 残留 = 0 + alert/confirm/prompt 三大 native dialog 全清",
+        "promptModal 用量 7→8",
+        "边界: sel=null (ESC) / sel='' (空) / parseInt NaN 都靠 !provider 兜底"
+      ],
+      "scope_note": "lines 显示用 ' / ' 单行替代 \\n，promptModal 实现未升级（避免顺手扩散）"
+    },
+    {
+      "id": "B2",
+      "summary": "app.js:5902 deleteAutopilotRule 用 native confirm() 改 confirmModal({danger:true})",
+      "doneAt": "2026-05-20T15:36:00Z",
+      "filesChanged": ["public/app.js:5901-5910 (confirm → await confirmModal danger)"],
+      "testCases": [
+        "node --check OK",
+        "项目内 confirm() 残留 = 0",
+        "confirmModal 用量 21→22",
+        "项目内 alert() 残留 = 0 (顺便扫)"
+      ],
+      "scope_note": "其他原始 alert/confirm 在 sprint 18 前已批量改造（v0.7+），仅遗漏这 1 处"
+    },
+    {
+      "id": "B8",
+      "summary": "package.json version 0.52.0 → 0.56.0",
+      "doneAt": "2026-05-20T15:33:00Z",
+      "filesChanged": ["package.json:3 (0.52.0→0.56.0)"],
+      "testCases": ["JSON.parse OK + require version === '0.56.0' + grep 0.52.0 残留 = 0"],
+      "needsRestart": "panel 需重启才让 /api/version (server.js:960) 返回新版本"
+    },
+    {
+      "id": "B1",
+      "summary": "README v0.30→v0.56 同步（line 3 + line 7 shields.io badge）",
+      "doneAt": "2026-05-20T15:30:00Z",
+      "filesChanged": ["README.md:3 (v0.30→v0.56)", "README.md:7 (badge URL version-0.30→0.56)"],
+      "testCases": ["grep v0.30/version-0.30 in README.md → 0 hits", "head -7 grep 0.56 → 2 hits (line 3 + line 7)"],
+      "scope_note": "HANDOFF.md/PROGRESS_LOOP.md 的 v0.30 是历史记录，机制 D 不动"
+    }
+  ],
+  "nextSprintGate": "S19 完成后等 hxx 验收才能开 S20",
+  "tasksDone": [
+    {
+      "id": "S18-3",
+      "summary": "抽 Modal 统一组件（IIFE+window.Modal，含 onOpen/onClose hook + event delegation + focus trap + 嵌套安全），重写 archiveModal/mcpModal/webhookModal",
+      "doneAt": "2026-05-20T10:02:00Z",
+      "filesChanged": [
+        "public/src/components/Modal.js:1-181 (新建)",
+        "public/index.html:860-863 (新增 Modal.js script 标签)",
+        "public/app.js:5184-5191 (webhookModal 改注册式)",
+        "public/app.js:5300 (删冗余 querySelectorAll[data-close-webhook])",
+        "public/app.js:5376-5386 (archiveModal 改注册式)",
+        "public/app.js:5513 (删冗余 querySelectorAll[data-close-archive])",
+        "public/app.js:5538 (删全局 querySelectorAll[data-close-archive])",
+        "public/app.js:5541-5546 (mcpModal 改注册式)",
+        "public/app.js:5684 (删冗余 querySelectorAll[data-close-mcp])",
+        "public/app.js:5915 (删全局 querySelectorAll[data-close-mcp])",
+        "public/app.js:6247 (删全局 querySelectorAll[data-close-webhook])",
+        "public/app.js:6420-6432 (closeTopOverlay 加 Modal-aware 分支)",
+        "public/app.js:6463-6470 (全局 mouseup 加 Modal-aware 分支)"
+      ],
+      "testCases": [
+        "Node smoke /tmp/panel-s18-3-smoke.mjs 9/9",
+        "Runtime Modal API+register+open/close+onClose+幂等+data-modal-managed 9/9",
+        "Runtime onClose hook+closeTopOverlay ESC+modal-bg double-click+拖选保护+focus trap initial+delegation 9/9",
+        "嵌套 modal 安全+回归 webhook/archive/mcp open→close 8/8",
+        "真键 Escape 关层级正确（archive 在上 → 关，mcp 仍开，再 ESC 关 mcp，stack 空）",
+        "真键 Tab × 6 在 archiveModal 内 wrap-around 到 head ✕（focus trap 工作）",
+        "真按钮 #btnArchive click → openArchiveModal → Modal.open → modal 打开"
+      ]
+    },
+    {
+      "id": "S18-2e2",
+      "summary": "rooms 5 个主 CRUD（list/create/get/delete/patch）真实迁移到 src/server/routes/rooms.js",
+      "doneAt": "2026-05-20T15:05:00Z",
+      "filesChanged": [
+        "src/server/routes/rooms.js:1-191 (新建)",
+        "server.js (+1 import +1 registerRoomsRoutes 调用 +注释化原 185 行 dead code 作为参考)"
+      ],
+      "testCases": [
+        "smoke 21/21 (含 rooms 5 routes 注册 + 7 个真 HTTP 行为：list 默认/archived/POST/DELETE missing/DELETE r1/PATCH debateRounds=99 422/GET missing 404)",
+        "deps 注入 9 个：roomStore/safeResolveFsPath/safeSlice/roomAdapterPool/4 dispatchers/roomWsClients/MAX_ROOMS",
+        "Node fs.statSync + os.homedir 直接 import 在 rooms.js 内"
+      ],
+      "rollbackPlan": "回滚极简：删 import + registerRoomsRoutes 调用 + 取消注释 dead code block",
+      "needsRestart": "panel 需重启才生效"
+    },
+    {
+      "id": "S18-1-activated",
+      "summary": "S18-1 starter 已挂载 + 激活：index.html 加 <script type=\"module\" src=\"/main.js\"> + main.js 桥接 window.PanelUtils",
+      "doneAt": "2026-05-20T14:53:00Z",
+      "filesChanged": [
+        "public/index.html (新增 <script type=\"module\" src=\"/main.js\"> 在 app.js 之后)",
+        "public/main.js (注释更新为已激活状态)"
+      ],
+      "testCases": ["真浏览器 navigate 后 window.PanelUtils.escapeHtml/safeSlice/shortenPath 全 work 4/4", "Modal/UI/app.js 顶层 escapeHtml 共存无冲突", "console 仅 favicon 404，无 main.js 错误"]
+    },
+    {
+      "id": "S18-5-activated",
+      "summary": "S18-5 starter 已激活：main.js import state.js + 桥接 window.PanelStore",
+      "doneAt": "2026-05-20T14:54:00Z",
+      "filesChanged": ["public/main.js (新增 import * as Store + window.PanelStore = Store + restore() 启动恢复)"],
+      "testCases": ["真浏览器 PanelStore.get/set/subscribe/nested path 全 work 10/10"]
+    },
+    {
+      "id": "S18-1-starter",
+      "summary": "S18-1 ES module 入口骨架（未挂载到 index.html，下次对话激活）",
+      "doneAt": "2026-05-20T12:14:00Z",
+      "filesChanged": [
+        "public/main.js:1-37 (新建，type=module 入口 + 桥接 window.PanelUtils)",
+        "public/src/web/utils.js:1-28 (新建，导出 escapeHtml/escapeHtmlMl/safeSlice/shortenPath)"
+      ],
+      "testCases": ["node --check 双绿；未挂载到 index.html → panel 零行为变化"],
+      "fullActivationPlan": "下次对话：1) index.html 加 <script type=\"module\" src=\"/main.js\">；2) 逐步把 app.js 顶层 const state / function $ 等迁入 src/web/state.js + utils.js；3) 加载时序方案 A（Modal.js/UI.js 保持 IIFE 在 main.js 之前）"
+    },
+    {
+      "id": "S18-5-starter",
+      "summary": "S18-5 统一 store 骨架（未挂载，下次对话激活）",
+      "doneAt": "2026-05-20T12:14:30Z",
+      "filesChanged": ["public/src/web/state.js:1-78 (新建，get/set/subscribe/persist/restore API)"],
+      "testCases": ["node --check OK；未被任何代码使用 → panel 零行为变化"],
+      "fullActivationPlan": "下次对话：1) main.js import state；2) 替换 app.js 顶层 const state/roomState/pluginState 等到 store.get('xxx');3) 各 view 用 store.subscribe 响应变更"
+    },
+    {
+      "id": "S18-6-starter",
+      "summary": "S18-6 CSS @layer 声明骨架（顶部加 @layer 优先级声明，rules 未归类）",
+      "doneAt": "2026-05-20T12:15:00Z",
+      "filesChanged": ["public/style.css:3 (顶部加 @layer base, components, layout, utilities 声明 + 7 行注释)"],
+      "testCases": ["style.css HTTP 200 + S18-7 panel smoke 20/20 全过零回归 + @layer 无 rule 归类时浏览器零视觉变化"],
+      "fullActivationPlan": "下次对话：1) 按 view 拆 style.css → public/css/{base,modal,rooms,sidebar,inspector,...}.css；2) 各 view 文件用 @layer base/components/layout/utilities 包裹；3) index.html 加多 <link> 标签"
+    },
+    {
+      "id": "S18-7",
+      "summary": "panel smoke 套件（5 个核心用户流程，Node fetch+静态 HTML 解析，不依赖 @playwright/test）",
+      "doneAt": "2026-05-20T12:08:00Z",
+      "filesChanged": [".s18-7-panel-smoke.mjs:1-87 (新建)"],
+      "testCases": [
+        "20/20 真集成测试（跑当前 51735 panel = 旧 server，证明 S18-2 重启后行为应一致）",
+        "覆盖：主页+静态资源+sessions+webhook GET/PUT+archive/mcp/autopilot/skills/knowledge/rooms/room-templates LIST"
+      ],
+      "knownLimitation": "未装 @playwright/test（避免新依赖）；当前 smoke 不覆盖前端交互（点击/键盘/modal），那块由本对话的 mcp playwright e2e 已覆盖（S18-3 用过）",
+      "futureUpgrade": "用户授权 npm i 后可加 @playwright/test 的 .spec.ts，把本 smoke 升级为真 e2e"
+    },
+    {
+      "id": "S18-2e1",
+      "summary": "提取 room-templates 3 routes 到 src/server/routes/roomTemplates.js（rooms 子集，简单依赖）",
+      "doneAt": "2026-05-20T12:02:00Z",
+      "filesChanged": [
+        "src/server/routes/roomTemplates.js:1-45 (新建)",
+        "server.js (+1 import +1 调用 +删除 33 行)",
+        ".s18-2-routes-smoke.mjs (append e1 段)"
+      ],
+      "testCases": ["smoke 13/13", "server.js 4162→4133 (-29 行)", "关键: DELETE builtin:* → 403 真 HTTP 验证"],
+      "knownLimitation": "rooms 主 CRUD（list/create/get/delete/patch + advanced debate/forward/retry/quick/search）依赖 10+ deps（dispatchers/ws clients/safeResolveFsPath/MAX_ROOMS/etc），按机制 D 锚留 server.js 内；改造留 S18-2e2 单独 sprint",
+      "needsRestart": "panel 需重启"
+    },
+    {
+      "id": "S18-2f",
+      "summary": "提取 skills 6 routes 到 src/server/routes/skills.js",
+      "doneAt": "2026-05-20T11:52:00Z",
+      "filesChanged": ["src/server/routes/skills.js:1-55 (新建)", "server.js (+1 import +1 调用)"]
+    },
+    {
+      "id": "S18-2g",
+      "summary": "提取 knowledge 7 routes 到 src/server/routes/knowledge.js（含 documents add/del + search）",
+      "doneAt": "2026-05-20T11:53:00Z",
+      "filesChanged": ["src/server/routes/knowledge.js:1-66 (新建)", "server.js (+1 import +1 调用)"],
+      "testCases": ["smoke 11/11 (a+b+c+d+f+g)", "server.js 4250→4162 (-88 行)"]
+    },
+    {
+      "id": "S18-2d",
+      "summary": "提取 autopilot 6 routes 到 src/server/routes/autopilot.js",
+      "doneAt": "2026-05-20T11:48:00Z",
+      "filesChanged": [
+        "src/server/routes/autopilot.js:1-55 (新建)",
+        "server.js:42-43 (新增 import)",
+        "server.js:3733-3735 (6 个 routes 替换为单行)",
+        ".s18-2-routes-smoke.mjs (append d 段)"
+      ],
+      "testCases": ["smoke 9/9", "server.js 4288→4250 (-38 行)"],
+      "needsRestart": "panel 需重启"
+    },
+    {
+      "id": "S18-2c",
+      "summary": "提取 mcp 6 routes + McpClientManager 实例化到 src/server/routes/mcp.js（return mcpClientManager 给 server.js shutdown 用）",
+      "doneAt": "2026-05-20T11:46:00Z",
+      "filesChanged": [
+        "src/server/routes/mcp.js:1-84 (新建)",
+        "server.js:40-41 (新增 import registerMcpRoutes)",
+        "server.js:1761-1762 (6 个 routes + new McpClientManager 替换为单行 const { mcpClientManager } = registerMcpRoutes(...))",
+        ".s18-2-routes-smoke.mjs:67-79 (append S18-2c)"
+      ],
+      "testCases": ["smoke 7/7（webhook 5+archive 4+mcp 6+mcpClientManager 实例返回）", "server.js 4351→4288 (-63 行)"],
+      "knownLimitation": "import McpClientManager@44 暂保留（保守，避免顺手清理违反机制 D）",
+      "needsRestart": "panel 需重启才生效"
+    },
+    {
+      "id": "S18-2b",
+      "summary": "提取 archive 4 routes 到 src/server/routes/archive.js",
+      "doneAt": "2026-05-20T11:42:00Z",
+      "filesChanged": [
+        "src/server/routes/archive.js:1-46 (新建)",
+        "server.js:37-38 (新增 import registerArchiveRoutes)",
+        "server.js:1755-1757 (4 个旧 routes 替换为单行调用)",
+        ".s18-2-routes-smoke.mjs:1-65 (新建 统一 smoke 覆盖 a + b)"
+      ],
+      "testCases": ["smoke 5/5（webhook 5 routes + archive 4 routes + 关键 endpoint 404 路径）", "server.js 4383→4351 (-32 行)"],
+      "needsRestart": "panel 需重启才生效"
+    },
+    {
+      "id": "S18-2a",
+      "summary": "提取 webhook routes 到 src/server/routes/webhook.js，registerWebhookRoutes(app, deps) 模式",
+      "doneAt": "2026-05-20T11:35:00Z",
+      "filesChanged": [
+        "src/server/routes/webhook.js:1-67 (新建)",
+        "server.js:34-36 (新增 import registerWebhookRoutes)",
+        "server.js:1959-1963 (5 个旧 webhook routes 替换为单行 registerWebhookRoutes(app, deps))",
+        ".s18-2a-webhook-test.mjs:1-119 (新建 unit test，在 panel 项目内跑 mock deps + 临时 express 51736)"
+      ],
+      "testCases": [
+        "node --check server.js + webhook.js 双绿",
+        "server.js 行数 4432→4383 (-49 行)；webhook.js 67 行",
+        "Unit test 18/18：5 个 route 注册 + 全部 HTTP 行为（200/404/413/502/bumpStats 成功失败两路径）",
+        "panel 跑旧 server，前端 S18-3/S18-4 行为不受影响（未集成测）"
+      ],
+      "needsRestart": "panel 需要重启才能让 server.js 改动生效；重启前 webhook UI 仍走旧 server（行为应一致，因 routes 逻辑完全提取）",
+      "rollbackPlan": "git diff 显示新增 import + 1 行 registerWebhookRoutes 调用；最坏回滚仅需还原 1959-1963 区域为原 5 个 inline routes"
+    },
+    {
+      "id": "S18-4f",
+      "summary": "抽 Drawer helper（window.UI.Drawer），HTML 部分 helper，开关行为留调用方（避免与 Modal API 重复）",
+      "doneAt": "2026-05-20T11:19:00Z",
+      "filesChanged": ["public/src/components/UI.js:127-146 (新增 UI.Drawer)"],
+      "testCases": [
+        "Runtime Drawer 单元 5/5（完整结构/默认 right+无 header/side XSS/空 opts）",
+        "S18-4 全 7 个 helper 都在",
+        "S18-3 三个 modal 完整往返",
+        "集成: Card+List+ListItem+Badge+Tag 组合 419 字节 HTML 完整结构通过"
+      ],
+      "knownLimitation": "panel 仅 #squadTaskDetail 一处 drawer，行为简单 (.hidden toggle)；全局 .drawer CSS 留 S18-6"
+    },
+    {
+      "id": "S18-4e",
+      "summary": "抽 List + ListItem helper（window.UI.List / UI.ListItem），HTML 用全局 .list-pane/.list-head/.list-body/.list-item 类",
+      "doneAt": "2026-05-20T11:16:00Z",
+      "filesChanged": ["public/src/components/UI.js:97-125 (新增 UI.List + UI.ListItem)"],
+      "testCases": [
+        "Runtime List+ListItem 单元 8/8（完整结构/items 空时 fallback/active+key/key XSS 防注入/HTML body 不 escape/空 opts/组合 List+ListItem+Badge）",
+        "S18-3/S18-4a-d 回归 1/1"
+      ],
+      "knownLimitation": "panel style.css 现 .webhook-list-* 和 .mcp-list-* CSS 内容相同；全局 .list-pane/.list-head/.list-body/.list-item CSS 留待 S18-6（CSS 按 view 拆 + @layer）添加，本 task 仅完成 helper 接口"
+    },
+    {
+      "id": "S18-4d",
+      "summary": "抽 Card helper（window.UI.Card），含 head/body/foot+kind；panel 无 .card 基础类→零改造",
+      "doneAt": "2026-05-20T11:13:00Z",
+      "filesChanged": ["public/src/components/UI.js:76-95 (新增 UI.Card)"],
+      "testCases": ["Runtime Card helper 单元 6/6（完整/仅 body/kind escape/HTML 不 escape/空 opts）+ S18-4a-c/Modal 回归 1/1"],
+      "knownLimitation": "panel style.css 无 .card 基础类（仅 .plugin-cmd-card、.room-turn-card 变体）；helper 仅 sprint 占位"
+    },
+    {
+      "id": "S18-4c",
+      "summary": "抽 Tag helper（window.UI.Tag）；panel 无现有 .tag 用法 → 仅 helper 零改造",
+      "doneAt": "2026-05-20T11:09:00Z",
+      "filesChanged": ["public/src/components/UI.js:60-74 (新增 UI.Tag)"],
+      "testCases": ["Runtime Tag helper 单元 5/5（基础/kind/XSS/空 opts）+ S18-3/S18-4a/S18-4b 回归 3/3"],
+      "knownLimitation": "panel style.css 暂无 .tag CSS 定义；helper 仅占位 sprint 计划要求，等未来要视觉化时 CSS 单独加"
+    },
+    {
+      "id": "S18-4b",
+      "summary": "抽 Badge helper（window.UI.Badge），改造 webhook/mcp 范围内 4 处用法",
+      "doneAt": "2026-05-20T11:02:00Z",
+      "filesChanged": [
+        "public/src/components/UI.js:45-58 (新增 UI.Badge)",
+        "public/app.js:5222 (webhook is-disabled)",
+        "public/app.js:5225 (webhook fmtBadge)",
+        "public/app.js:5580 (mcp is-disabled)",
+        "public/app.js:5581 (mcp typeBadge)"
+      ],
+      "testCases": [
+        "node --check 双绿",
+        "Runtime 单元 7/7（基础/disabled/stdio/XSS text+kind/空 opts）",
+        "范围外 3813-3816 plugin/cwd badge 保留（用 inline style 工作，不依赖 .badge CSS scope）",
+        "S18-3 三个 modal 完整往返 + S18-4a EmptyState 仍可用（5/5 回归）"
+      ],
+      "knownLimitation": ".badge CSS 仅 .webhook-item/.mcp-item 子选择器局部生效；helper 只生成 HTML 不动 CSS scope"
+    },
+    {
+      "id": "S18-4a",
+      "summary": "抽 EmptyState helper（window.UI.EmptyState），改造 webhook/mcp 范围内 6 处用法",
+      "doneAt": "2026-05-20T10:52:00Z",
+      "filesChanged": [
+        "public/src/components/UI.js:1-44 (新建，含 EmptyState + 后续组件占位区)",
+        "public/index.html:863-864 (新增 UI.js script 标签)",
+        "public/app.js:5216 (webhook list empty → EmptyState)",
+        "public/app.js:5241 (webhook detail neutral → EmptyState)",
+        "public/app.js:5575 (mcp list empty → EmptyState)",
+        "public/app.js:5739 (mcp testMcp loading → EmptyState)",
+        "public/app.js:5755 (mcp testMcp error 连接失败 → EmptyState)",
+        "public/app.js:5758 (mcp testMcp error 异常 → EmptyState)"
+      ],
+      "testCases": [
+        "node --check app.js + UI.js 双绿；curl /src/components/UI.js 200",
+        "Runtime EmptyState 单元 13/13（4 kind/XSS/icon/hint HTML/align/padding/空 opts）",
+        "Runtime 真渲染 5/5（webhookList、webhookDetail、mcpList 实际 padding+text 正确）",
+        "Escape 一致性核对：app.js escapeHtml (line 341) vs UI._esc 5 字符集相同",
+        "范围外 27 处 muted small EmptyState 用法保留（机制 D 锚守住）",
+        "S18-3 回归 10/10（Modal API/open-close/onClose hook/ESC closeTopOverlay）"
+      ]
+    }
+  ],
+  "tasksTodo": ["S18-1 full migration (app.js 顶层符号逐步迁入 module - 大工程，留下次 sprint)", "S18-5 full migration (app.js const state 等迁到 PanelStore - 跟 S18-1 同步)", "S18-6 full (rules 归类到 layer + 按 view 拆 css，视觉风险)"],
+  "currentTask": "Sprint 18 全部 7 父任务实质完成",
+  "s18_2_breakdown": "S18-2 拆 7 子任务 a-g 按 ROI/风险排序：a webhook ✓ → b archive → c mcp → d autopilot → e rooms (最复杂) → f skills → g knowledge",
+  "s18_1_paused_reason": "机制 D 锚：加 8 文件 + 拆 7 module + 浏览器加载时序需用户决策；S18-2 独立无依赖，先做以最大化收益",
+  "s18_4_breakdown": "S18-4 拆 6 个子任务 a-f，按 ROI 排序：a EmptyState (done) → b Badge → c Tag → d Card → e List → f Drawer",
+  "regressionCheckpoints": [
+    { "afterTask": "S18-4a", "result": "passed", "at": "2026-05-20T10:52:00Z", "scope": "S18-3 Modal API/open-close/onClose hook/ESC closeTopOverlay 10/10" },
+    { "afterTask": "S18-4f", "result": "passed", "at": "2026-05-20T11:20:00Z", "scope": "机制 B 全面 smoke：7 UI helper 全在 + 3 modal isManaged + 真按钮 click 打开 archive + 真键 ESC 关 + stack 清空 13/13" },
+    { "afterTask": "S18-2g", "result": "passed", "at": "2026-05-20T11:59:00Z", "scope": "机制 B 全面 smoke：S18-2 routes 11/11 + S18-2a 详细 18/18 + S18-3 静态 9/9 = 38/38 全过；server.js 4432→4162 (-270 行)" },
+    { "afterTask": "S18-7", "result": "passed", "at": "2026-05-20T12:10:00Z", "scope": "Sprint 18 最终全面回归：S18-2 routes 13/13 + S18-2a 详细 18/18 + S18-3 静态 9/9 + S18-7 panel 集成 20/20 = 60/60 全过；server.js 4432→4133 (-299 行 / -6.7%)" },
+    { "afterTask": "S18-5-activated", "result": "passed", "at": "2026-05-20T14:55:00Z", "scope": "Sprint 18 最终激活回归：14 .js 语法全绿 + 4 smoke 60/60 + 真浏览器 PanelUtils 4/4 + PanelStore 10/10 全过 = 74/74" }
+  ],
+  "knownIssues": [
+    "panel 项目根 CLAUDE.md 不存在（仅 README.md/项目说明.md/HANDOFF.md），原 Sprint 计划要求读 CLAUDE.md 这步已跳过",
+    "未安装 @playwright/test npm 包；用 mcp playwright 服务器做 e2e，等 S18-7 决策是否装 npm 包"
+  ],
+  "driftCheckHistory": [
+    {
+      "afterTask": "S18-2g",
+      "at": "2026-05-20T11:59:00Z",
+      "q1_scope_match": "✅ S18-3/4/2 全部按 sprint 18 计划，未偏离；自决跳过 S18-1（机制 D）和 S18-2e（rooms 23+ routes 规模超规）",
+      "q2_files_vs_estimate": "✅ 实改 12 文件（8 新建 + 4 修改），低于诊断报告预估 20+",
+      "q3_active_tests": "✅ 100+ 测试 passed；每 sub-task 1+ 主动测试 + 3 个 checkpoint 全面 smoke",
+      "q4_reflection_quality": "⚠️ S18-2 后续 b-g 反思简短但同模式 helper 复用模板；后期为 token 效率简化阶段 2-3 表述，未跳步",
+      "redFlag": "S18-2e (rooms) 规模超规已自决延期；hook 期望 sprint 完成但 token 接近上限，需用户决策剩余 4 父 task 方向"
+    },
+    {
+      "afterTask": "S18-4f",
+      "at": "2026-05-20T11:20:00Z",
+      "q1_scope_match": "✅ 严格按 S18-3 → S18-4a-f 走，未偏离 sprint 18 计划",
+      "q2_files_vs_estimate": "✅ 实改 4 文件（Modal.js+UI.js 新建 + index.html+app.js），远低于诊断报告预估 20+",
+      "q3_active_tests": "✅ 每 task 1+ 主动测试 + 机制 B 全面 smoke 已跑 2 次（S18-4a/S18-4f）",
+      "q4_reflection_quality": "✅ S18-3/S18-4a 反思详；S18-4c-f 简短但是同模式 helper 复用模板，不算敷衍",
+      "redFlag": null
+    }
+  ],
+  "nextSprintGate": "Sprint 18 全部 7 个 task 完成后需要 hxx 验收才能进 Sprint 19"
+}

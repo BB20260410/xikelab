@@ -1,0 +1,42 @@
+{
+  "id": "gemini-cli",
+  "displayName": "🔷 Gemini CLI",
+  "version": "1.0.0",
+  "icon": "🔷",
+  "type": "spawn",
+
+  "bin": {
+    "cmd": "gemini",
+    "check": "which gemini",
+    "fallback": "~/.npm-global/bin/gemini",
+    "env": "GEMINI_BIN"
+  },
+
+  "input": { "mode": "stdin", "encoding": "utf-8" },
+
+  "output": { "mode": "stream", "parser": "raw" },
+
+  "commands": [
+    {
+      "id": "chat",
+      "name": "Chat (gemini stdin)",
+      "description": "One-shot chat: prompt from stdin, reply on stdout. @google/gemini-cli 0.42+.",
+      "args": [],
+      "params": [
+        { "name": "model", "type": "string", "maxLen": 80 }
+      ]
+    }
+  ],
+
+  "events": { "source": "stdout", "schema": "raw" },
+
+  "sandbox": {
+    "cwdScope": "home-tree",
+    "envWhitelist": ["LANG", "LC_ALL", "PATH", "HOME", "USER"],
+    "timeoutMs": 240000
+  },
+
+  "extra": {
+    "modelArg": "-m"
+  }
+}

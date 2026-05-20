@@ -1,0 +1,43 @@
+{
+  "id": "claude",
+  "displayName": "🟣 Claude",
+  "version": "1.0.0",
+  "icon": "🟣",
+  "type": "spawn",
+
+  "bin": {
+    "cmd": "claude",
+    "check": "which claude",
+    "fallback": "~/.npm-global/bin/claude",
+    "env": "CLAUDE_BIN"
+  },
+
+  "input": { "mode": "stdin", "encoding": "utf-8" },
+
+  "output": { "mode": "stream", "parser": "raw" },
+
+  "commands": [
+    {
+      "id": "chat",
+      "name": "Chat (--print)",
+      "description": "One-shot chat: read prompt from stdin, print reply to stdout.",
+      "args": ["--print", "--dangerously-skip-permissions"],
+      "params": [
+        { "name": "model", "type": "string", "maxLen": 80 }
+      ]
+    }
+  ],
+
+  "events": { "source": "stdout", "schema": "raw" },
+
+  "sandbox": {
+    "cwdScope": "home-tree",
+    "envWhitelist": ["LANG", "LC_ALL", "PATH", "HOME", "USER"],
+    "timeoutMs": 240000
+  },
+
+  "extra": {
+    "modelArg": "--model",
+    "extraArgs": ["--dangerously-skip-permissions"]
+  }
+}

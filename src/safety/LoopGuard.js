@@ -15,7 +15,6 @@ export class LoopGuard {
     this.cfg = { ...DEFAULT_LOOP_GUARD_CONFIG, ...config };
     this.stepsThisTask = 0;
     this.recentInstructions = [];
-    this.recentCosts = [];
     this.recentFileChanges = [];
   }
 
@@ -39,13 +38,15 @@ export class LoopGuard {
     return null;
   }
 
-  recordCost(usd) {
-    const now = Date.now();
-    this.recentCosts.push({ usd, at: now });
-    this.recentCosts = this.recentCosts.filter(c => now - c.at < this.cfg.costSurgeWindowMs);
-    const sum = this.recentCosts.reduce((s, c) => s + c.usd, 0);
-    if (sum > this.cfg.costSurgeThresholdUSD) {
-      return { type: 'cost_surge', usdInWindow: Math.round(sum * 100) / 100, threshold: this.cfg.costSurgeThresholdUSD };
+  recordCost(usdInWindow) {
+    // v0.49 N-36 fix: caller 传的是 CostTracker.windowUSD(5min)——已经是窗口累计值，
+    // 这里直接和阈值比，不再 push+reduce（之前双重累计：累计窗口 × 调用次数）
+    if (usdInWindow > this.cfg.costSurgeThresholdUSD) {
+      return {
+        type: 'cost_surge',
+        usdInWindow: Math.round(usdInWindow * 100) / 100,
+        threshold: this.cfg.costSurgeThresholdUSD,
+      };
     }
     return null;
   }
@@ -69,7 +70,6 @@ export class LoopGuard {
     return {
       stepsThisTask: this.stepsThisTask,
       recentInstructionsCount: this.recentInstructions.length,
-      windowCostUSD: this.recentCosts.reduce((s, c) => s + c.usd, 0),
       churnedFiles: this.recentFileChanges.length,
       config: this.cfg,
     };

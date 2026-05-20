@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Claude Panel</title>
+<title>Claude 控制台</title>
 <link rel="stylesheet" href="/style.css" />
 <!-- v0.23 xterm.js CDN -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
@@ -20,12 +20,23 @@
     <div class="brand">
       <div class="brand-icon">✦</div>
       <div class="brand-text">
-        <div class="brand-title" id="brandTitle">Claude Panel</div>
+        <div class="brand-title" id="brandTitle">Claude 控制台</div>
         <div class="brand-subtitle" id="brandSubtitle">多会话管理 · v…</div>
       </div>
+    </div>
+    <div class="brand-actions">
+      <button class="theme-toggle" id="btnOverview" title="所有房状态汇总 + token 趋势 + adapter 性能横比 + 资源健康（v0.53 Sprint 3）" aria-label="打开总览面板">📊</button>
       <button class="theme-toggle" id="btnTerminal" title="在 panel 内打开真终端（PTY，可跑 claude / git / 任意命令）" aria-label="打开内嵌终端">💻</button>
+      <button class="theme-toggle" id="btnRooms" title="多 AI 聊天室：Claude/GPT/MiniMax 协同 debate 出最优方案" aria-label="打开聊天室">💬</button>
+      <button class="theme-toggle" id="btnPlugins" title="通用 CLI Plugin 中心：装 PraisonAI / iOS 工具链 / AutoGen 等任意 CLI（v0.52 W2）" aria-label="打开 Plugin 中心">🧩</button>
+      <button class="theme-toggle" id="btnRoomAdapters" title="配置房间 adapter：MiniMax / Gemini API / Gemini CLI / 自定义 OpenAI 兼容" aria-label="配置 adapter">⚙️</button>
+      <button class="theme-toggle" id="btnWebhooks" title="🔔 Webhook 出站推送：房间完成/失败/暂停时推 Discord/Slack/自定义 URL" aria-label="配置 Webhook">🔔</button>
+      <button class="theme-toggle" id="btnArchive" title="📂 聊天归档：每次房间完成自动写 markdown 到目录，按时间/房名分类" aria-label="配置归档">📂</button>
+      <button class="theme-toggle" id="btnMcp" title="🔌 MCP 服务器：让房成员调用任意 MCP server 的 tool（filesystem / github / playwright / 自定义）" aria-label="配置 MCP">🔌</button>
+      <button class="theme-toggle" id="btnAutopilot" title="🤖 Autopilot 自驾：房完成/出错时按规则自动 forward / notify（默认关）" aria-label="配置 Autopilot">🤖</button>
       <button class="theme-toggle" id="btnLoginClaude" title="在外部 Terminal 跑 claude /login（OAuth 浏览器跳转）" aria-label="登录 Claude Code">🔐</button>
       <button class="theme-toggle" id="themeToggle" title="切换暗/亮主题 (⌘D)" aria-label="切换暗亮主题">🌓</button>
+      <button class="theme-toggle" id="btnInspectorToggle" title="折叠/展开右侧 inspector 面板" aria-label="折叠右侧面板">⇥</button>
     </div>
 
     <button class="btn-new" id="btnNew">
@@ -42,21 +53,104 @@
       <div class="archived-list" id="archivedList" style="display:none;" role="list"></div>
     </div>
 
-    <div class="sidebar-foot">
-      <div class="hint">参考 Codex UI</div>
-    </div>
   </aside>
 
   <main class="main">
     <header class="main-header" id="mainHeader">
       <div class="empty-state">
         <div class="empty-icon">✦</div>
-        <h2>欢迎使用 Claude Panel</h2>
-        <p>左侧「＋ 新建会话」开始管理多个 Claude Code 实例。</p>
-        <p class="hint-text">⌘N 新建 · ⌘1..9 切换 · ⌘↵ 发送</p>
+        <h2>欢迎使用 Claude 控制台</h2>
+        <p>选一个直接开始 ↓</p>
+
+        <div class="empty-cta-grid">
+          <button class="cta-card" data-cta="rooms-chat" title="一个 AI 跟你 1v1 持续对话（最简单）">
+            <div class="cta-icon">💬</div>
+            <div class="cta-title">单模型聊天</div>
+            <div class="cta-desc">1v1 持续对话<br/>最简模式</div>
+          </button>
+          <button class="cta-card" data-cta="rooms-debate" title="多个 AI 多轮辩论：独立提案 → 互评修订 → 终稿表态 → 主持人合成共识">
+            <div class="cta-icon">🥊</div>
+            <div class="cta-title">多模型辩论</div>
+            <div class="cta-desc">提案 → 互评 → 共识<br/>头脑风暴</div>
+          </button>
+          <button class="cta-card" data-cta="rooms-squad" title="AI 团队拆活：PM 拆任务 → Dev 并行实现 → QA 审查 → 不过自动返工">
+            <div class="cta-icon">👥</div>
+            <div class="cta-title">AI 团队拆活</div>
+            <div class="cta-desc">PM 拆 → Dev → QA<br/>项目落地</div>
+          </button>
+          <button class="cta-card" data-cta="rooms-arena" title="多 AI 背对背给方案，Judge 联网核实事实后合成最优答案">
+            <div class="cta-icon">🌐</div>
+            <div class="cta-title">联网核对</div>
+            <div class="cta-desc">多 AI + Judge 联网<br/>事实验证</div>
+          </button>
+          <button class="cta-card" data-cta="new-session" title="在 panel 内启动一个新的 Claude Code session（PTY 多会话管理）">
+            <div class="cta-icon">＋</div>
+            <div class="cta-title">新建 Claude 会话</div>
+            <div class="cta-desc">PTY 跑 claude<br/>多会话管理</div>
+          </button>
+          <button class="cta-card" data-cta="terminal" title="在 panel 内打开真终端（PTY，可跑任意命令）">
+            <div class="cta-icon">💻</div>
+            <div class="cta-title">内嵌终端</div>
+            <div class="cta-desc">PTY 跑任意命令<br/>git/claude/等</div>
+          </button>
+        </div>
+
+        <p class="hint-text">或键盘：<kbd>⌘N</kbd> 新建会话 · <kbd>⌘K</kbd> 命令面板 · <kbd>⌘?</kbd> 看完整快捷键</p>
       </div>
     </header>
     <!-- v0.23 内嵌真终端 panel -->
+    <!-- v0.53 Sprint 3: 总览面板 -->
+    <div class="overview-area" id="overviewArea" style="display:none;">
+      <div class="overview-header">
+        <span class="overview-title">📊 总览面板</span>
+        <span class="overview-subtitle">房间状态 · token 趋势 · adapter 横比 · 资源健康</span>
+        <div class="overview-actions">
+          <label class="overview-range-label">时间窗：
+            <select id="overviewRangeSelect">
+              <option value="24h">最近 24 小时</option>
+              <option value="7d" selected>最近 7 天</option>
+              <option value="30d">最近 30 天</option>
+            </select>
+          </label>
+          <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnOverviewRefresh" title="立即刷新">⟳ 刷新</button>
+          <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="btnOverviewBack">← 返回</button>
+        </div>
+      </div>
+      <div class="overview-grid">
+        <section class="overview-card overview-rooms" id="ovBlockA">
+          <div class="overview-card-title">🏠 房间状态</div>
+          <div class="overview-rooms-numbers" id="ovRoomsNumbers"></div>
+          <div class="overview-active-rooms-label">活跃房间</div>
+          <div class="overview-active-rooms" id="ovActiveRooms"></div>
+        </section>
+        <section class="overview-card overview-timeseries" id="ovBlockB">
+          <div class="overview-card-title">📈 Token 趋势</div>
+          <div class="overview-ts-stats" id="ovTsStats"></div>
+          <canvas class="overview-chart-canvas" id="ovChartTimeseries"></canvas>
+        </section>
+        <section class="overview-card overview-byadapter" id="ovBlockC">
+          <div class="overview-card-title">⚖️ Adapter 横比
+            <span class="overview-card-sub">
+              <select id="ovByAdapterMetric" class="overview-metric-select">
+                <option value="totalTokens" selected>总 tokens</option>
+                <option value="totalCostUSD">总成本 USD</option>
+                <option value="avgLatencyMs">平均延迟 ms</option>
+                <option value="successRate">成功率</option>
+                <option value="count">调用次数</option>
+              </select>
+            </span>
+          </div>
+          <canvas class="overview-chart-canvas" id="ovChartByAdapter"></canvas>
+          <div class="overview-byadapter-note" id="ovByAdapterNote"></div>
+        </section>
+        <section class="overview-card overview-health" id="ovBlockD">
+          <div class="overview-card-title">❤️‍🩹 资源健康</div>
+          <div class="overview-health-stats" id="ovHealthStats"></div>
+          <div class="overview-health-warnings" id="ovHealthWarnings"></div>
+        </section>
+      </div>
+    </div>
+
     <div class="term-area" id="termArea" style="display:none;">
       <div class="term-header">
         <span class="term-title">💻 终端</span>
@@ -69,6 +163,130 @@
         </div>
       </div>
       <div class="term-container" id="termContainer"></div>
+    </div>
+
+    <!-- v0.39 多 AI 聊天室 -->
+    <div class="room-area" id="roomArea" style="display:none;">
+      <div class="room-header">
+        <span class="room-title">💬 多 AI 聊天室</span>
+        <span class="room-subtitle">下达任务 → 三 AI 多轮讨论 → 共识最优方案</span>
+        <div class="room-actions">
+          <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnRoomNewChat" title="一个 AI 跟你 1v1 持续对话（最简单的聊天模式）">＋ 单模型聊天</button>
+          <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnRoomNewDebate" title="多个 AI 多轮辩论：独立提案 → 互评修订 → 终稿表态 → 主持人合成共识">＋ 多模型辩论</button>
+          <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnRoomNewSquad" title="AI 团队拆活：PM 拆任务 → Dev 并行实现 → QA 审查 → 不过自动返工到 pass">＋ AI 团队拆活</button>
+          <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnRoomNewArena" title="多 AI 背对背给方案，judge 用 WebSearch 联网核实事实后合成最优答案">＋ 多模型联网核对</button>
+          <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnRoomNewFromTemplate" title="从预设模板快速建房（含 6 个内置 + 用户自存）">🎯 从模板新建</button>
+          <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="btnRoomBack">← 返回</button>
+        </div>
+      </div>
+      <div class="room-body">
+        <aside class="room-list-pane">
+          <div class="room-list-head">房间</div>
+          <div class="room-list" id="roomList"></div>
+          <div class="room-archived-section" id="roomArchivedSection" style="display:none;">
+            <button class="archived-toggle" id="roomArchivedToggle" aria-expanded="false">
+              <span class="arch-arrow" id="roomArchArrow">▶</span>
+              <span>📦 已归档房间 (<span id="roomArchivedCount">0</span>)</span>
+            </button>
+            <div class="room-archived-list" id="roomArchivedList" style="display:none;"></div>
+          </div>
+        </aside>
+        <section class="room-main" id="roomMain">
+          <div class="room-empty">
+            <div class="room-empty-icon">💬</div>
+            <h3>选个房间，或新建一个</h3>
+            <p>三个 AI（Claude / GPT / Ollama 顶位 MiniMax）会就你下达的任务进行 4 轮讨论：</p>
+            <ol style="text-align:left;display:inline-block;line-height:1.7;">
+              <li><b>独立提案</b>：各自给方案（互不可见）</li>
+              <li><b>互评修订</b>：看完对方 → 评价 + 修订</li>
+              <li><b>终稿表态</b>：列共识点 + 分歧</li>
+              <li><b>Claude 主持</b>：合成最终共识方案</li>
+            </ol>
+          </div>
+          <div class="room-debate" id="roomDebate" style="display:none;">
+            <div class="room-debate-head">
+              <div class="room-debate-title">
+                <span class="room-name-display" id="roomNameDisplay"></span>
+                <span class="room-status-chip" id="roomStatusChip">闲置</span>
+              </div>
+              <div class="room-debate-actions">
+                <label class="qa-strict-label" id="qaStrictLabel" style="display:none;">QA 严格度:
+                  <select id="qaStrictSelect">
+                    <option value="loose">🟢 loose 宽松</option>
+                    <option value="standard" selected>🟡 standard 标准</option>
+                    <option value="strict">🔴 strict 严苛</option>
+                  </select>
+                </label>
+                <button class="cxbtn cxbtn-danger" id="btnRoomAbort" title="立即结束当前房（快捷键 Esc）" style="display:none; font-weight:bold;">⏹ 立即结束</button>
+                <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnRoomResume" title="从上次未完成的阶段继续跑（保留已有 R1/R2/R3 产出）" style="display:none;">▶ 续跑</button>
+                <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnRoomRestart" title="清空当前进度，从头重跑" style="display:none;">🔄 重启</button>
+                <button class="cxbtn cxbtn-danger cxbtn-sm" id="btnRoomDelete">🗑 删除</button>
+              </div>
+            </div>
+            <div class="room-members-wrap">
+              <div class="room-members-label">👥 成员（点下拉切模型，✕ 关此成员）</div>
+              <div class="room-members" id="roomMembers"></div>
+            </div>
+            <div class="room-topic-wrap">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <label class="room-topic-label" style="flex:1;">📝 任务（要 AI 讨论的内容）</label>
+                <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="btnTopicExpand" title="展开 textarea 到全屏（再点收起）">⤢ 展开</button>
+              </div>
+              <div class="room-topic-toolbar">
+                <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="btnTopicAttach" title="选文件上传（txt/md/json/log 等）；也可以直接把文件拖到 textarea 或 ⌘V 粘贴">📎 附件</button>
+                <input type="file" id="topicAttachFile" style="display:none;" multiple accept=".txt,.md,.json,.log,.csv,.xml,.yaml,.yml,.html,.css,.js,.ts,.py,.go,.rs,.java,.c,.cpp,.h,.swift,.kt,.sh,.sql,.diff,.patch,text/*" />
+                <span class="room-topic-attach-list" id="topicAttachList"></span>
+                <span class="muted small" id="topicCharCount" style="margin-left:auto;">0 字</span>
+              </div>
+              <textarea class="room-topic-input" id="roomTopicInput" rows="8" maxlength="1048576" placeholder="例如：设计一个能扛 10w QPS 的消息推送系统架构，要兼顾延迟和成本（上限 100 万字 ≈ 1MB；也可点 📎 上传文件、把文件拖到此处、或 ⌘V 粘贴大段文字/文件路径）"></textarea>
+              <!-- v0.52 debate 模式：大轮数 N（R1→R2→R3 整组重复 N 次后跑 R4）-->
+              <div class="room-debate-rounds-wrap" id="roomDebateRoundsWrap">
+                <label class="room-debate-rounds-label" for="roomDebateRoundsInput">🔁 大轮数</label>
+                <input type="number" id="roomDebateRoundsInput" min="1" max="10" step="1" value="2" title="每大轮含 R1 提案 / R2 互评 / R3 终稿；N>1 时下一大轮 R1 看上一大轮 R3 后再独立提案" />
+                <span class="room-debate-rounds-hint">N 大轮 R1→R2→R3 后跑一次 R4 主持总结（1~10）</span>
+              </div>
+              <button class="cxbtn cxbtn-primary" id="btnRoomStart">🚀 启动 debate</button>
+            </div>
+            <!-- Debate 模式：4 轮卡片 -->
+            <div class="room-rounds" id="roomRounds"></div>
+            <!-- v0.48 Chat 模式：1v1 持续对话 -->
+            <div class="chat-room" id="chatRoom" style="display:none;">
+              <div class="chat-room-messages" id="chatRoomMessages"></div>
+              <div class="chat-room-input-wrap">
+                <textarea id="chatRoomInput" rows="2" maxlength="1048576" placeholder="输入消息 · Enter 发送 · Shift+Enter 换行 · 上限 100 万字"></textarea>
+                <div class="chat-room-actions">
+                  <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnChatAbort" style="display:none;">⏸ 中断</button>
+                  <button class="cxbtn cxbtn-primary" id="btnChatSend">发送 ↵</button>
+                </div>
+              </div>
+            </div>
+            <!-- Squad 模式：Kanban 任务看板 + Review 历史 -->
+            <div class="squad-board" id="squadBoard" style="display:none;">
+              <div class="squad-board-head">📋 任务看板</div>
+              <div class="squad-columns">
+                <div class="squad-col" data-status="pending"><div class="squad-col-head">⏳ 待开始</div><div class="squad-col-cards" id="squadColPending"></div></div>
+                <div class="squad-col" data-status="in_progress"><div class="squad-col-head">🔨 Dev 中</div><div class="squad-col-cards" id="squadColInProgress"></div></div>
+                <div class="squad-col" data-status="in_review"><div class="squad-col-head">🔍 QA 中</div><div class="squad-col-cards" id="squadColInReview"></div></div>
+                <div class="squad-col" data-status="done"><div class="squad-col-head">✅ 已通过</div><div class="squad-col-cards" id="squadColDone"></div></div>
+                <div class="squad-col" data-status="escalated" title="task 跑失败，需要人工介入。3 种触发：①Dev/QA 反复迭代 30 次仍 QA 打回；②Dev/QA 调用 adapter 网络失败；③上游 task 已搁置阻塞下游"><div class="squad-col-head">⚠️ 已搁置（需人工）</div><div class="squad-col-cards" id="squadColEscalated"></div></div>
+              </div>
+            </div>
+            <div class="room-consensus" id="roomConsensus" style="display:none;">
+              <div class="room-consensus-head" id="roomConsensusHead">🎯 最终共识方案（Claude 主持）</div>
+              <div class="room-consensus-actions" id="roomConsensusActions">
+                <button class="cxbtn cxbtn-secondary cxbtn-sm" data-forward="squad" title="把这份共识作为 topic 转给 AI 团队拆活，让 PM/Dev/QA 落地执行">➡️ 转 AI 团队拆活</button>
+                <button class="cxbtn cxbtn-secondary cxbtn-sm" data-forward="debate" title="转给多模型辩论做二轮讨论">➡️ 转多模型辩论</button>
+                <button class="cxbtn cxbtn-secondary cxbtn-sm" data-forward="arena" title="转给多模型联网核对：多 AI 给方案 + Judge 联网核实事实">➡️ 转多模型核对</button>
+                <button class="cxbtn cxbtn-secondary cxbtn-sm" data-forward="chat" title="新建单模型聊天，自动把本房完整历史和结论作为上下文 seed 进去">💬 基于此追问（单模型）</button>
+                <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnArchiveNow" title="立即把本房导出到归档目录（见 📂 配置）">📂 立即归档</button>
+                <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnReportNow" title="让 AI 浓缩全部聊天历史生成一份总结报告（按房模式输出 5-6 节人类可读 markdown）">📝 生成总结报告</button>
+                <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnTimeline" title="📈 时间线：每个 turn 的 latency / token / 错误分布（按时间轴）">📈 时间线</button>
+              </div>
+              <div class="room-consensus-body" id="roomConsensusBody"></div>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
 
     <div class="chat" id="chatArea" style="display:none;">
@@ -84,7 +302,8 @@
                   aria-label="中断当前 claude 任务"
                   style="display:none;">⏸ 停止</button>
           <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnWatcherToggle" title="启用/关闭监视者（用其他模型监督 Claude 任务进展）" aria-label="监视者开关">👁️ 监视</button>
-          <span class="state-chip" id="stateChip" title="claude 当前运行状态" style="display:none;">idle</span>
+          <select class="watcher-provider-select" id="watcherProviderSelect" title="选择由谁监视此 session" aria-label="选择监视者 provider" style="display:none;"></select>
+          <span class="state-chip" id="stateChip" title="claude 当前运行状态" style="display:none;">闲置</span>
           <span class="cost-chip" id="costChip" title="本 session 累计成本（估算）" style="display:none;">
             <span id="costChipText">$0.00</span>
             <svg class="cost-spark" id="costSpark" viewBox="0 0 60 14" xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
@@ -136,23 +355,54 @@
       </div>
       <div class="chat-output" id="chatOutput"></div>
       <div class="chat-input-wrap">
-        <textarea id="chatInput" placeholder="给当前 Claude 发消息…  ⌘+Enter 发送" rows="3"></textarea>
+        <textarea id="chatInput" placeholder="给当前 Claude 发消息 · Enter 发送 · Shift+Enter 换行" rows="3" maxlength="2097152"></textarea>
         <div class="chat-actions">
           <span class="chat-info muted small">支持 markdown · stream-json</span>
           <button class="btn-send" id="btnSend">发送 ↵</button>
         </div>
       </div>
     </div>
+
+    <!-- v0.52 Sprint2-B1：Plugin 中心 -->
+    <div class="plugin-area" id="pluginArea" style="display:none;">
+      <div class="plugin-header">
+        <span class="plugin-title">🧩 Plugin 中心</span>
+        <span class="plugin-subtitle">manifest 驱动的通用 CLI 容器</span>
+        <div class="plugin-actions">
+          <input type="file" id="pluginInstallFile" accept="application/json" style="display:none;" />
+          <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnPluginInstall" title="上传 manifest JSON 文件安装新 plugin">＋ 安装 Plugin</button>
+          <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnPluginReload" title="重扫 builtin + 用户 manifest 目录">⟳ 刷新</button>
+          <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="btnPluginBack" title="返回">← 返回</button>
+        </div>
+      </div>
+      <div class="plugin-body">
+        <aside class="plugin-list-pane">
+          <div class="plugin-list-head">已加载 Plugin</div>
+          <div class="plugin-list" id="pluginList"></div>
+        </aside>
+        <section class="plugin-main" id="pluginMain">
+          <div class="plugin-empty">
+            <div class="plugin-empty-icon">🧩</div>
+            <h3>选个 Plugin 看详情，或上传 JSON manifest 装新插件</h3>
+            <p>本面板是 <b>manifest-driven 通用 CLI 容器</b>：写一份 JSON 描述任意 CLI 工具（bin / args / 输入输出 / 命令清单 / 仪表盘 schema），panel 就能跑 + 显示进度。</p>
+            <p style="font-size:12px;color:var(--color-text-foreground-tertiary);">已支持类型：spawn（本地 CLI）。HTTP 类 type 在 W2 阶段。</p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- v0.54 Sprint 10：删除 🐝 多智能体协调框架面板（用户不用） -->
   </main>
 
   <aside class="inspector">
+    <div class="inspector-resizer" id="inspectorResizer" title="拖动调整右侧面板宽度（双击复位）"></div>
     <div class="ins-tabs">
-      <button class="ins-tab active" data-tab="info">信息</button>
-      <button class="ins-tab" data-tab="snapshot">事实</button>
-      <button class="ins-tab" data-tab="safety">🛑 安全</button>
-      <button class="ins-tab" data-tab="projects">项目</button>
-      <button class="ins-tab" data-tab="files">文件</button>
-      <button class="ins-tab" data-tab="help">帮助</button>
+      <button class="ins-tab active" data-tab="info" title="当前 session 元信息 + 状态">信息</button>
+      <button class="ins-tab" data-tab="snapshot" title="Claude 最近输出的事实/进展速览">事实</button>
+      <button class="ins-tab" data-tab="safety" title="🛑 安全限速 / 危险命令拦截 / 配额状态">🛑 安全</button>
+      <button class="ins-tab" data-tab="projects" title="桌面项目监控（~/Desktop/00_项目/）">项目</button>
+      <button class="ins-tab" data-tab="files" title="当前 session cwd 的文件树">文件</button>
+      <button class="ins-tab" data-tab="help" title="帮助 + 快捷键速查">帮助</button>
     </div>
 
     <div class="ins-content" data-content="info">
@@ -195,12 +445,101 @@
     </div>
 
     <!-- 项目详情 modal -->
+    <!-- v0.52 Room Adapter 配置 modal -->
+    <div class="modal" id="roomAdaptersModal" style="display:none;">
+      <div class="modal-bg" data-close-room-adapters></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>⚙️ 房间 Adapter 配置（v0.52）</h2>
+          <button class="btn-icon" data-close-room-adapters aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="room-adapters-body" id="roomAdaptersBody">
+          <p class="room-adapters-hint">配置后房间成员下拉里就能选这些 adapter。所有 apiKey 用 0o600 存 <code>~/.claude-panel/room-adapters.json</code>，前端只显示掩码。</p>
+
+          <!-- MiniMax -->
+          <section class="adapter-section" data-id="minimax">
+            <header><label><input type="checkbox" data-field="enabled" /> 🟡 MiniMax</label></header>
+            <div class="adapter-fields">
+              <label>API Key <input type="password" data-field="apiKey" placeholder="MiniMax 控制台 → API Key" autocomplete="off" /></label>
+              <label>Base URL <input type="text" data-field="baseUrl" placeholder="留空 = https://api.minimax.chat/v1" /></label>
+              <label>Model <input type="text" data-field="model" placeholder="留空 = MiniMax-M2" /></label>
+              <label>超时（毫秒，0=默认 1 小时）<input type="number" data-field="timeoutMs" min="0" max="7200000" step="60000" placeholder="0" /></label>
+              <label>最大输出 tokens（0=不传让服务端决定）<input type="number" data-field="maxTokens" min="0" max="200000" step="1024" placeholder="0" /></label>
+            </div>
+          </section>
+
+          <!-- Gemini 原生 API -->
+          <section class="adapter-section" data-id="gemini">
+            <header><label><input type="checkbox" data-field="enabled" /> 🔷 Gemini（Google AI Studio 原生）</label></header>
+            <div class="adapter-fields">
+              <label>API Key <input type="password" data-field="apiKey" placeholder="aistudio.google.com → Get API key" autocomplete="off" /></label>
+              <label>Model <input type="text" data-field="model" placeholder="留空 = gemini-3.1-pro-preview" /></label>
+              <label>Base URL（可选）<input type="text" data-field="baseUrl" placeholder="留空 = https://generativelanguage.googleapis.com/v1beta" /></label>
+              <label>超时（毫秒，0=默认 1 小时）<input type="number" data-field="timeoutMs" min="0" max="7200000" step="60000" placeholder="0" /></label>
+              <label>最大输出 tokens（0=不传，Gemini 3.1 Pro 默认 65536）<input type="number" data-field="maxTokens" min="0" max="200000" step="1024" placeholder="0" /></label>
+            </div>
+          </section>
+
+          <!-- Gemini OpenAI 兼容 -->
+          <section class="adapter-section" data-id="gemini_openai">
+            <header><label><input type="checkbox" data-field="enabled" /> 🔷 Gemini（OpenAI 兼容）</label></header>
+            <div class="adapter-fields">
+              <label>API Key <input type="password" data-field="apiKey" placeholder="OpenRouter / 代理服务的 key" autocomplete="off" /></label>
+              <label>Base URL <input type="text" data-field="baseUrl" placeholder="如 https://openrouter.ai/api/v1" /></label>
+              <label>Model <input type="text" data-field="model" placeholder="如 google/gemini-3.1-pro-preview" /></label>
+              <label>超时（毫秒，0=默认 1 小时）<input type="number" data-field="timeoutMs" min="0" max="7200000" step="60000" placeholder="0" /></label>
+              <label>最大输出 tokens（0=不传）<input type="number" data-field="maxTokens" min="0" max="200000" step="1024" placeholder="0" /></label>
+            </div>
+          </section>
+
+          <!-- Gemini CLI -->
+          <section class="adapter-section" data-id="gemini_cli">
+            <header>
+              <label><input type="checkbox" data-field="enabled" /> 🔷 Gemini CLI（本地 spawn）</label>
+              <span class="adapter-status" id="geminiCliStatus"></span>
+            </header>
+            <div class="adapter-fields">
+              <label>Model <input type="text" data-field="model" placeholder="留空 = CLI 默认" /></label>
+              <label>超时（毫秒，0=默认 2 小时）<input type="number" data-field="timeoutMs" min="0" max="7200000" step="60000" placeholder="0" /></label>
+              <small>无需 apiKey，spawn 本地 <code>gemini</code>（@google/gemini-cli）。系统找不到时此项禁用。</small>
+            </div>
+          </section>
+
+          <!-- v0.52 内置 spawn adapter timeout 覆盖 -->
+          <section class="adapter-section" data-id="spawn_overrides">
+            <header><strong>⏱ 内置 CLI adapter 超时覆盖</strong></header>
+            <div class="adapter-fields">
+              <label>Claude 超时（毫秒，0=默认 2 小时）<input type="number" data-field="claudeTimeoutMs" min="0" max="7200000" step="60000" placeholder="0" /></label>
+              <label>Codex 超时（毫秒，0=默认 2 小时）<input type="number" data-field="codexTimeoutMs" min="0" max="7200000" step="60000" placeholder="0" /></label>
+              <label>CCR 超时（毫秒，0=默认 2 小时）<input type="number" data-field="ccrTimeoutMs" min="0" max="7200000" step="60000" placeholder="0" /></label>
+              <small>填 0 走默认 2 小时上限；填正数（如 1800000 = 30 分钟）覆盖。</small>
+            </div>
+          </section>
+
+          <!-- 自定义条目 -->
+          <section class="adapter-section adapter-customs">
+            <header>
+              <strong>🧩 自定义 OpenAI 兼容（最多 10 个）</strong>
+              <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnAddCustom">＋ 新增</button>
+            </header>
+            <div id="customsList"></div>
+          </section>
+
+          <div class="adapter-actions">
+            <span class="adapter-save-status" id="adapterSaveStatus"></span>
+            <button class="cxbtn cxbtn-tertiary" data-close-room-adapters>取消</button>
+            <button class="cxbtn cxbtn-primary" id="btnSaveRoomAdapters">💾 保存并重建池</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal" id="projectModal" style="display:none;">
       <div class="modal-bg" data-close-project></div>
       <div class="modal-body modal-wide">
         <div class="project-modal-head">
           <h2 id="projectModalTitle">项目详情</h2>
-          <button class="btn-icon" data-close-project>✕</button>
+          <button class="btn-icon" data-close-project aria-label="关闭" title="关闭（ESC）">✕</button>
         </div>
         <div class="project-modal-body" id="projectModalBody">加载中…</div>
       </div>
@@ -212,35 +551,172 @@
       <div class="modal-body modal-wide">
         <div class="project-modal-head">
           <h2>接力链 history</h2>
-          <button class="btn-icon" data-close-history>✕</button>
+          <button class="btn-icon" data-close-history aria-label="关闭" title="关闭（ESC）">✕</button>
         </div>
         <div class="history-modal-body" id="historyModalBody">加载中…</div>
       </div>
     </div>
 
+    <!-- v0.56 Sprint 15-R4：Autopilot modal -->
+    <div class="modal" id="autopilotModal" style="display:none;">
+      <div class="modal-bg" data-close-autopilot></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>🤖 Autopilot 自驾（房完成/出错自动触发规则）</h2>
+          <button class="btn-icon" data-close-autopilot aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="autopilot-modal-body" id="autopilotModalBody">
+          <div class="muted small" style="padding:20px;">加载中…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.55 Sprint 13-D：trace 时间线 modal -->
+    <div class="modal" id="timelineModal" style="display:none;">
+      <div class="modal-bg" data-close-timeline></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>📈 房间时间线（per-turn latency / tokens / 错误）</h2>
+          <button class="btn-icon" data-close-timeline aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="timeline-modal-body" id="timelineModalBody">
+          <div class="muted small" style="padding:20px;">加载中…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.55 Sprint 12：MCP 服务器配置 modal -->
+    <div class="modal" id="mcpModal" style="display:none;">
+      <div class="modal-bg" data-close-mcp></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>🔌 MCP 服务器（Model Context Protocol）</h2>
+          <button class="btn-icon" data-close-mcp aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="mcp-modal-body">
+          <aside class="mcp-list-pane">
+            <div class="mcp-list-head">
+              已配置（<span id="mcpCount">0</span>）
+              <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnMcpNew" style="margin-left:auto;">＋ 新建</button>
+            </div>
+            <div class="mcp-list" id="mcpList"></div>
+          </aside>
+          <section class="mcp-detail-pane" id="mcpDetail">
+            <div class="muted small" style="padding:20px;">
+              <p><b>MCP（Model Context Protocol）</b>让你给 AI 房成员挂载外部 tool。比如 filesystem server 让 Claude 读文件、playwright server 让 AI 跑浏览器、github server 让 AI 操作 PR。</p>
+              <p>配置好后 Claude spawn adapter 自动启用（CLI 原生 <code>--mcp-config</code>）；Codex / Gemini CLI / HTTP adapter 待后续。</p>
+              <p>常见公开 server：<code>npx -y @modelcontextprotocol/server-everything</code>（演示）/ <code>server-filesystem</code>（带路径） / <code>server-puppeteer</code>。</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.54 Sprint 9：AI 总结报告 modal -->
+    <div class="modal" id="reportModal" style="display:none;">
+      <div class="modal-bg" data-close-report></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>📝 让 AI 总结房间聊天 → 生成报告</h2>
+          <button class="btn-icon" data-close-report aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="report-modal-body" id="reportModalBody">
+          <div class="muted small" style="padding:20px;">加载中…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.54 Sprint 4.5：归档配置 modal -->
+    <div class="modal" id="archiveModal" style="display:none;">
+      <div class="modal-bg" data-close-archive></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>📂 聊天归档：每次房完成自动导出 markdown</h2>
+          <button class="btn-icon" data-close-archive aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="archive-modal-body" id="archiveModalBody">
+          <div class="muted small" style="padding:20px;">加载中…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.54 Sprint 4：Webhook 配置 modal -->
+    <div class="modal" id="webhookModal" style="display:none;">
+      <div class="modal-bg" data-close-webhook></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>🔔 Webhook 出站推送（房间事件转 Discord / Slack / 自定义 URL）</h2>
+          <button class="btn-icon" data-close-webhook aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="webhook-modal-body">
+          <div class="webhook-list-pane">
+            <div class="webhook-list-head">
+              已配置（<span id="webhookCount">0</span>）
+              <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnWebhookNew" style="margin-left:auto;">＋ 新建</button>
+            </div>
+            <div class="webhook-list" id="webhookList"></div>
+          </div>
+          <div class="webhook-detail-pane" id="webhookDetail">
+            <div class="muted small" style="padding:20px;">从左侧选一项编辑，或点 ＋ 新建一个</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.53 Sprint 3：从模板新建房间 modal -->
+    <div class="modal" id="roomTemplateModal" style="display:none;">
+      <div class="modal-bg" data-close-room-template></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>🎯 从模板新建房间</h2>
+          <button class="btn-icon" data-close-room-template aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="room-template-modal-body">
+          <aside class="room-template-list" id="roomTemplateList"></aside>
+          <section class="room-template-detail" id="roomTemplateDetail">
+            <div class="muted small" style="padding: 20px;">从左侧选一个模板开始</div>
+          </section>
+        </div>
+      </div>
+    </div>
+
     <div class="ins-content" data-content="help" style="display:none;">
       <div class="ins-section">
-        <h3>快捷键</h3>
+        <h3>快捷键（按 <kbd>⌘?</kbd> 看完整速查）</h3>
         <ul class="muted small">
           <li><kbd>⌘N</kbd> 新建会话</li>
           <li><kbd>⌘1..9</kbd> 切换会话</li>
           <li><kbd>⌘↵</kbd> 发送消息</li>
-          <li>右键会话项 关闭</li>
+          <li><kbd>⌘K</kbd> 命令面板（搜 session / 命令）</li>
+          <li><kbd>⌘⇧F</kbd> 跨 session 搜索消息</li>
+          <li><kbd>⌘P</kbd> Prompt 模板库</li>
+          <li><kbd>⌘?</kbd> 完整快捷键速查</li>
+          <li><kbd>⌘D</kbd> 切换暗 / 亮主题</li>
+          <li>右键会话项 / 消息 看上下文菜单</li>
+        </ul>
+      </div>
+      <div class="ins-section">
+        <h3>5 大功能</h3>
+        <ul class="muted small">
+          <li>💻 多 <b>Claude session</b> 管理（左侧）+ 接力（snapshot）</li>
+          <li>💬 多 AI <b>聊天室</b>：Chat 1v1 / Debate 4 轮 / Squad PM-Dev-QA</li>
+          <li>👁️ <b>Watcher 监督</b>（chat header 开关）：Claude / Codex / Ollama / MiniMax 池</li>
+          <li>💻 内嵌 <b>PTY 终端</b>（顶部 💻 按钮）</li>
         </ul>
       </div>
       <div class="ins-section">
         <h3>Continuum 集成</h3>
         <div class="muted small">
           "事实" tab 显示 07 Continuum 的 snapshot.md。<br>
-          点 🔄 接力：归档当前 snapshot + 在 panel 内新建同 cwd 的 session，新 session 第一条让新 claude 读 ~/HANDOFF_LATEST.md 即可接手。<br>
+          点 🔄 接力：归档当前 snapshot + 新建同 cwd 的 session，新 session 第一条让新 claude 读 ~/HANDOFF_LATEST.md 接手。<br>
           snapshot 若为空，先装 07：<code>cd ~/Desktop/00_项目/07_Continuum_会话接力工具 && ./install.sh</code>
         </div>
       </div>
       <div class="ins-section">
         <h3>关于</h3>
         <div class="muted small">
-          Claude Panel v0.3<br>
-          多 Claude Code 会话管理 + 接力<br>
+          Claude Panel <span id="aboutVersion">v…</span><br>
+          多 AI 会话管理 + 监督 + 协作<br>
           UI 参考 Codex 设计语言<br>
           数据保存于 ~/.claude-panel/<br>
           快照存于 ~/.claude/state/&lt;md5(cwd)&gt;/
@@ -253,11 +729,11 @@
 
 <div class="modal" id="newModal" style="display:none;">
   <div class="modal-bg" data-close></div>
-  <div class="modal-body">
+  <div class="modal-body modal-narrow">
     <h2>新建 Claude 会话</h2>
     <label>
       <span>会话名称</span>
-      <input type="text" id="newName" placeholder="例如：FreelancerTimer 调试" />
+      <input type="text" id="newName" maxlength="200" placeholder="例如：FreelancerTimer 调试" />
     </label>
     <label>
       <span>工作目录（cwd）</span>
@@ -265,7 +741,7 @@
     </label>
     <label>
       <span>🎯 主目标（可选，每 5 轮自动提醒 claude 防漂移）</span>
-      <input type="text" id="newMainGoal" placeholder="例如：实现并发布 v0.5 思维镜融合" />
+      <input type="text" id="newMainGoal" maxlength="4000" placeholder="例如：修完 OnboardingFlow 的输入校验 + 真测通过" />
     </label>
     <div class="hint muted small" style="margin-bottom:8px;">快速选 Desktop 子目录：</div>
     <div class="quick-cwd" id="quickCwd"></div>
@@ -282,9 +758,11 @@
   <span class="status-item" id="statusActive">活跃 0</span>
   <span class="status-item" id="statusBusy">在跑 0</span>
   <span class="status-item" id="statusArchived">归档 0</span>
+  <span class="status-item" id="statusRoomsRunning" title="正在运行的聊天室数（≥3 提示并发限速）">🏟 运行中 0 房</span>
   <span class="status-spacer"></span>
   <span class="status-item" id="statusCost">$0.00</span>
-  <span class="status-item" id="statusVersion">v0.6 · ⌘K 命令面板</span>
+  <button class="status-item" id="statusKbBtn" type="button" title="查看完整快捷键速查（也可按 ⌘?）" style="background:transparent;border:none;cursor:pointer;color:inherit;font:inherit;padding:0 6px;">⌨️ 快捷键</button>
+  <span class="status-item" id="statusVersion">v… · ⌘K 命令面板</span>
 </div>
 
 <!-- v0.6 ⌘K 命令面板 -->
@@ -301,6 +779,78 @@
   </div>
 </div>
 
+<!-- v0.50 全局搜索 modal（F1）-->
+<div class="cmdk-modal" id="searchModal" style="display:none;">
+  <div class="cmdk-body" style="width: 720px; max-width: 96vw;">
+    <input type="text" id="searchInput" class="cmdk-input" placeholder="跨 session 搜索消息内容…  ⏎ 跳转 · Esc 关闭" />
+    <div class="cmdk-list" id="searchResults"></div>
+    <div class="cmdk-footer">
+      <span>⌘⇧F 打开</span>
+      <span>⏎ 跳转该条消息</span>
+      <span>Esc 关闭</span>
+    </div>
+  </div>
+</div>
+
+<!-- v0.53 Sprint 3.5 跨房搜索 modal（⌘⇧R）-->
+<div class="cmdk-modal" id="roomSearchModal" style="display:none;">
+  <div class="cmdk-body" style="width: 720px; max-width: 96vw;">
+    <input type="text" id="roomSearchInput" class="cmdk-input" placeholder="跨房搜索（topic / 共识 / turn 内容 / task / chat）…  ⏎ 跳转 · Esc 关闭" />
+    <div class="cmdk-list" id="roomSearchResults"></div>
+    <div class="cmdk-footer">
+      <span>⌘⇧R 打开</span>
+      <span>⏎ 跳转该房</span>
+      <label style="margin-left:auto;cursor:pointer;"><input type="checkbox" id="roomSearchInclArchived" /> 包含归档房</label>
+      <span>Esc 关闭</span>
+    </div>
+  </div>
+</div>
+
+<!-- v0.50 ⌘? 快捷键 cheatsheet modal（F4）-->
+<div class="cmdk-modal" id="cheatsheetModal" style="display:none;">
+  <div class="cmdk-body" style="width: 560px;">
+    <div class="cheatsheet-head">⌨️ 快捷键速查</div>
+    <div class="cheatsheet-body">
+      <div class="ch-row"><kbd>⌘N</kbd><span>新建会话</span></div>
+      <div class="ch-row"><kbd>⌘K</kbd><span>命令面板（搜 session / 命令）</span></div>
+      <div class="ch-row"><kbd>⌘⇧F</kbd><span>跨 session 搜索消息</span></div>
+      <div class="ch-row"><kbd>⌘⇧R</kbd><span>跨房搜索（topic / turn / chat / task）</span></div>
+      <div class="ch-row"><kbd>⌘P</kbd><span>Prompt 模板库</span></div>
+      <div class="ch-row"><kbd>⌘?</kbd><span>显示本帮助</span></div>
+      <div class="ch-row"><kbd>⌘D</kbd><span>切换暗/亮主题</span></div>
+      <div class="ch-row"><kbd>⌘1..9</kbd><span>跳到第 N 个 session</span></div>
+      <div class="ch-row"><kbd>⌘↵</kbd><span>发送消息</span></div>
+      <div class="ch-row"><kbd>Esc</kbd><span>中断 / 关弹窗</span></div>
+      <div class="cheatsheet-sep">📍 鼠标</div>
+      <div class="ch-row"><kbd>双击 session 名</kbd><span>重命名</span></div>
+      <div class="ch-row"><kbd>右键 session</kbd><span>菜单（编辑/归档/导出/删除）</span></div>
+      <div class="ch-row"><kbd>右键 message</kbd><span>菜单（收藏 ⭐ / 从此分叉）</span></div>
+      <div class="ch-row"><kbd>双击 ⏸ 中断</kbd><span>强制释放 busy（child 卡死时）</span></div>
+      <div class="cheatsheet-sep">🔘 顶部按钮</div>
+      <div class="ch-row"><kbd>💻</kbd><span>内嵌 PTY 终端</span></div>
+      <div class="ch-row"><kbd>💬</kbd><span>多 AI 聊天室（Chat/Debate/Squad）</span></div>
+      <div class="ch-row"><kbd>🔐</kbd><span>Claude /login（外部 Terminal）</span></div>
+    </div>
+    <div class="cmdk-footer"><span>Esc 关闭</span></div>
+  </div>
+</div>
+
+<!-- v0.50 Prompts 模板库 modal（F6）-->
+<div class="cmdk-modal" id="promptsModal" style="display:none;">
+  <div class="cmdk-body" style="width: 640px;">
+    <div class="cheatsheet-head">📋 Prompt 模板库</div>
+    <div class="prompts-list" id="promptsList"></div>
+    <div class="prompts-form">
+      <input type="text" id="promptName" maxlength="100" placeholder="模板名（如：生成 commit msg）" />
+      <textarea id="promptContent" rows="3" maxlength="50000" placeholder="模板内容（粘贴时支持多行）"></textarea>
+      <div class="prompts-form-actions">
+        <button class="cxbtn cxbtn-primary cxbtn-sm" id="btnPromptAdd">＋ 添加模板</button>
+      </div>
+    </div>
+    <div class="cmdk-footer"><span>点击模板插入到输入框</span><span>Esc 关闭</span></div>
+  </div>
+</div>
+
 <!-- v0.23 xterm.js -->
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
@@ -308,6 +858,13 @@
 <script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/lib/marked.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
 
+<!-- S18-3 Modal 组件（须先于 app.js 加载，让 app.js 启动时 Modal 已可用） -->
+<script src="/src/components/Modal.js"></script>
+<!-- S18-4 UI 原子组件集（EmptyState/Badge/Tag/Card/List/Drawer，同上） -->
+<script src="/src/components/UI.js"></script>
+
 <script src="/app.js"></script>
+<!-- S18-1 starter 激活：ES module 入口，defer 加载，在 app.js 之后跑，挂 window.PanelUtils 不替换 app.js 内 helper -->
+<script type="module" src="/main.js"></script>
 </body>
 </html>

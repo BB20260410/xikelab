@@ -10,15 +10,34 @@ const PRICING_PER_M_TOKENS = {
   'default':            { input: 3.0,   cache_read: 0.30, cache_write: 3.75,  output: 15.0 },
 };
 
+function findPricingKey(model) {
+  if (!model || typeof model !== 'string') return 'default';
+  // 1) 精确命中
+  if (PRICING_PER_M_TOKENS[model]) return model;
+  // 2) 前缀匹配（"claude-opus-4-7-20251225" → "claude-opus-4-7"）
+  const keys = Object.keys(PRICING_PER_M_TOKENS).filter(k => k !== 'default');
+  const prefix = keys.find(k => model.startsWith(k));
+  if (prefix) return prefix;
+  // 3) 关键词回退（含 "opus"/"sonnet"/"haiku" 任一）
+  const m = model.toLowerCase();
+  if (m.includes('opus'))   return 'claude-opus-4-7';
+  if (m.includes('sonnet')) return 'claude-sonnet-4-6';
+  if (m.includes('haiku'))  return 'claude-haiku-4-5';
+  return 'default';
+}
+
+// v0.51 Y-07 fix: 数值安全（拒 NaN / Infinity / 负数 / 异常大数，防 totalUSD 变 Infinity）
+function safeTokenCount(v) {
+  return Number.isFinite(v) && v >= 0 && v < 1e12 ? v : 0;
+}
 export function estimateUsdFromUsage(usage, model) {
   if (!usage) return 0;
-  const key = Object.keys(PRICING_PER_M_TOKENS).find(k => model && model.includes(k.replace('claude-', '').replace('-', ''))) ||
-              (model && PRICING_PER_M_TOKENS[model]) ? model : 'default';
+  const key = findPricingKey(model);
   const p = PRICING_PER_M_TOKENS[key] || PRICING_PER_M_TOKENS.default;
-  const inputTok = usage.input_tokens || 0;
-  const cacheRead = usage.cache_read_input_tokens || 0;
-  const cacheWrite = usage.cache_creation_input_tokens || 0;
-  const outputTok = usage.output_tokens || 0;
+  const inputTok = safeTokenCount(usage.input_tokens);
+  const cacheRead = safeTokenCount(usage.cache_read_input_tokens);
+  const cacheWrite = safeTokenCount(usage.cache_creation_input_tokens);
+  const outputTok = safeTokenCount(usage.output_tokens);
   return (
     (inputTok * p.input + cacheRead * p.cache_read + cacheWrite * p.cache_write + outputTok * p.output) / 1_000_000
   );
@@ -31,7 +50,8 @@ export class CostTracker {
   }
 
   record(usd, tokens = 0, model = null) {
-    if (!usd || usd <= 0) return;
+    // v0.51 Y-08 fix: 拒 NaN / Infinity / 负数（防 totalUsdCached 变 Infinity）
+    if (!Number.isFinite(usd) || usd <= 0) return;
     const at = Date.now();
     this.samples.push({ at, usd, tokens, model });
     this.totalUsdCached += usd;

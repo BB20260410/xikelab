@@ -1,7 +1,7 @@
 // WatcherConfig — 读写 ~/.claude-panel/watcher.json
 // 默认全部关闭，用户在 Settings tab 启用 + 填 API key
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, renameSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -53,7 +53,11 @@ export function saveWatcherConfig(config) {
     // sanitize：禁止保存 _xxx 临时字段
     const clean = { ...config };
     for (const k of Object.keys(clean)) if (k.startsWith('_')) delete clean[k];
-    writeFileSync(CONFIG_FILE, JSON.stringify(clean, null, 2), { mode: 0o600 });
+    // v0.51 Y-05 fix: 原子写
+    const tmp = CONFIG_FILE + '.tmp';
+    writeFileSync(tmp, JSON.stringify(clean, null, 2), { mode: 0o600 });
+    try { chmodSync(tmp, 0o600); } catch {}
+    renameSync(tmp, CONFIG_FILE);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };

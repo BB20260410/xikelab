@@ -1,0 +1,68 @@
+{
+  "id": "praisonai",
+  "displayName": "🤖 PraisonAI",
+  "version": "0.1.0",
+  "icon": "🤖",
+  "type": "spawn",
+  "bin": {
+    "cmd": "praisonai",
+    "check": "which praisonai",
+    "fallback": "~/.local/bin/praisonai"
+  },
+  "input": { "mode": "argv", "encoding": "utf-8" },
+  "output": {
+    "mode": "stream",
+    "parser": "raw",
+    "tokensRegex": "total_tokens:\\s*(\\d+)"
+  },
+  "commands": [
+    {
+      "id": "agents-run",
+      "name": "Run Agents",
+      "description": "用 PraisonAI 跑一组 agent 完成 topic",
+      "args": ["{topic}"],
+      "params": [
+        { "name": "topic", "type": "string", "required": true, "maxLen": 8000 }
+      ]
+    },
+    {
+      "id": "agents-with-file",
+      "name": "Run Agents (from YAML)",
+      "description": "从 agents.yaml 加载 agent 定义跑任务",
+      "args": ["--config", "{configPath}", "{topic}"],
+      "params": [
+        { "name": "configPath", "type": "string", "required": true, "maxLen": 500 },
+        { "name": "topic", "type": "string", "required": true, "maxLen": 8000 }
+      ]
+    }
+  ],
+  "events": { "source": "stdout-jsonl", "schema": "openai" },
+  "dashboard": [
+    {
+      "type": "status-bar",
+      "title": "运行统计",
+      "fields": ["agentCount", "tokensUsed", "iterations", "count"]
+    },
+    {
+      "type": "list",
+      "title": "🤖 活跃 Agent",
+      "source": "events.agent_started",
+      "until": "events.agent_finished"
+    },
+    {
+      "type": "log",
+      "title": "📋 输出日志",
+      "source": "stdout",
+      "maxLines": 500
+    }
+  ],
+  "sandbox": {
+    "cwdScope": "home-tree",
+    "envWhitelist": ["LANG", "LC_ALL", "PATH", "HOME", "USER", "OPENAI_API_KEY"],
+    "timeoutMs": 1800000
+  },
+  "extra": {
+    "install": "pip install praisonai",
+    "docs": "https://github.com/MervinPraison/PraisonAI"
+  }
+}

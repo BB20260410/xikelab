@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 5173;
+const PORT = process.env.PORT || 51735;
 
 let serverProcess = null;
 let mainWindow = null;

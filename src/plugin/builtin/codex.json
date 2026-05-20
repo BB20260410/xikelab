@@ -1,0 +1,54 @@
+{
+  "id": "codex",
+  "displayName": "🟢 GPT",
+  "version": "1.0.0",
+  "icon": "🟢",
+  "type": "spawn",
+
+  "bin": {
+    "cmd": "codex",
+    "check": "which codex",
+    "fallback": "~/.npm-global/bin/codex",
+    "env": "CODEX_BIN"
+  },
+
+  "input": { "mode": "stdin", "encoding": "utf-8" },
+
+  "output": {
+    "mode": "file",
+    "parser": "raw",
+    "filePathArg": "-o",
+    "tokensRegex": "tokens used\\s*\\n([\\d,]+)"
+  },
+
+  "commands": [
+    {
+      "id": "exec",
+      "name": "Exec (codex exec)",
+      "description": "One-shot exec: prompt from stdin, write final reply to -o file, parse stdout for tokens.",
+      "args": [
+        "exec",
+        "--skip-git-repo-check",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-C", "{cwd}",
+        "-"
+      ],
+      "params": [
+        { "name": "cwd", "type": "string", "required": true, "maxLen": 1024 },
+        { "name": "model", "type": "string", "maxLen": 80 }
+      ]
+    }
+  ],
+
+  "events": { "source": "stdout", "schema": "raw" },
+
+  "sandbox": {
+    "cwdScope": "home-tree",
+    "envWhitelist": ["LANG", "LC_ALL", "PATH", "HOME", "USER"],
+    "timeoutMs": 240000
+  },
+
+  "extra": {
+    "modelArg": "-m"
+  }
+}
