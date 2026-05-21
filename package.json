@@ -15,7 +15,8 @@
     "dist": "electron-builder --mac",
     "dist:all": "electron-builder --mac --win --linux",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "perf-check": "node scripts/perf-check.mjs"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
