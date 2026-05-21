@@ -7,6 +7,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+// v0.70 W7 集成：MCP call 历史日志（学自 MCP Inspector）
+import { logMcpCall } from './learned/call-logger.js';
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const CALL_TOOL_TIMEOUT_MS = 60_000;
@@ -120,12 +122,20 @@ export class McpClientManager {
     }
   }
 
-  /** 调一个 tool（带超时） */
+  /** 调一个 tool（带超时 + v0.70 W7：调用历史 jsonl 日志） */
   async callTool(name, toolName, args = {}) {
     const entry = await this.ensureConnected(name);
     const callP = entry.client.callTool({ name: toolName, arguments: args });
     const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error('callTool timeout')), CALL_TOOL_TIMEOUT_MS));
-    return Promise.race([callP, timeoutP]);
+    const t0 = Date.now();
+    try {
+      const out = await Promise.race([callP, timeoutP]);
+      try { logMcpCall({ serverId: name, toolName, input: args, output: out, durationMs: Date.now() - t0 }); } catch {}
+      return out;
+    } catch (e) {
+      try { logMcpCall({ serverId: name, toolName, input: args, error: e.message, durationMs: Date.now() - t0 }); } catch {}
+      throw e;
+    }
   }
 
   /** 关一个 server */

@@ -299,6 +299,20 @@ export async function generateReport({ room, adapter, model, outputPath } = {}) 
     return { ok: false, error: 'adapter 返回空 reply', elapsedMs: Date.now() - startedAt };
   }
 
+  // v0.70 W11 集成：报告输出质量自动校验（学自 promptfoo assertion）
+  try {
+    const { runAssertions } = await import('../skills/learned/assertion.js');
+    const { allPass, failed } = runAssertions(reply, [
+      { type: 'min_length', value: 200 },                  // 报告太短大概率废
+      { type: 'not_contains', value: 'I cannot' },         // 防 refusal（英文）
+      { type: 'not_contains', value: '我不能为' },          // 防 refusal（中文）
+    ]);
+    if (!allPass) {
+      // 不阻断，只在报告头部标 warning 让用户知道
+      reply = `<!-- ⚠️ 报告质量校验 ${failed.length} 项未通过: ${failed.map(f => f.type).join(', ')} -->\n\n` + reply;
+    }
+  } catch {}
+
   // 报告头部加生成元信息
   const header = `<!-- ${room.name || '未命名'} 总结报告
 generatedAt: ${new Date().toISOString()}
