@@ -18,6 +18,8 @@ import { buildWsUrl as _buildWsUrl, backoffDelay as _backoffDelay, createWsDispa
 import { initI18n as _initI18n, t as _t, loadLocale as _loadLocale, getLocale as _getLocale, subscribe as _subI18n } from './src/web/i18n.js';
 // v1.0 Task 1.5 + v1.1 Task 2.2: onboarding + telemetry consent
 import { startOnboarding as _startOnb, resetOnboarding as _resetOnb, askTelemetry as _askTlm } from './src/web/onboarding.js';
+// v1.5/v2.0: License + Workspace UI badge（IIFE 自挂载，无导出）
+import './src/web/license-ui.js';
 
 // 下个 sprint 继续加：
 // import { initWebSocket } from './src/web/ws.js';
