@@ -20,12 +20,14 @@ function getCommercialStatus() {
       script: 'node scripts/issue-license.js <email> [tier] [days]',
     },
     githubToken: {
-      done: checkFile(path.join(HOME, 'github-token.json')),
-      hint: 'GitHub PAT 已存，npm run dist:publish 可发 Release',
-      script: 'node scripts/register-github.mjs',
+      done: checkFile(path.join(HOME, 'github-token.json'))
+        || checkFile(path.join(os.homedir(), '.config', 'gh', 'hosts.yml')),
+      hint: 'GitHub PAT 已存 或 gh CLI 已登录，npm run dist:publish 可发 Release',
+      script: 'node scripts/register-github.mjs  或  gh auth login',
     },
     lemonWebhook: {
       done: (() => {
+        if (checkFile(path.join(HOME, 'ls-webhook-secret.txt'))) return true;
         const sp = path.join(HOME, 'webhook-secrets.json');
         if (!checkFile(sp)) return false;
         try {
