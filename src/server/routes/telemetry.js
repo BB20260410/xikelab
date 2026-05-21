@@ -49,6 +49,43 @@ export function registerTelemetryRoutes(app) {
     }
   });
 
+  // v1.1 Task 2.1: PostHog 配置 + 测试
+  app.post('/api/analytics/config', async (req, res) => {
+    try {
+      const { host, key } = req.body || {};
+      if (host && !host.startsWith('http')) {
+        return res.status(400).json({ ok: false, error: 'host 必须以 http:// 或 https:// 开头' });
+      }
+      if (host && host.length > 500) return res.status(400).json({ ok: false, error: 'host 过长' });
+      if (key && key.length > 200) return res.status(400).json({ ok: false, error: 'key 过长' });
+      const m = await import('../../telemetry/ErrorReporter.js');
+      const c = m.loadConfig();
+      c.analyticsHost = (host || '').trim();
+      c.analyticsKey = (key || '').trim();
+      m.acceptTelemetry({ dsn: c.dsn });
+      // 重写完整 config（acceptTelemetry 只接 dsn，手动写回 analytics fields）
+      const { writeFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const { homedir } = await import('node:os');
+      writeFileSync(join(homedir(), '.claude-panel', 'telemetry.json'), JSON.stringify(c, null, 2), { mode: 0o600 });
+      res.json({ ok: true, hasHost: !!c.analyticsHost, hasKey: !!c.analyticsKey });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.post('/api/analytics/capture', async (req, res) => {
+    try {
+      const { event, properties } = req.body || {};
+      if (!event) return res.status(400).json({ ok: false, error: 'event required' });
+      const m = await import('../../telemetry/Analytics.js');
+      m.capture(event, properties || {});
+      res.json({ ok: true, enabled: m.isAnalyticsEnabled(), queued: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // 测试发一个 fake error，看是否真到 Sentry
   app.post('/api/telemetry/test', async (req, res) => {
     try {
