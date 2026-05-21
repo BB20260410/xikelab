@@ -157,6 +157,110 @@ export function startOnboarding({ force = false } = {}) {
   setTimeout(() => showStep(0), 500);
 }
 
+/**
+ * v1.1 Task 2.2: telemetry 同意 modal（首次访问触发，独立于 walkthrough）
+ */
+const TELEMETRY_KEY = 'panel:telemetry:asked';
+
+export async function askTelemetry({ force = false } = {}) {
+  if (!force && localStorage.getItem(TELEMETRY_KEY) === '1') return;
+
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-modal telemetry-consent';
+    overlay.innerHTML = `
+      <div class="confirm-modal-bg"></div>
+      <div class="confirm-modal-body" style="width:480px;max-width:92vw;">
+        <h3 class="confirm-modal-title">📊 错误上报与产品分析（完全可选）</h3>
+        <div class="confirm-modal-message" style="font-size:13px;line-height:1.7;">
+panel 是开源软件，开发者用<b>你自己的 Sentry / PostHog 账号</b>收集崩溃报告和使用数据来改进 panel。
+
+<b>会发什么</b>：
+• 崩溃时 → 错误堆栈（path 自动 mask 到 ~，API key 自动 redact）
+• 使用时 → 事件名（如 room_created）+ 维度（mode/count），<b>不含 prompt 内容</b>
+
+<b>不会发什么</b>：
+• 你的对话内容
+• API key / token / 密码
+• 个人识别信息
+
+<b>默认关闭</b>。你随时可在「设置」里改。
+        </div>
+        <div class="confirm-modal-actions" style="gap:8px;">
+          <button class="cxbtn cxbtn-secondary" data-act="decline">不参与</button>
+          <button class="cxbtn cxbtn-primary" data-act="accept">同意并配置</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const finish = (action) => {
+      localStorage.setItem(TELEMETRY_KEY, '1');
+      overlay.remove();
+      resolve(action);
+      if (action === 'accept') {
+        // 弹第二步：让用户填 DSN / Analytics Key
+        showTelemetryConfigDialog();
+      } else {
+        // 用户拒绝 → 调 decline API
+        fetch('/api/telemetry/decline', { method: 'POST' }).catch(() => {});
+      }
+    };
+    overlay.querySelector('.confirm-modal-bg').addEventListener('click', () => finish('decline'));
+    overlay.querySelector('[data-act="decline"]').addEventListener('click', () => finish('decline'));
+    overlay.querySelector('[data-act="accept"]').addEventListener('click', () => finish('accept'));
+  });
+}
+
+function showTelemetryConfigDialog() {
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-modal';
+  overlay.innerHTML = `
+    <div class="confirm-modal-bg"></div>
+    <div class="confirm-modal-body" style="width:520px;max-width:92vw;">
+      <h3 class="confirm-modal-title">📡 填写 Sentry DSN + PostHog（都可选）</h3>
+      <div class="confirm-modal-message" style="font-size:12.5px;line-height:1.6;">
+都<b>留空</b>表示同意 telemetry 框架但不发任何数据（等你以后想发再来配）。
+
+填了才会真发。
+      </div>
+      <div style="margin:12px 0;">
+        <label style="display:block;font-size:12px;color:var(--gray-mid);margin-bottom:4px;">Sentry DSN（如 https://xxx@o0.ingest.sentry.io/0）</label>
+        <input id="tlmDsn" type="text" placeholder="留空 = 不上报崩溃" style="width:100%;padding:6px 10px;border:1px solid var(--color-border-light);border-radius:6px;font-family:var(--mono);font-size:12px;" />
+      </div>
+      <div style="margin:12px 0;">
+        <label style="display:block;font-size:12px;color:var(--gray-mid);margin-bottom:4px;">PostHog Host + Key（如 https://app.posthog.com）</label>
+        <input id="tlmHost" type="text" placeholder="留空 = 不发分析" style="width:100%;padding:6px 10px;border:1px solid var(--color-border-light);border-radius:6px;font-family:var(--mono);font-size:12px;margin-bottom:6px;" />
+        <input id="tlmKey" type="text" placeholder="API Key (phc_...)" style="width:100%;padding:6px 10px;border:1px solid var(--color-border-light);border-radius:6px;font-family:var(--mono);font-size:12px;" />
+      </div>
+      <div class="confirm-modal-actions">
+        <button class="cxbtn cxbtn-tertiary" data-act="skip">先空着</button>
+        <button class="cxbtn cxbtn-primary" data-act="save">保存</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('[data-act="skip"]').addEventListener('click', async () => {
+    await fetch('/api/telemetry/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {});
+    close();
+  });
+  overlay.querySelector('[data-act="save"]').addEventListener('click', async () => {
+    const dsn = overlay.querySelector('#tlmDsn').value.trim();
+    const host = overlay.querySelector('#tlmHost').value.trim();
+    const key = overlay.querySelector('#tlmKey').value.trim();
+    try {
+      if (dsn) await fetch('/api/telemetry/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dsn }) });
+      if (host && key) await fetch('/api/analytics/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ host, key }) });
+      close();
+      if (typeof toast === 'function') toast('✓ 已保存遥测配置', 'success', 2000);
+    } catch (e) {
+      if (typeof toast === 'function') toast('保存失败：' + e.message, 'error');
+    }
+  });
+}
+
 export function resetOnboarding() {
   localStorage.removeItem(STORAGE_KEY);
 }

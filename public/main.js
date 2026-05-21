@@ -16,8 +16,8 @@ import { initInspectorResize as _initInspResize, initInspectorToggle as _initIns
 import { buildWsUrl as _buildWsUrl, backoffDelay as _backoffDelay, createWsDispatcher as _createWsDisp, createReconnectingWs as _createReconnWs } from './src/web/ws-helpers.js';
 // v1.0 Task 1.4: i18n
 import { initI18n as _initI18n, t as _t, loadLocale as _loadLocale, getLocale as _getLocale, subscribe as _subI18n } from './src/web/i18n.js';
-// v1.0 Task 1.5: onboarding
-import { startOnboarding as _startOnb, resetOnboarding as _resetOnb } from './src/web/onboarding.js';
+// v1.0 Task 1.5 + v1.1 Task 2.2: onboarding + telemetry consent
+import { startOnboarding as _startOnb, resetOnboarding as _resetOnb, askTelemetry as _askTlm } from './src/web/onboarding.js';
 
 // 下个 sprint 继续加：
 // import { initWebSocket } from './src/web/ws.js';
@@ -45,7 +45,9 @@ if (typeof window !== 'undefined') {
   // 启动自动加载 locale
   _initI18n().catch(() => {});
   // v1.0 Task 1.5: 自动启 onboarding（首次访问 → 引导；已完成则跳过）
-  window.PanelOnboarding = { start: _startOnb, reset: _resetOnb };
+  window.PanelOnboarding = { start: _startOnb, reset: _resetOnb, askTelemetry: _askTlm };
+  // 顺序：先 telemetry 同意（弹窗），再 walkthrough（不阻塞）
+  _askTlm().catch(() => {});
   _startOnb();
   // 启动时从 localStorage 恢复
   try { Store.restore(); } catch (e) { console.warn('[main.js] Store.restore', e); }
