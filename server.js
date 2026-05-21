@@ -48,6 +48,8 @@ import { registerKnowledgeRoutes } from './src/server/routes/knowledge.js';
 import { registerRoomTemplatesRoutes } from './src/server/routes/roomTemplates.js';
 // S18-2e2：rooms 5 个主 CRUD（list/create/get/delete/patch）— advanced endpoints 仍留 server.js
 import { registerRoomsRoutes } from './src/server/routes/rooms.js';
+// v0.81 真做：sessions 只读 endpoint 拆出
+import { registerSessionsReadonlyRoutes } from './src/server/routes/sessions-readonly.js';
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
 import { mcpStore } from './src/mcp/McpStore.js';
@@ -1258,27 +1260,8 @@ app.get('/api/file', (req, res) => {
 });
 
 // v0.28 cost 时序（每分钟桶聚合）
-app.get('/api/sessions/:id/cost-series', (req, res) => {
-  const s = sessions.get(req.params.id);
-  if (!s) return res.status(404).json({ error: 'not found' });
-  const win = Math.max(5, Math.min(180, parseInt(req.query.windowMin || '30', 10)));
-  const series = s.costTracker ? s.costTracker.seriesByMinute(win) : [];
-  res.json({ ok: true, windowMin: win, series });
-});
-
-// v0.27 安全历史（DangerDetector + LoopGuard）
-app.get('/api/sessions/:id/safety-history', (req, res) => {
-  const s = sessions.get(req.params.id);
-  if (!s) return res.status(404).json({ error: 'not found' });
-  res.json({
-    ok: true,
-    danger: s.dangerHistory || [],
-    loopGuard: s.loopGuardHistory || [],
-    stateHistory: s.stateMachine ? s.stateMachine.transitions : [],
-    currentState: s.stateMachine ? s.stateMachine.current : (s.runState || 'idle'),
-    guardSnapshot: s.guard ? s.guard.snapshot() : null,
-  });
-});
+// v0.81 真做：cost-series + safety-history 已迁到 src/server/routes/sessions-readonly.js
+registerSessionsReadonlyRoutes(app, { sessions });
 
 // 中断 busy
 // v0.47 阶段 3：Claude Code hook 事件接收端点（借鉴 disler/claude-code-hooks-multi-agent-observability）
