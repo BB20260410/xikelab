@@ -116,7 +116,7 @@ export async function captureException(err, opts = {}) {
       timestamp: Math.floor(Date.now() / 1000),
       platform: 'node',
       level: opts.level || 'error',
-      logger: 'claude-panel',
+      logger: 'roundtable',
       server_name: 'panel-' + hostname().slice(0, 8),
       release: 'panel@v0.9',
       tags: { component: 'panel-server', ...(opts.tags || {}) },

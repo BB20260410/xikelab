@@ -1,4 +1,4 @@
-# Claude Panel 文档
+# Roundtable 文档
 
 > 你正在看的是 panel v1.0 的开发者文档。
 > 未来用 Docusaurus / Astro Starlight 起独立站，目前为 markdown 集合。

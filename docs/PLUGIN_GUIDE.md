@@ -1,6 +1,6 @@
 # Plugin 开发指南
 
-> Claude Panel v0.52 W2 起，任意 CLI 工具都能通过一份 JSON manifest 接入。
+> Roundtable v0.52 W2 起，任意 CLI 工具都能通过一份 JSON manifest 接入。
 > 安装位置：`~/.claude-panel/cli-plugins/<id>.json`（0o600，原子写）
 
 ---

@@ -1,8 +1,8 @@
 {
-  "name": "claude-panel",
+  "name": "roundtable",
   "version": "2.0.0",
-  "productName": "Claude Panel",
-  "description": "可视化多 Claude Code 会话管理面板：多 session / 流式输出 / 内嵌真终端 / 思维镜 5 套安全机制 / Codex 风格设计",
+  "productName": "Roundtable",
+  "description": "Roundtable — Local-first multi-AI workbench. Supports Claude, GPT, Gemini, MiniMax, Ollama and 8+ providers. 4 collaboration modes (chat/debate/squad/arena), MCP one-stop, all data local 0o600.",
   "author": "hxx",
   "main": "electron-main.js",
   "type": "module",
@@ -40,7 +40,7 @@
   },
   "build": {
     "appId": "com.hxx.claude-panel",
-    "productName": "Claude Panel",
+    "productName": "Roundtable",
     "asar": true,
     "asarUnpack": [
       "node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
@@ -52,7 +52,7 @@
       {
         "provider": "github",
         "owner": "BB20260410",
-        "repo": "claude-panel",
+        "repo": "roundtable",
         "releaseType": "release"
       }
     ],
@@ -91,7 +91,7 @@
       "identity": null
     },
     "dmg": {
-      "title": "Claude Panel v${version}",
+      "title": "Roundtable v${version}",
       "writeUpdateInfo": false
     },
     "linux": {

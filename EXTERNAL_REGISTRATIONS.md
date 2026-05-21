@@ -46,7 +46,7 @@ node scripts/register-github.mjs --email ilifelahepeq54@gmail.com --mode login
 1. 打开 github.com/login（或 /signup）
 2. 等你在浏览器输 username + 自己从 Apple Notes 取密码粘贴
 3. 你完成 2FA / CAPTCHA / 邮件验证后回终端按 Enter
-4. 脚本自动跳到 https://github.com/new 帮你创建 `claude-panel` repo
+4. 脚本自动跳到 https://github.com/new 帮你创建 `roundtable` repo
 5. 引导你生成 PAT（scope: repo）→ 你粘贴 token 到终端
 6. 脚本存 token 到 `~/.claude-panel/github-token.json` (0o600)
 
@@ -60,7 +60,7 @@ npm run dist:publish
 预计：
 - 编译 5 min（electron-builder 打 .app）
 - 上传 GitHub Release 2 min（304MB .app + .yml meta）
-- 验证：访问 https://github.com/<username>/claude-panel/releases/tag/v1.0.0
+- 验证：访问 https://github.com/<username>/roundtable/releases/tag/v1.0.0
 
 ## 2. Lemon Squeezy（主收款，最重要）
 
@@ -88,7 +88,7 @@ npm run dist:publish
 
 **d. 创建产品 panel-pro**
 1. Products → Add product
-2. Name：`Claude Panel Pro`
+2. Name：`Roundtable Pro`
 3. Description（贴下面这段）：
    ```
    Local-first multi-AI workbench with Claude/GPT/Gemini.

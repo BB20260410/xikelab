@@ -1,4 +1,4 @@
-// Claude Panel — utils ES module (S18-1 starter)
+// Roundtable — utils ES module (S18-1 starter)
 // 当前仅作为 module 骨架，未被 index.html 加载（app.js 仍跑老 IIFE）
 // 下次对话用户授权后激活：把 app.js 内的 escapeHtml/shortenPath/safeSlice 等 helper 迁出
 //

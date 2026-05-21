@@ -1,4 +1,4 @@
-# Claude Panel v1.5.0 — 商品化收费层
+# Roundtable v1.5.0 — 商品化收费层
 
 发布日期：2026-05-21
 代号：Pay-The-Bills

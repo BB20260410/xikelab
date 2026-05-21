@@ -23,7 +23,7 @@ async function getText(path) {
 {
   const r = await getText('/');
   t('流程 1.1 GET / → 200', r.status === 200);
-  t('流程 1.2 标题正确', r.text.includes('<title>Claude 控制台</title>'));
+  t('流程 1.2 标题正确', r.text.includes('<title>Roundtable</title>'));
   t('流程 1.3 引用 Modal.js + UI.js（S18-3/S18-4）',
     r.text.includes('/src/components/Modal.js') && r.text.includes('/src/components/UI.js'));
   t('流程 1.4 引用 app.js', r.text.includes('/app.js'));

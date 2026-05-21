@@ -1,4 +1,4 @@
-// Claude Panel — Knowledge routes (S18-2g)
+// Roundtable — Knowledge routes (S18-2g)
 // v0.55 Sprint 13-B — 知识库（KB）API
 // 从 server.js 3772-3823 提取
 

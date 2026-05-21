@@ -58,7 +58,7 @@ export class McpClientManager {
     }
 
     const client = new Client(
-      { name: 'claude-panel', version: '0.55.0' },
+      { name: 'roundtable', version: '0.55.0' },
       { capabilities: { tools: {}, resources: {}, prompts: {} } }
     );
 

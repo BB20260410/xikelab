@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://claude-panel.local/plugin-manifest.schema.json",
-  "title": "Claude Panel Plugin Manifest",
-  "description": "Describe any CLI tool to be wrapped by Claude Panel. v1 (W1)",
+  "$id": "https://roundtable.local/plugin-manifest.schema.json",
+  "title": "Roundtable Plugin Manifest",
+  "description": "Describe any CLI tool to be wrapped by Roundtable. v1 (W1)",
   "type": "object",
   "required": ["id", "displayName", "type"],
   "additionalProperties": false,
