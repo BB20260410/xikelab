@@ -221,6 +221,17 @@ html.dark .modal-body { background: #2A2826; color: var(--gray-deep); }
   --state-danger-fg:   #b3322f;
   --state-info-bg:     rgba(51, 156, 255, 0.20);
   --state-info-fg:     #1b5fb3;
+  /* v0.83 真做 — 高频 hex 语义化 token（98 处硬编码 → var）*/
+  --color-danger:      #dc2626;
+  --color-danger-alt:  #dc3545;
+  --color-warn:        #f59e0b;
+  --color-success:     #16a34a;
+  --color-success-alt: #2da44e;
+  --color-purple:      #7c3aed;
+  --color-purple-alt:  #8b5cf6;
+  --color-pink:        #d73a49;
+  --color-red-deep:    #b91c1c;
+  --color-gray-500:    #6b7280;
 }
 html.dark {
   --state-success-bg:  rgba(110, 211, 107, 0.25);
@@ -403,7 +414,7 @@ html.dark {
 .safety-critical { border-left-color: var(--accent-red); background: color-mix(in oklab, var(--accent-red) 10%, transparent); }
 .safety-high     { border-left-color: var(--accent-amber); background: color-mix(in oklab, var(--accent-amber) 10%, transparent); }
 .safety-low      { border-left-color: var(--blue-300); background: color-mix(in oklab, var(--blue-300) 8%, transparent); }
-.safety-loop     { border-left-color: #7c3aed; background: color-mix(in oklab, #7c3aed 10%, transparent); }
+.safety-loop     { border-left-color: var(--color-purple); background: color-mix(in oklab, var(--color-purple) 10%, transparent); }
 .safety-row1 {
   display: flex; align-items: center; gap: 8px;
   font-family: var(--mono);
@@ -735,7 +746,7 @@ html.dark {
 .plugin-list-item-meta { font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); display: flex; gap: 8px; }
 .plugin-list-item-tag { padding: 1px 6px; border-radius: 4px; background: color-mix(in oklab, var(--bg-top) 60%, transparent); font-family: var(--mono); }
 .plugin-list-item-tag.builtin { color: var(--color-accent-primary); }
-.plugin-list-item-tag.user { color: #16a34a; }
+.plugin-list-item-tag.user { color: var(--color-success); }
 .plugin-main { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
 .plugin-empty { margin: auto; max-width: 580px; text-align: center; color: var(--color-text-foreground-secondary); }
 .plugin-empty-icon { font-size: 48px; margin-bottom: 12px; }
@@ -757,7 +768,7 @@ html.dark {
 .plugin-exec-modal-body input, .plugin-exec-modal-body textarea { padding: 6px 8px; font: inherit; color: var(--color-text-foreground-primary); background: var(--bg-top); border: 1px solid var(--color-border-light); border-radius: 6px; box-sizing: border-box; width: 100%; }
 .plugin-exec-modal-body textarea { resize: vertical; min-height: 80px; }
 .plugin-exec-output { background: #0a0a0a; color: #e5e5e5; font-family: var(--mono); font-size: 12px; padding: 12px; border-radius: 8px; max-height: 50vh; overflow-y: auto; white-space: pre-wrap; }
-.plugin-error-banner { background: color-mix(in oklab, #dc2626 8%, transparent); color: #b91c1c; border: 1px solid color-mix(in oklab, #dc2626 30%, transparent); padding: 8px 12px; border-radius: 8px; font-size: var(--text-xs); }
+.plugin-error-banner { background: color-mix(in oklab, var(--color-danger) 8%, transparent); color: var(--color-red-deep); border: 1px solid color-mix(in oklab, var(--color-danger) 30%, transparent); padding: 8px 12px; border-radius: 8px; font-size: var(--text-xs); }
 /* v0.52 Sprint2-B2 仪表盘卡片 */
 .plugin-dash-card { background: var(--bg-top); border: 1px solid var(--color-border-light); border-radius: 8px; padding: 10px 12px; }
 .plugin-dash-card.type-log { background: #0a0a0a; color: #e5e5e5; }
@@ -837,10 +848,10 @@ html.dark {
   color: var(--color-accent-secondary);
   font-family: var(--mono);
 }
-.room-status-chip.running { background: color-mix(in oklab, #f59e0b 18%, transparent); color: #f59e0b; animation: pulse 1.5s ease-in-out infinite; }
-.room-status-chip.done { background: color-mix(in oklab, #16a34a 18%, transparent); color: #16a34a; }
-.room-status-chip.error { background: color-mix(in oklab, #dc2626 18%, transparent); color: #dc2626; }
-.room-status-chip.paused { background: color-mix(in oklab, #6b7280 18%, transparent); color: #6b7280; }
+.room-status-chip.running { background: color-mix(in oklab, var(--color-warn) 18%, transparent); color: var(--color-warn); animation: pulse 1.5s ease-in-out infinite; }
+.room-status-chip.done { background: color-mix(in oklab, var(--color-success) 18%, transparent); color: var(--color-success); }
+.room-status-chip.error { background: color-mix(in oklab, var(--color-danger) 18%, transparent); color: var(--color-danger); }
+.room-status-chip.paused { background: color-mix(in oklab, var(--color-gray-500) 18%, transparent); color: var(--color-gray-500); }
 .room-debate-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }   /* v0.56 fix: 按钮多时换行不溢出 */
 .qa-strict-label { display: flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); }
 .qa-strict-label select { background: var(--bg-top); border: 1px solid var(--color-border-light); border-radius: 6px; padding: 3px 6px; font: inherit; color: inherit; font-size: var(--text-xs); cursor: pointer; }
@@ -865,10 +876,10 @@ html.dark {
   font-size: 10px; font-weight: var(--font-weight-semibold); letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.room-member-role.pm  { background: color-mix(in oklab, #8b5cf6 22%, transparent); color: #7c3aed; }
-.room-member-role.dev { background: color-mix(in oklab, #f59e0b 22%, transparent); color: #d97706; }
-.room-member-role.qa  { background: color-mix(in oklab, #16a34a 22%, transparent); color: #15803d; }
-.room-member-role.observer { background: color-mix(in oklab, #6b7280 22%, transparent); color: #4b5563; }
+.room-member-role.pm  { background: color-mix(in oklab, var(--color-purple-alt) 22%, transparent); color: var(--color-purple); }
+.room-member-role.dev { background: color-mix(in oklab, var(--color-warn) 22%, transparent); color: #d97706; }
+.room-member-role.qa  { background: color-mix(in oklab, var(--color-success) 22%, transparent); color: #15803d; }
+.room-member-role.observer { background: color-mix(in oklab, var(--color-gray-500) 22%, transparent); color: #4b5563; }
 .room-member-chip select, .room-member-chip input.room-member-model {
   background: transparent; border: 1px solid var(--color-border-light); border-radius: 6px;
   padding: 2px 6px; font: inherit; color: inherit; cursor: pointer;
@@ -916,13 +927,13 @@ html.dark {
   background: transparent; border: none; cursor: pointer;
   color: var(--gray-mid); padding: 0 2px; font-size: 14px; line-height: 1;
 }
-.attach-chip-rm:hover { color: #dc3545; }
+.attach-chip-rm:hover { color: var(--color-danger-alt); }
 .room-topic-input.dragover {
   border-color: var(--orange, #C15F3C) !important;
   background: color-mix(in oklab, var(--orange, #C15F3C) 6%, transparent);
 }
 #topicCharCount.warn { color: #d97706; font-weight: 600; }
-#topicCharCount.danger { color: #dc3545; font-weight: 700; }
+#topicCharCount.danger { color: var(--color-danger-alt); font-weight: 700; }
 
 /* v0.56 U6：textarea 全屏展开 */
 .room-topic-input.is-expanded {
@@ -974,7 +985,7 @@ body.has-turn-expanded::before {
   z-index: 210;
   font-size: 14px; font-weight: 600;
   padding: 8px 16px;
-  background: #dc3545; color: white;
+  background: var(--color-danger-alt); color: white;
   border: none; border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.25);
 }
@@ -1077,11 +1088,11 @@ button[data-forward]:hover,
 .custom-row .custom-row-head { display: flex; align-items: center; gap: 8px; }
 .custom-row .custom-row-head label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--text-xs); }
 .custom-row .custom-row-head .grow { flex: 1; }
-.custom-row .btn-icon { background: transparent; border: 0; color: #dc2626; cursor: pointer; font-size: 16px; padding: 2px 6px; }
+.custom-row .btn-icon { background: transparent; border: 0; color: var(--color-danger); cursor: pointer; font-size: 16px; padding: 2px 6px; }
 .adapter-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding-top: 6px; border-top: 1px solid var(--color-border-light); }
 .adapter-save-status { flex: 1; font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); }
-.adapter-save-status.error { color: #dc2626; }
-.adapter-save-status.success { color: #16a34a; }
+.adapter-save-status.error { color: var(--color-danger); }
+.adapter-save-status.success { color: var(--color-success); }
 
 .room-rounds { display: flex; flex-direction: column; gap: 14px; }
 .room-round {
@@ -1103,8 +1114,8 @@ button[data-forward]:hover,
   border: 1px solid var(--color-border-light);
   display: flex; flex-direction: column; gap: 8px;
 }
-.room-turn-card.speaking { border-color: #f59e0b; animation: pulse 1.5s ease-in-out infinite; }
-.room-turn-card.error { border-color: #dc2626; }
+.room-turn-card.speaking { border-color: var(--color-warn); animation: pulse 1.5s ease-in-out infinite; }
+.room-turn-card.error { border-color: var(--color-danger); }
 .room-turn-head { display: flex; align-items: center; gap: 8px; }
 .room-turn-speaker { font-weight: var(--font-weight-semibold); }
 .room-turn-tokens { margin-left: auto; font-family: var(--mono); font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); }
@@ -1150,7 +1161,7 @@ button[data-forward]:hover,
   border-color: color-mix(in oklab, var(--color-accent-primary) 30%, transparent);
 }
 .chat-room-msg.error .chat-room-msg-bubble {
-  border-color: #dc2626; background: color-mix(in oklab, #dc2626 8%, var(--bg-top));
+  border-color: var(--color-danger); background: color-mix(in oklab, var(--color-danger) 8%, var(--bg-top));
 }
 .chat-room-msg-thinking .chat-room-msg-bubble {
   font-style: italic; color: var(--color-text-foreground-tertiary);
@@ -1207,16 +1218,16 @@ button[data-forward]:hover,
 .squad-task-title { font-weight: var(--font-weight-medium); font-size: var(--text-sm); line-height: 1.35; }
 .squad-task-meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--color-text-foreground-tertiary); }
 .squad-task-meta .iter { font-family: var(--mono); }
-.squad-task-card.in_progress { border-color: #f59e0b; }
+.squad-task-card.in_progress { border-color: var(--color-warn); }
 .squad-task-card.in_review  { border-color: #3b82f6; }
-.squad-task-card.done       { border-color: #16a34a; background: color-mix(in oklab, #16a34a 6%, var(--bg-top)); }
-.squad-task-card.escalated  { border-color: #dc2626; background: color-mix(in oklab, #dc2626 6%, var(--bg-top)); }
+.squad-task-card.done       { border-color: var(--color-success); background: color-mix(in oklab, var(--color-success) 6%, var(--bg-top)); }
+.squad-task-card.escalated  { border-color: var(--color-danger); background: color-mix(in oklab, var(--color-danger) 6%, var(--bg-top)); }
 /* v0.52 看板卡片实时状态 badge */
 .squad-task-live {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 8px; border-radius: 6px; font-size: 11px; font-family: var(--mono);
-  background: color-mix(in oklab, #f59e0b 14%, transparent);
-  color: #b45309; border: 1px solid color-mix(in oklab, #f59e0b 40%, transparent);
+  background: color-mix(in oklab, var(--color-warn) 14%, transparent);
+  color: #b45309; border: 1px solid color-mix(in oklab, var(--color-warn) 40%, transparent);
   animation: pulse-amber 1.5s ease-in-out infinite;
   width: fit-content;
 }
@@ -1225,34 +1236,34 @@ button[data-forward]:hover,
   color: #1d4ed8; border-color: color-mix(in oklab, #3b82f6 40%, transparent);
   animation-name: pulse-blue;
 }
-.squad-task-live.error { background: color-mix(in oklab, #dc2626 12%, transparent); color: #b91c1c; border-color: color-mix(in oklab, #dc2626 40%, transparent); animation: none; }
-.squad-task-live.ok { background: color-mix(in oklab, #16a34a 12%, transparent); color: #15803d; border-color: color-mix(in oklab, #16a34a 40%, transparent); animation: none; }
+.squad-task-live.error { background: color-mix(in oklab, var(--color-danger) 12%, transparent); color: var(--color-red-deep); border-color: color-mix(in oklab, var(--color-danger) 40%, transparent); animation: none; }
+.squad-task-live.ok { background: color-mix(in oklab, var(--color-success) 12%, transparent); color: #15803d; border-color: color-mix(in oklab, var(--color-success) 40%, transparent); animation: none; }
 @keyframes pulse-amber { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 @keyframes pulse-blue  { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 /* v0.52 辩论房 placeholder 也用 pulse-amber */
 .room-turn-card.speaking { border-style: dashed; }
-.room-turn-card.speaking.stalled { border-color: #dc2626 !important; background: color-mix(in oklab, #dc2626 4%, transparent); }
+.room-turn-card.speaking.stalled { border-color: var(--color-danger) !important; background: color-mix(in oklab, var(--color-danger) 4%, transparent); }
 .room-turn-card.speaking.stalled .room-turn-spinner {
-  background: color-mix(in oklab, #dc2626 14%, transparent);
-  color: #b91c1c; border-color: color-mix(in oklab, #dc2626 40%, transparent);
+  background: color-mix(in oklab, var(--color-danger) 14%, transparent);
+  color: var(--color-red-deep); border-color: color-mix(in oklab, var(--color-danger) 40%, transparent);
   animation: none;
 }
 .room-turn-spinner {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--mono);
-  background: color-mix(in oklab, #f59e0b 14%, transparent);
-  color: #b45309; border: 1px solid color-mix(in oklab, #f59e0b 40%, transparent);
+  background: color-mix(in oklab, var(--color-warn) 14%, transparent);
+  color: #b45309; border: 1px solid color-mix(in oklab, var(--color-warn) 40%, transparent);
   animation: pulse-amber 1.5s ease-in-out infinite;
 }
 /* v0.52 Sprint1-D 局部重试按钮（仅 error 卡显示）*/
 .room-turn-retry {
   margin-left: auto;
-  background: color-mix(in oklab, #dc2626 12%, transparent);
-  color: #b91c1c; border: 1px solid color-mix(in oklab, #dc2626 40%, transparent);
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  color: var(--color-red-deep); border: 1px solid color-mix(in oklab, var(--color-danger) 40%, transparent);
   border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer;
   font: inherit; font-size: 11px;
 }
-.room-turn-retry:hover { background: color-mix(in oklab, #dc2626 22%, transparent); }
+.room-turn-retry:hover { background: color-mix(in oklab, var(--color-danger) 22%, transparent); }
 /* v0.52 Sprint1-F：finalConsensus 转发按钮 */
 .room-consensus-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 14px; border-top: 1px solid var(--color-border-light); }
 
@@ -1292,7 +1303,7 @@ button[data-forward]:hover,
 .squad-task-detail .close-btn:hover { background: var(--bg-top); color: var(--text-pri); }
 /* drawer 内除 head 外用统一 padding */
 .squad-task-detail > *:not(.squad-task-detail-head) { padding-left: 20px; padding-right: 20px; }
-.squad-injections { background: color-mix(in oklab, #8b5cf6 8%, var(--bg-top)); border-left: 3px solid #8b5cf6; padding: 8px 10px; border-radius: 0 6px 6px 0; font-size: var(--text-sm); }
+.squad-injections { background: color-mix(in oklab, var(--color-purple-alt) 8%, var(--bg-top)); border-left: 3px solid var(--color-purple-alt); padding: 8px 10px; border-radius: 0 6px 6px 0; font-size: var(--text-sm); }
 .squad-injections ul { margin: 4px 0 0 18px; }
 .squad-inject-wrap { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: color-mix(in oklab, var(--bg-top) 70%, transparent); border-radius: 8px; border: 1px dashed var(--color-border-light); }
 .squad-inject-label { font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); }
@@ -1303,9 +1314,9 @@ button[data-forward]:hover,
   background: var(--bg-top); border-radius: 0 6px 6px 0;
   font-size: var(--text-sm);
 }
-.squad-attempt { border-left-color: #f59e0b; }
-.squad-review.pass { border-left-color: #16a34a; }
-.squad-review.reject { border-left-color: #dc2626; }
+.squad-attempt { border-left-color: var(--color-warn); }
+.squad-review.pass { border-left-color: var(--color-success); }
+.squad-review.reject { border-left-color: var(--color-danger); }
 .squad-attempt-head, .squad-review-head { font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); margin-bottom: 4px; }
 
 .room-consensus {
@@ -1360,17 +1371,17 @@ button[data-forward]:hover,
 .hook-event-name { font-weight: var(--font-weight-medium); font-family: var(--mono); color: var(--color-accent-secondary); }
 .hook-event-tool { color: var(--color-text-foreground-tertiary); }
 .hook-event-time { margin-left: auto; color: var(--color-text-foreground-tertiary); font-family: var(--mono); }
-.hook-event-PreToolUse  { border-left-color: #f59e0b; }
-.hook-event-PostToolUse { border-left-color: #16a34a; }
+.hook-event-PreToolUse  { border-left-color: var(--color-warn); }
+.hook-event-PostToolUse { border-left-color: var(--color-success); }
 .hook-event-SessionStart, .hook-event-SessionEnd { border-left-color: #3b82f6; }
-.hook-event-Stop { border-left-color: #6b7280; }
-.hook-event-Notification { border-left-color: #dc2626; }
-.hook-event-SubagentStart, .hook-event-SubagentStop, .hook-event-SubagentResult { border-left-color: #8b5cf6; }
+.hook-event-Stop { border-left-color: var(--color-gray-500); }
+.hook-event-Notification { border-left-color: var(--color-danger); }
+.hook-event-SubagentStart, .hook-event-SubagentStop, .hook-event-SubagentResult { border-left-color: var(--color-purple-alt); }
 
 .final-degraded-badge {
-  background: color-mix(in oklab, #dc2626 12%, transparent);
-  color: #b91c1c; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px;
-  font-size: var(--text-sm); border: 1px solid color-mix(in oklab, #dc2626 30%, transparent);
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  color: var(--color-red-deep); padding: 8px 12px; border-radius: 8px; margin-bottom: 12px;
+  font-size: var(--text-sm); border: 1px solid color-mix(in oklab, var(--color-danger) 30%, transparent);
 }
 .room-consensus-body { font-size: var(--text-sm); line-height: 1.6; }
 .room-consensus-body h1, .room-consensus-body h2, .room-consensus-body h3 { margin-top: 12px; margin-bottom: 6px; }
@@ -1503,7 +1514,7 @@ button[data-forward]:hover,
 .watcher-status-partial { border-left-color: var(--accent-amber); }
 .watcher-status-stuck { border-left-color: var(--accent-amber); background: color-mix(in oklab, var(--accent-amber) 8%, transparent); }
 .watcher-status-failed { border-left-color: var(--accent-red); }
-.watcher-status-drifted { border-left-color: #7c3aed; }
+.watcher-status-drifted { border-left-color: var(--color-purple); }
 .watcher-hist-row1 {
   display: flex;
   align-items: center;
@@ -1558,7 +1569,7 @@ button[data-forward]:hover,
 .watcher-verdict-banner.verdict-stuck { background: color-mix(in oklab, var(--accent-amber) 14%, transparent); border-left-color: var(--accent-amber); }
 .watcher-verdict-banner.verdict-failed { background: color-mix(in oklab, var(--accent-red) 10%, transparent); border-left-color: var(--accent-red); }
 .watcher-verdict-banner.verdict-drifted,
-.watcher-verdict-banner.verdict-drift { background: color-mix(in oklab, #7c3aed 12%, transparent); border-left-color: #7c3aed; }
+.watcher-verdict-banner.verdict-drift { background: color-mix(in oklab, var(--color-purple) 12%, transparent); border-left-color: var(--color-purple); }
 
 .watcher-verdict-head {
   display: flex;
@@ -2545,7 +2556,7 @@ body.inspector-hidden .inspector-resizer { display: none; }
 .prompts-item-name { font-weight: 500; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
 .prompts-item-preview { font-size: 11px; color: var(--color-text-foreground-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .prompts-item-del { background: transparent; border: 0; color: var(--color-text-foreground-tertiary); cursor: pointer; font-size: 16px; padding: 0 4px; }
-.prompts-item-del:hover { color: #d73a49; }
+.prompts-item-del:hover { color: var(--color-pink); }
 .prompts-form { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--color-border-light); }
 .prompts-form input, .prompts-form textarea {
   background: var(--bg-main); border: 1px solid var(--color-border-light);
@@ -2563,11 +2574,11 @@ body.inspector-hidden .inspector-resizer { display: none; }
 /* F8 ctx 警告条 */
 .ctx-warning-bar { padding: 6px 12px; font-size: 12px; display: none; align-items: center; gap: 10px; border-radius: 6px; margin: 4px 12px; }
 .ctx-warning-bar.warn { display: flex; background: color-mix(in oklab, #f6b73c 18%, transparent); border: 1px solid color-mix(in oklab, #f6b73c 50%, transparent); color: #8a6d10; }
-.ctx-warning-bar.danger { display: flex; background: color-mix(in oklab, #d73a49 14%, transparent); border: 1px solid color-mix(in oklab, #d73a49 50%, transparent); color: #b21d2a; }
+.ctx-warning-bar.danger { display: flex; background: color-mix(in oklab, var(--color-pink) 14%, transparent); border: 1px solid color-mix(in oklab, var(--color-pink) 50%, transparent); color: #b21d2a; }
 .ctx-warning-bar .ctx-warn-action { margin-left: auto; }
 /* v0.50 Q-02 暗主题适配：字色提亮，保证 contrast */
 html.dark .ctx-warning-bar.warn { color: #f0c44a; background: color-mix(in oklab, #f6b73c 24%, transparent); border-color: color-mix(in oklab, #f6b73c 60%, transparent); }
-html.dark .ctx-warning-bar.danger { color: #ff8a93; background: color-mix(in oklab, #d73a49 22%, transparent); border-color: color-mix(in oklab, #d73a49 60%, transparent); }
+html.dark .ctx-warning-bar.danger { color: #ff8a93; background: color-mix(in oklab, var(--color-pink) 22%, transparent); border-color: color-mix(in oklab, var(--color-pink) 60%, transparent); }
 
 /* S19-5: 状态徽章 / safety-sev 在 dark mode 用更亮的字色（原 #2d6e3e/#8a6b1f/#b3322f 在深底上对比不足）*/
 html.dark .state-pill.state-idle,
@@ -3544,7 +3555,7 @@ kbd {
   background: var(--gray-soft);
   flex-shrink: 0;
 }
-.overview-active-room-item .room-status-dot.is-running { background: #2da44e; box-shadow: 0 0 0 3px rgba(45,164,78,0.18); }
+.overview-active-room-item .room-status-dot.is-running { background: var(--color-success-alt); box-shadow: 0 0 0 3px rgba(45,164,78,0.18); }
 .overview-active-room-item .room-status-dot.is-paused  { background: #ffa500; }
 .overview-active-room-item .room-status-dot.is-auto_paused { background: #c15f3c; }
 .overview-active-room-item .name { flex: 1; color: var(--text-pri); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -3598,7 +3609,7 @@ kbd {
 }
 .overview-health-warn {
   background: rgba(220, 53, 69, 0.08);
-  border-left: 3px solid #dc3545;
+  border-left: 3px solid var(--color-danger-alt);
   padding: 6px 10px;
   font-size: var(--text-sm);
   color: var(--text-pri);
@@ -3727,8 +3738,8 @@ kbd {
 .webhook-item .wname .badge.is-disabled { opacity: 0.5; }
 .webhook-item .wurl { font-size: var(--text-xs); color: var(--text-muted); font-family: ui-monospace, monospace; word-break: break-all; margin-top: 2px; }
 .webhook-item .wstats { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
-.webhook-item .wstats .ok { color: #2da44e; }
-.webhook-item .wstats .err { color: #dc3545; }
+.webhook-item .wstats .ok { color: var(--color-success-alt); }
+.webhook-item .wstats .err { color: var(--color-danger-alt); }
 .webhook-detail-pane { overflow: auto; padding: 0 var(--spacing-3); display: flex; flex-direction: column; gap: var(--spacing-3); }
 .webhook-form-row { display: flex; flex-direction: column; gap: 4px; }
 .webhook-form-row label { font-size: var(--text-sm); color: var(--text-sec); }
@@ -3784,13 +3795,13 @@ kbd {
 .mcp-item .mname { font-weight: 600; color: var(--text-pri); font-size: var(--text-base); display: flex; align-items: center; gap: 6px; }
 .mcp-item .mname .badge { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--gray-100); color: var(--text-sec); }
 .mcp-item .mname .badge.is-disabled { opacity: 0.5; }
-.mcp-item .mname .badge.is-stdio { background: rgba(34, 139, 34, 0.15); color: #2da44e; }
+.mcp-item .mname .badge.is-stdio { background: rgba(34, 139, 34, 0.15); color: var(--color-success-alt); }
 .mcp-item .mname .badge.is-sse { background: rgba(0, 123, 255, 0.15); color: #1d4ed8; }
 .mcp-item .mname .badge.is-http { background: rgba(193, 95, 60, 0.15); color: var(--orange); }
 .mcp-item .mdesc { font-size: var(--text-xs); color: var(--text-muted); font-family: ui-monospace, monospace; margin-top: 2px; word-break: break-all; }
 .mcp-item .mstatus { font-size: 10px; margin-top: 2px; color: var(--text-muted); }
-.mcp-item .mstatus .ok { color: #2da44e; }
-.mcp-item .mstatus .err { color: #dc3545; }
+.mcp-item .mstatus .ok { color: var(--color-success-alt); }
+.mcp-item .mstatus .err { color: var(--color-danger-alt); }
 .mcp-detail-pane { overflow: auto; padding: 0 var(--spacing-3); display: flex; flex-direction: column; gap: var(--spacing-3); }
 .mcp-form-row { display: flex; flex-direction: column; gap: 4px; }
 .mcp-form-row label { font-size: var(--text-sm); color: var(--text-sec); }
@@ -3818,7 +3829,7 @@ kbd {
   flex-wrap: wrap;   /* 窄屏自动换行 */
 }
 .autopilot-toggle-row .big-switch { font-size: 18px; font-weight: bold; white-space: nowrap; flex-shrink: 0; }
-.autopilot-toggle-row .big-switch.is-on { color: #2da44e; }
+.autopilot-toggle-row .big-switch.is-on { color: var(--color-success-alt); }
 .autopilot-toggle-row .big-switch.is-off { color: var(--text-muted); }
 .autopilot-toggle-row .ap-desc {
   flex: 1 1 220px;          /* 关键：flex-basis + 允许 shrink + grow */
@@ -3861,8 +3872,8 @@ kbd {
 }
 .autopilot-log-entry { padding: 2px 0; word-break: break-all; }
 .autopilot-log-entry .ts { color: var(--text-muted); }
-.autopilot-log-entry .type-error, .autopilot-log-entry .type-rule_forward_fail { color: #dc3545; }
-.autopilot-log-entry .type-rule_forward_ok, .autopilot-log-entry .type-rule_notify { color: #2da44e; }
+.autopilot-log-entry .type-error, .autopilot-log-entry .type-rule_forward_fail { color: var(--color-danger-alt); }
+.autopilot-log-entry .type-rule_forward_ok, .autopilot-log-entry .type-rule_notify { color: var(--color-success-alt); }
 
 /* v0.55 Sprint 13-D — Timeline modal */
 .timeline-modal-body { padding: var(--spacing-3) var(--spacing-4); max-height: 80vh; overflow: auto; display: flex; flex-direction: column; gap: var(--spacing-3); }
@@ -3878,8 +3889,8 @@ kbd {
 .timeline-row .turn { color: var(--text-sec); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .timeline-row .latency { color: var(--text-pri); text-align: right; }
 .timeline-row .tokens { color: var(--text-sec); text-align: right; }
-.timeline-row .badge-ok { color: #2da44e; }
-.timeline-row .badge-err { color: #dc3545; }
+.timeline-row .badge-ok { color: var(--color-success-alt); }
+.timeline-row .badge-err { color: var(--color-danger-alt); }
 
 /* v0.54 Sprint 5.5 — forward 注入的 context 消息样式 */
 .chat-room-msg-forward-ctx .chat-room-msg-bubble {
