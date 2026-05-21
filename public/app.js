@@ -468,7 +468,7 @@ function renderMarkdown(text) {
         headerIds: false,    // 不生成 id（防 XSS）
         mangle: false,
       });
-      return window.DOMPurify.sanitize(raw, {
+      let safe = window.DOMPurify.sanitize(raw, {
         ALLOWED_TAGS: ['a','b','strong','i','em','u','s','del','code','pre','p','br','hr',
                        'ul','ol','li','blockquote','h1','h2','h3','h4','h5','h6',
                        'table','thead','tbody','tr','th','td','span','div','img','button'],
@@ -479,6 +479,11 @@ function renderMarkdown(text) {
         // v0.44 P1 #14: 限协议，禁 javascript: / data:image/svg / vbscript: 等绕过路径
         ALLOWED_URI_REGEXP: /^(https?:|mailto:|tel:|#|\/)/i,
       });
+      // B-005 v0.9：外链图片走本地缓存 proxy（防外链失效）
+      safe = safe.replace(/<img\b([^>]*?)\ssrc=["'](https?:\/\/[^"']+)["']/gi, (m, attrs, src) => {
+        return `<img${attrs} src="/api/img-cache?url=${encodeURIComponent(src)}" data-original-src="${src.replace(/"/g, '&quot;')}"`;
+      });
+      return safe;
     } catch (e) {
       // 解析失败 → fallback
       console.warn('marked/DOMPurify failed, fallback:', e.message);

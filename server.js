@@ -50,6 +50,8 @@ import { registerRoomTemplatesRoutes } from './src/server/routes/roomTemplates.j
 import { registerRoomsRoutes } from './src/server/routes/rooms.js';
 // v0.81 真做：sessions 只读 endpoint 拆出
 import { registerSessionsReadonlyRoutes } from './src/server/routes/sessions-readonly.js';
+// B-005 v0.9：AI markdown 图片本地缓存
+import { registerImgCacheRoutes } from './src/server/routes/img-cache.js';
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
 import { mcpStore } from './src/mcp/McpStore.js';
@@ -1262,6 +1264,8 @@ app.get('/api/file', (req, res) => {
 // v0.28 cost 时序（每分钟桶聚合）
 // v0.81 真做：cost-series + safety-history 已迁到 src/server/routes/sessions-readonly.js
 registerSessionsReadonlyRoutes(app, { sessions });
+// B-005 v0.9：图片缓存代理
+registerImgCacheRoutes(app);
 
 // 中断 busy
 // v0.47 阶段 3：Claude Code hook 事件接收端点（借鉴 disler/claude-code-hooks-multi-agent-observability）
