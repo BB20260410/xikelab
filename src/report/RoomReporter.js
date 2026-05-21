@@ -300,6 +300,8 @@ export async function generateReport({ room, adapter, model, outputPath } = {}) 
   }
 
   // v0.70 W11 集成：报告输出质量自动校验（学自 promptfoo assertion）
+  // v0.70.2-t2 增强：失败项保存到 result.assertionFailed，让 server 广播给前端 toast
+  let assertionFailed = [];
   try {
     const { runAssertions } = await import('../skills/learned/assertion.js');
     const { allPass, failed } = runAssertions(reply, [
@@ -308,6 +310,7 @@ export async function generateReport({ room, adapter, model, outputPath } = {}) 
       { type: 'not_contains', value: '我不能为' },          // 防 refusal（中文）
     ]);
     if (!allPass) {
+      assertionFailed = failed.map(f => ({ type: f.type, reason: f.reason }));
       // 不阻断，只在报告头部标 warning 让用户知道
       reply = `<!-- ⚠️ 报告质量校验 ${failed.length} 项未通过: ${failed.map(f => f.type).join(', ')} -->\n\n` + reply;
     }
@@ -349,5 +352,6 @@ contentTruncated: ${truncated}
     tokensOut: result.tokensOut || 0,
     elapsedMs: Date.now() - startedAt,
     truncated,
+    assertionFailed,    // v0.70.2-t2: 给前端 toast 用
   };
 }

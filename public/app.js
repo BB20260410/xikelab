@@ -6135,6 +6135,11 @@ async function runReport() {
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'report_done' && msg.jobId === jobId) {
+        // v0.70.2-t2: assertion warning → toast（学自 W11 promptfoo）
+        if (Array.isArray(msg.assertionFailed) && msg.assertionFailed.length > 0) {
+          const summary = msg.assertionFailed.map(f => `${f.type}: ${f.reason}`).join(' / ');
+          toast(`⚠️ 报告质量校验 ${msg.assertionFailed.length} 项未通过：${summary}`, 'warn', 8000);
+        }
         succeed({
           content: msg.content, path: msg.path,
           tokensIn: msg.tokensIn, tokensOut: msg.tokensOut,

@@ -1832,6 +1832,7 @@ app.post('/api/rooms/:id/report', (req, res) => {
         tokensOut: result.tokensOut,
         elapsedMs: result.elapsedMs,
         truncated: result.truncated,
+        assertionFailed: result.assertionFailed || [],   // v0.70.2-t2
       });
     } catch (e) {
       broadcastGlobal({
