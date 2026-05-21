@@ -52,6 +52,8 @@ import { registerRoomsRoutes } from './src/server/routes/rooms.js';
 import { registerSessionsReadonlyRoutes } from './src/server/routes/sessions-readonly.js';
 // B-005 v0.9：AI markdown 图片本地缓存
 import { registerImgCacheRoutes } from './src/server/routes/img-cache.js';
+// v1.0 Task 1.1：telemetry endpoint
+import { registerTelemetryRoutes } from './src/server/routes/telemetry.js';
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
 import { mcpStore } from './src/mcp/McpStore.js';
@@ -1266,6 +1268,8 @@ app.get('/api/file', (req, res) => {
 registerSessionsReadonlyRoutes(app, { sessions });
 // B-005 v0.9：图片缓存代理
 registerImgCacheRoutes(app);
+// v1.0 Task 1.1：telemetry
+registerTelemetryRoutes(app);
 
 // 中断 busy
 // v0.47 阶段 3：Claude Code hook 事件接收端点（借鉴 disler/claude-code-hooks-multi-agent-observability）
@@ -3975,8 +3979,13 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 // v0.51 T-01 fix: uncaughtException 必须 exit
 // Node 默认 unhandled exception 会 exit；注册 handler 后默认不 exit → 进程在不一致状态继续跑
 // 正确做法：记日志 + 救命落盘 + exit(1)，让 Electron/launchctl/手动重启恢复
+// v1.0 Task 1.1：异步引入 Sentry 兼容 ErrorReporter（用户填 DSN 才启用，默认关）
+let _reporter = null;
+import('./src/telemetry/ErrorReporter.js').then(m => { _reporter = m; }).catch(() => {});
+
 process.on('uncaughtException', (e) => {
   console.error('[uncaughtException]', e?.stack || e);
+  try { _reporter?.captureException(e, { level: 'fatal', tags: { kind: 'uncaught' } }); } catch {}
   try { saveData(); } catch {}
   try { roomStore.flush(); } catch {}
   // S21 B6：100ms 不够 PTY 子进程清理；改 500ms + 提前发 SIGTERM 给子进程
@@ -3985,6 +3994,7 @@ process.on('uncaughtException', (e) => {
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason);
+  try { _reporter?.captureException(reason, { level: 'error', tags: { kind: 'unhandled-rejection' } }); } catch {}
   try { roomStore.flush(); } catch {}
   // unhandledRejection 在 Node 15+ 默认行为是 terminate，但很多 host 仍会容忍；
   // 这里只记日志不 exit，避免 promise 失败误杀整个 panel（可调）
