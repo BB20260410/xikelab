@@ -69,7 +69,7 @@ const routesOf = (app) => app._router.stack.filter(l => l.route)
     },
   });
   const r = routesOf(app);
-  t('S18-2d autopilot 6 routes', r.length === 6, 'count=' + r.length);
+  t('S18-2d autopilot 7 routes', r.length === 7, 'count=' + r.length);   // v0.70 s2: +dry-run
   t('autopilot 含 GET /api/autopilot/config + DELETE /api/autopilot/rules/:id',
     r.includes('GET /api/autopilot/config') && r.includes('DELETE /api/autopilot/rules/:id'));
 }

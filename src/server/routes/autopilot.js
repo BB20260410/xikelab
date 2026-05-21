@@ -47,4 +47,22 @@ export function registerAutopilotRoutes(app, deps) {
       res.json({ ok: true, logs: autopilotStore.recentLogs(limit) });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
+
+  // v0.70 W9 集成：autopilot 规则 dry-run（学自 Flowise/Langflow/n8n）
+  // POST /api/autopilot/dry-run { event: { type, sourceRoomId, ... } }
+  // 不真触发，返回哪些规则会匹配 + 会做什么 action
+  app.post('/api/autopilot/dry-run', async (req, res) => {
+    try {
+      const event = (req.body || {}).event;
+      if (!event || typeof event !== 'object') {
+        return res.status(400).json({ ok: false, error: 'event object required' });
+      }
+      const { dryRun } = await import('../../autopilot/learned/rule-dry-run.js');
+      const rules = autopilotStore.getConfig().rules || [];
+      const result = dryRun(rules, event);
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
 }
