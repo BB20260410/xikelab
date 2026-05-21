@@ -3896,7 +3896,15 @@ $('#roomDebateRoundsInput')?.addEventListener('change', async (e) => {
 // ============ v0.54 Sprint 10：删除 Ruflo 集成（用户不用） ============
 
 // ============ v0.52 Plugin 中心（Sprint 10 误删，v0.56 修复重写） ============
-const pluginState = { list: [], activeId: null };
+// v0.84 真做 SSOT mirror：pluginState
+const _pluginStateRaw = { list: [], activeId: null };
+const pluginState = new Proxy(_pluginStateRaw, {
+  set(target, key, value) {
+    target[key] = value;
+    try { window.PanelStore?.set?.(`plugin.${String(key)}`, value); } catch {}
+    return true;
+  },
+});
 
 function showPluginArea() {
   $('#mainHeader') && ($('#mainHeader').style.display = 'none');
@@ -5930,7 +5938,15 @@ async function deleteMcp(name) {
 $('#btnMcp')?.addEventListener('click', openMcpModal);
 
 // ========== v0.56 Sprint 15-R4 — 🤖 Autopilot ==========
-const autopilotState = { config: null, logs: [] };
+// v0.84 真做 SSOT mirror：autopilotState
+const _autopilotStateRaw = { config: null, logs: [] };
+const autopilotState = new Proxy(_autopilotStateRaw, {
+  set(target, key, value) {
+    target[key] = value;
+    try { window.PanelStore?.set?.(`autopilot.${String(key)}`, value); } catch {}
+    return true;
+  },
+});
 
 async function openAutopilotModal() {
   $('#autopilotModal').style.display = 'flex';
