@@ -5940,6 +5940,71 @@ $('#btnMcp')?.addEventListener('click', openMcpModal);
 // ========== v0.56 Sprint 15-R4 — 🤖 Autopilot ==========
 // v0.84 真做 SSOT mirror：autopilotState
 const _autopilotStateRaw = { config: null, logs: [] };
+// B-018 v0.9: 渲染 autopilot 执行日志表格
+function renderAutopilotLogTable(logs) {
+  if (!logs || logs.length === 0) {
+    return '<div class="muted small" style="padding:12px;text-align:center;">📭 暂无日志（开启后房事件 done/error/auto_paused 会自动写）</div>';
+  }
+  // 按天分组
+  const byDay = new Map();
+  for (const l of logs.slice().reverse()) {
+    const day = (l.at || '').slice(0, 10) || '未知日期';
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(l);
+  }
+  const typeIcons = {
+    fired: '✅', triggered: '✅',
+    error: '❌', failed: '❌',
+    skipped: '⏭', skip: '⏭',
+    paused: '⏸', resumed: '▶',
+  };
+  const typeColors = {
+    fired: 'var(--color-success)', triggered: 'var(--color-success)',
+    error: 'var(--color-danger)', failed: 'var(--color-danger)',
+    skipped: 'var(--gray-mid)', skip: 'var(--gray-mid)',
+  };
+  let html = `
+    <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;">
+      <thead style="position:sticky;top:0;background:var(--bg-top);z-index:1;">
+        <tr style="border-bottom:1px solid var(--color-border-light);">
+          <th style="text-align:left;padding:6px 8px;font-weight:600;">时间</th>
+          <th style="text-align:left;padding:6px 8px;font-weight:600;">事件</th>
+          <th style="text-align:left;padding:6px 8px;font-weight:600;">规则</th>
+          <th style="text-align:left;padding:6px 8px;font-weight:600;">详情</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+  for (const [day, items] of byDay) {
+    html += `<tr><td colspan="4" style="padding:8px;background:var(--bg-surface);font-weight:600;color:var(--color-text-foreground-secondary);">📅 ${escapeHtml(day)}（${items.length} 条）</td></tr>`;
+    for (const l of items) {
+      const time = (l.at || '').slice(11, 19);
+      const typ = l.type || 'event';
+      const icon = typeIcons[typ] || '•';
+      const color = typeColors[typ] || 'var(--color-text-foreground)';
+      const rule = l.ruleName || l.ruleId || '-';
+      const detailParts = [];
+      if (l.roomId) detailParts.push(`房=${l.roomId.slice(0, 8)}`);
+      if (l.newRoomId) detailParts.push(`→ 新房=${l.newRoomId.slice(0, 8)}`);
+      if (l.targetMode) detailParts.push(`mode=${l.targetMode}`);
+      if (l.error) detailParts.push(`<span style="color:var(--color-danger);">err: ${escapeHtml(l.error.slice(0, 60))}</span>`);
+      if (l.reason) detailParts.push(`原因: ${escapeHtml(l.reason.slice(0, 60))}`);
+      const detail = detailParts.join(' · ') || '—';
+      html += `
+        <tr style="border-bottom:1px solid var(--color-border-light);">
+          <td style="padding:4px 8px;color:var(--gray-mid);">${escapeHtml(time)}</td>
+          <td style="padding:4px 8px;color:${color};">${icon} ${escapeHtml(typ)}</td>
+          <td style="padding:4px 8px;min-width:0;word-break:break-word;">${escapeHtml(rule)}</td>
+          <td style="padding:4px 8px;min-width:0;word-break:break-word;color:var(--color-text-foreground-secondary);">${detail}</td>
+        </tr>
+      `;
+    }
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+// v0.84 真做 SSOT mirror：autopilotState（_autopilotStateRaw 已在 line 5942 定义）
 const autopilotState = new Proxy(_autopilotStateRaw, {
   set(target, key, value) {
     target[key] = value;
@@ -6009,14 +6074,18 @@ function renderAutopilotModal() {
     </div>
 
     <div>
-      <h3 style="margin:0 0 6px 0;font-size:14px;">最近 50 条日志</h3>
-      <div class="autopilot-log">
-        ${logs.length === 0 ? '<div class="muted small">无日志（开启后房事件会写这里）</div>' : logs.slice().reverse().map(l => {
-          const ts = (l.at || '').slice(11, 19);
-          const typ = l.type || 'event';
-          const ctx = [l.ruleId, l.roomId?.slice(0, 8), l.newRoomId?.slice(0, 8), l.error].filter(Boolean).join(' · ');
-          return `<div class="autopilot-log-entry"><span class="ts">${escapeHtml(ts)}</span> <span class="type-${escapeHtml(typ)}">${escapeHtml(typ)}</span> ${escapeHtml(ctx)}</div>`;
-        }).join('')}
+      <div style="display:flex;align-items:center;margin:0 0 8px 0;gap:8px;flex-wrap:wrap;">
+        <h3 style="margin:0;font-size:14px;flex:1;">📊 执行日志（${logs.length}）</h3>
+        <select id="apLogFilter" class="ap-log-filter" style="font-size:12px;padding:3px 8px;border-radius:4px;border:1px solid var(--color-border-light);background:var(--bg-top);">
+          <option value="">所有事件</option>
+          <option value="fired">✅ 已触发</option>
+          <option value="error">❌ 失败</option>
+          <option value="skipped">⏭ 跳过</option>
+        </select>
+        <input id="apLogSearch" type="text" placeholder="搜规则名/房 ID" style="font-size:12px;padding:3px 8px;border-radius:4px;border:1px solid var(--color-border-light);background:var(--bg-top);max-width:160px;" />
+      </div>
+      <div class="autopilot-log-table" id="apLogTable" style="font-size:12px;border:1px solid var(--color-border-light);border-radius:6px;max-height:300px;overflow:auto;">
+        ${renderAutopilotLogTable(logs)}
       </div>
     </div>
 
@@ -6025,6 +6094,19 @@ function renderAutopilotModal() {
       <button class="cxbtn cxbtn-primary" data-close-autopilot>关闭</button>
     </div>
   `;
+  // B-018: 日志过滤 + 搜索
+  function applyLogFilters() {
+    const typ = $('#apLogFilter')?.value || '';
+    const q = ($('#apLogSearch')?.value || '').trim().toLowerCase();
+    let filtered = autopilotState.logs || [];
+    if (typ) filtered = filtered.filter(l => (l.type || '').includes(typ));
+    if (q) filtered = filtered.filter(l => JSON.stringify(l).toLowerCase().includes(q));
+    const tbl = $('#apLogTable');
+    if (tbl) tbl.innerHTML = renderAutopilotLogTable(filtered);
+  }
+  $('#apLogFilter')?.addEventListener('change', applyLogFilters);
+  $('#apLogSearch')?.addEventListener('input', applyLogFilters);
+
   $('#btnAutopilotToggle')?.addEventListener('click', toggleAutopilot);
   // v0.70.2-t4: dry-run 按钮（学自 W9 Flowise/Langflow/n8n dry-run）
   $('#btnAutopilotDryRun')?.addEventListener('click', async () => {
