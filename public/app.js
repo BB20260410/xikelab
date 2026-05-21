@@ -3278,6 +3278,30 @@ function handleRoomEvent(msg) {
     if (msg.room) renderRoomDebate(msg.room);
     return;
   }
+  // v0.70.2 W5+W6：debate state machine 元数据 → inspector tab 渲染
+  if (msg.type === 'debate_state_meta') {
+    try {
+      const log = $('#debateStateLog');
+      if (log) {
+        // 清空首次的占位
+        if (log.querySelector('.muted')) log.innerHTML = '';
+        const consensusBadge = msg.consensus
+          ? `<span style="color:#2da44e;font-weight:600;">✓ 共识 (score=${(msg.consensusScore || 0).toFixed(2)})</span>`
+          : `<span style="color:var(--gray-mid);">分歧/继续 (score=${(msg.consensusScore || 0).toFixed(2)})</span>`;
+        const evid = (msg.consensusEvidence || []).map(e => `<div style="margin-left:12px;color:var(--gray-mid);">└ ${escapeHtml(e)}</div>`).join('');
+        log.insertAdjacentHTML('beforeend', `
+          <div style="border-bottom:1px dashed var(--color-border-light);padding:6px 0;">
+            <div><b>${escapeHtml(msg.kind)}</b> · 大轮 ${msg.macroRound} · state=${escapeHtml(msg.state)}</div>
+            <div class="muted" style="font-size:11px;">${escapeHtml(msg.stateDesc || '')}</div>
+            <div>${consensusBadge}</div>
+            ${evid}
+          </div>
+        `);
+        log.scrollTop = log.scrollHeight;
+      }
+    } catch {}
+    return;
+  }
   // v0.53 Sprint 3.5 自动暂停
   if (msg.type === 'room_auto_paused') {
     updateRoomStatusChip('auto_paused');
@@ -6611,6 +6635,11 @@ document.querySelectorAll('[data-cta]').forEach(btn => {
 
 // v0.56 U3：inspector 折叠/展开按钮（持久化到 localStorage）
 (function initInspectorToggle() {
+  // v0.70.2: debate-state log clear 按钮
+  $('#btnDebateStateClear')?.addEventListener('click', () => {
+    const log = $('#debateStateLog');
+    if (log) log.innerHTML = '<div class="muted small">— 等待 debate_state_meta WS 事件 —</div>';
+  });
   const btn = $('#btnInspectorToggle');
   if (!btn) return;
   const KEY = 'panel:inspectorHidden';

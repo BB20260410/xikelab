@@ -405,6 +405,7 @@
       <button class="ins-tab" data-tab="projects" title="桌面项目监控（~/Desktop/00_项目/）">项目</button>
       <button class="ins-tab" data-tab="files" title="当前 session cwd 的文件树">文件</button>
       <button class="ins-tab" data-tab="help" title="帮助 + 快捷键速查">帮助</button>
+      <button class="ins-tab" data-tab="debate-state" title="🔬 实时观察 debate 房状态机进度（v0.70 W5+W6 学习）">🔬 Debate</button>
     </div>
 
     <div class="ins-content" data-content="info">
@@ -723,6 +724,21 @@
           数据保存于 ~/.claude-panel/<br>
           快照存于 ~/.claude/state/&lt;md5(cwd)&gt;/
         </div>
+      </div>
+    </div>
+
+    <!-- v0.70.2 W5+W6：debate state 实时观察 tab -->
+    <div class="ins-content" data-content="debate-state" style="display:none;">
+      <div class="ins-section">
+        <h3>🔬 Debate 状态观察</h3>
+        <p class="muted small" style="min-width:0;word-break:break-word;">
+          实时显示当前活跃 debate 房的 state machine 进度和共识检测结果。
+          仅在你启动 debate 后有数据。
+        </p>
+        <div id="debateStateLog" style="font-family:var(--mono);font-size:12px;line-height:1.6;max-height:60vh;overflow-y:auto;border:1px solid var(--color-border-light);border-radius:6px;padding:8px;background:var(--bg-top);">
+          <div class="muted small">— 等待 debate_state_meta WS 事件 —</div>
+        </div>
+        <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="btnDebateStateClear" style="margin-top:8px;">清空</button>
       </div>
     </div>
   </aside>
