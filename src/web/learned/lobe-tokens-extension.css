@@ -1,0 +1,66 @@
+/* learned-W4-LobeChat: panel CSS token 体系扩展候选清单
+ * 学自 LobeChat（lobehub/lobe-chat）的 design token 完整性
+ * 性质：候选 token 列表，**未接入任何选择器**，等用户/未来 sprint 决定何时启用
+ *
+ * 设计原则：
+ *   - panel 当前已有 --orange / --gray-deep / --bg-surface 等 token
+ *   - 缺：尺寸/间距/阴影/动画/层级 token
+ *   - 全套接入后能消除剩余 97 处硬编码颜色 + 字面值
+ */
+
+:root.token-preview-W4 {
+  /* ===== Spacing ===== */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-8: 48px;
+
+  /* ===== Typography ===== */
+  --font-xs: 11px;
+  --font-sm: 12.5px;
+  --font-base: 14px;
+  --font-lg: 16px;
+  --font-xl: 20px;
+  --font-2xl: 24px;
+  --line-tight: 1.3;
+  --line-normal: 1.55;
+  --line-loose: 1.8;
+
+  /* ===== Radius ===== */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* ===== Shadow ===== */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.14);
+  --shadow-xl: 0 16px 48px rgba(0,0,0,0.18);
+
+  /* ===== Z-index 层级 ===== */
+  --z-dropdown: 10;
+  --z-sticky: 50;
+  --z-modal-bg: 99;
+  --z-modal: 100;
+  --z-cmdk: 9000;
+  --z-toast: 10000;
+  --z-confirm: 10100;
+
+  /* ===== Animation ===== */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+  --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * 启用方式（未来 sprint）：
+ *   <html class="token-preview-W4"> 启用 preview，验证视觉无回归
+ *   再把 :root.token-preview-W4 改成 :root，全量接入
+ *   最后 grep 替换硬编码值 → var(--space-X) / var(--shadow-Y) 等
+ */
