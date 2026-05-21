@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { child, newTraceId } from '../../logger/index.js';
 
 const HOME = os.homedir();
 const SECRETS_PATH = path.join(HOME, '.claude-panel', 'webhook-secrets.json');
@@ -83,12 +84,17 @@ export function registerPaymentWebhookRoutes(app) {
 
   // Lemon Squeezy webhook
   app.post('/api/webhooks/lemon', async (req, res) => {
+    const log = child({ provider: 'lemon', traceId: newTraceId() });
     try {
       const sig = req.get('X-Signature') || '';
       const raw = req.rawBody || JSON.stringify(req.body || {});
       const secrets = loadSecrets();
-      if (!secrets.lemon) return res.status(503).json({ error: 'lemon webhook not configured' });
+      if (!secrets.lemon) {
+        log.warn('lemon webhook 未配置 secret');
+        return res.status(503).json({ error: 'lemon webhook not configured' });
+      }
       if (!verifySignature(raw, sig, secrets.lemon)) {
+        log.warn({ sigPrefix: sig.slice(0, 16) }, 'lemon webhook 签名失败');
         logIssued({ provider: 'lemon', status: 'sig-fail', sig: sig.slice(0, 16) });
         return res.status(401).json({ error: 'signature invalid' });
       }
@@ -103,23 +109,28 @@ export function registerPaymentWebhookRoutes(app) {
       const tier = productName.toLowerCase().includes('team') ? 'team' : 'pro';
       if (!email) return res.status(400).json({ error: 'no email in payload' });
       const licenseStr = await issueLicenseFor(email, tier);
+      log.info({ event: eventName, email, tier }, 'lemon webhook 签发 license 成功');
       logIssued({ provider: 'lemon', event: eventName, email, tier, license: licenseStr.slice(0, 32) + '...', status: 'issued' });
-      // 邮件发送（如果有 Sentry-style mail transport 配置可以发邮件，这里先存档供查）
       res.json({ ok: true, issued: true, email, tier, license: licenseStr });
     } catch (e) {
-      console.error('[webhook lemon] error:', e);
+      log.error({ err: e.stack }, 'lemon webhook 异常');
       res.status(500).json({ ok: false, error: e.message });
     }
   });
 
   // Polar.sh webhook
   app.post('/api/webhooks/polar', async (req, res) => {
+    const log = child({ provider: 'polar', traceId: newTraceId() });
     try {
       const sig = req.get('webhook-signature') || req.get('X-Webhook-Signature') || '';
       const raw = req.rawBody || JSON.stringify(req.body || {});
       const secrets = loadSecrets();
-      if (!secrets.polar) return res.status(503).json({ error: 'polar webhook not configured' });
+      if (!secrets.polar) {
+        log.warn('polar webhook 未配置 secret');
+        return res.status(503).json({ error: 'polar webhook not configured' });
+      }
       if (!verifySignature(raw, sig, secrets.polar)) {
+        log.warn({ sigPrefix: sig.slice(0, 16) }, 'polar webhook 签名失败');
         logIssued({ provider: 'polar', status: 'sig-fail', sig: sig.slice(0, 16) });
         return res.status(401).json({ error: 'signature invalid' });
       }
@@ -133,10 +144,11 @@ export function registerPaymentWebhookRoutes(app) {
       const tier = productName.toLowerCase().includes('team') ? 'team' : 'pro';
       if (!email) return res.status(400).json({ error: 'no email in payload' });
       const licenseStr = await issueLicenseFor(email, tier);
+      log.info({ event: eventType, email, tier }, 'polar webhook 签发 license 成功');
       logIssued({ provider: 'polar', event: eventType, email, tier, license: licenseStr.slice(0, 32) + '...', status: 'issued' });
       res.json({ ok: true, issued: true, email, tier, license: licenseStr });
     } catch (e) {
-      console.error('[webhook polar] error:', e);
+      log.error({ err: e.stack }, 'polar webhook 异常');
       res.status(500).json({ ok: false, error: e.message });
     }
   });

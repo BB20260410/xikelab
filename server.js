@@ -58,6 +58,12 @@ import { registerTelemetryRoutes } from './src/server/routes/telemetry.js';
 import { registerLicenseRoutes } from './src/server/routes/license.js';
 // v1.5 Task 3.3：Lemon Squeezy / Polar payment webhooks
 import { registerPaymentWebhookRoutes } from './src/server/routes/payment-webhooks.js';
+// v2.0 Task 4.1：SQLite 数据底座
+import { registerStorageRoutes } from './src/server/routes/storage.js';
+// v2.0 Task 4.2：向量索引
+import { registerEmbeddingsRoutes } from './src/server/routes/embeddings.js';
+// v2.0 Task 4.3：workspace 多空间隔离
+import { registerWorkspaceRoutes } from './src/server/routes/workspaces.js';
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
 import { mcpStore } from './src/mcp/McpStore.js';
@@ -1286,6 +1292,12 @@ registerTelemetryRoutes(app);
 registerLicenseRoutes(app);
 // v1.5 Task 3.3：payment webhooks
 registerPaymentWebhookRoutes(app);
+// v2.0 Task 4.1：SQLite storage
+registerStorageRoutes(app);
+// v2.0 Task 4.2：embeddings / 向量索引
+registerEmbeddingsRoutes(app);
+// v2.0 Task 4.3：workspace 多空间
+registerWorkspaceRoutes(app);
 
 // 中断 busy
 // v0.47 阶段 3：Claude Code hook 事件接收端点（借鉴 disler/claude-code-hooks-multi-agent-observability）
