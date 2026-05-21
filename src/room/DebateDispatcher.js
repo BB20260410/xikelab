@@ -454,28 +454,32 @@ export class DebateDispatcher {
     this.broadcast(roomId, { type: 'round_done', kind, macroRound });
 
     // v0.70 W5+W6 集成（only log，不真改流程）
-    // W5: 检测共识但只 broadcast，不真终止（让用户看到，未来 sprint 决定是否启用提前终止）
-    // W6: broadcast 当前 state machine state（让前端可视化 debate 进度）
     try {
       const { detectConsensus } = await import('./learned/consensus-detector.js');
       const { DEBATE_STATE_MACHINE } = await import('./learned/dispatcher-state.js');
-      const room = this.roomStore.get(roomId);
-      const round = (room?.rounds || []).find(r => r.kind === kind && r.macroRound === macroRound);
-      if (round) {
-        const detection = detectConsensus(round.turns || []);
-        const stateName = ({ r1_propose: 'r1_propose', r2_critique: 'r2_critique', r3_finalize: 'r3_finalize', judge: 'judge' })[kind] || kind;
-        const stateMeta = DEBATE_STATE_MACHINE.states[stateName];
-        this.broadcast(roomId, {
-          type: 'debate_state_meta',
-          kind, macroRound,
-          state: stateName,
-          stateDesc: stateMeta?.desc,
-          consensus: detection.consensus,
-          consensusScore: detection.score,
-          consensusEvidence: detection.evidence,
-        });
-      }
-    } catch {}
+      const room = this.store.get(roomId);
+      // v0.70.1 bug fix#2: round.kind 可能含 @ 后缀（如 r1_propose@1），match 时 startsWith
+      // 此外没有 r3_final 仅 r3_finalize 但 dispatch 用 r3_final，map 时统一处理
+      const baseKind = String(kind).split('@')[0];
+      const round = (room?.rounds || []).find(r =>
+        (r.kind === kind || String(r.kind).split('@')[0] === baseKind) &&
+        (r.macroRound === macroRound || r.macroRound == null)
+      );
+      const stateMap = { r1_propose: 'r1_propose', r2_critique: 'r2_critique', r3_finalize: 'r3_finalize', r3_final: 'r3_finalize', judge: 'judge' };
+      const stateName = stateMap[baseKind] || baseKind;
+      const stateMeta = DEBATE_STATE_MACHINE.states[stateName];
+      const turns = round?.turns || [];
+      const detection = detectConsensus(turns);
+      this.broadcast(roomId, {
+        type: 'debate_state_meta',
+        kind, macroRound,
+        state: stateName,
+        stateDesc: stateMeta?.desc,
+        consensus: detection.consensus,
+        consensusScore: detection.score,
+        consensusEvidence: detection.evidence,
+      });
+    } catch (e) { console.warn('[debate_state_meta] failed:', e.message); }
   }
 
   /** 中断正在跑的 debate */
