@@ -5896,6 +5896,7 @@ function renderAutopilotModal() {
           : '默认关。开启后房自动触发跨房链路。所有动作都记日志，随时可关。'}
       </div>
       <button class="cxbtn ${cfg.enabled ? 'cxbtn-danger' : 'cxbtn-primary'}" id="btnAutopilotToggle">${cfg.enabled ? '⏸ 关闭' : '▶ 启用'}</button>
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnAutopilotDryRun" title="模拟一次房间事件，看哪些规则会匹配（不真触发）">🧪 试跑</button>
     </div>
 
     <div>
@@ -5938,6 +5939,27 @@ function renderAutopilotModal() {
     </div>
   `;
   $('#btnAutopilotToggle')?.addEventListener('click', toggleAutopilot);
+  // v0.70.2-t4: dry-run 按钮（学自 W9 Flowise/Langflow/n8n dry-run）
+  $('#btnAutopilotDryRun')?.addEventListener('click', async () => {
+    const eventType = await promptModal({
+      title: '🧪 Autopilot 规则试跑',
+      message: '输入模拟的事件 type（room_done / room_error / room_auto_paused）',
+      value: 'room_done',
+    });
+    if (!eventType) return;
+    try {
+      const r = await fetch('/api/autopilot/dry-run', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: { type: eventType.trim(), sourceRoomId: roomState?.activeId || 'fake' } }),
+      }).then(x => x.json());
+      if (!r.ok) { toast('试跑失败：' + (r.error || ''), 'error'); return; }
+      const matched = r.matched || [], actions = r.actions || [], skipped = r.skipped || [];
+      const msg = `匹配规则 ${matched.length} 条：\n${matched.map(m => '  ✓ ' + m.name).join('\n') || '  (无)'}\n\n` +
+                  `会触发 ${actions.length} 个 action：\n${actions.map(a => `  → ${a.ruleName}: ${a.action}${a.targetMode ? ' → ' + a.targetMode : ''}`).join('\n') || '  (无)'}\n\n` +
+                  `跳过 ${skipped.length} 条：\n${skipped.map(s => `  − ${s.name}（${s.reason}）`).join('\n') || '  (无)'}`;
+      await confirmModal({ title: '🧪 试跑结果（未真触发）', message: msg, confirmLabel: '关闭', cancelLabel: '' });
+    } catch (e) { toast('试跑异常：' + e.message, 'error'); }
+  });
   $('#btnApSaveHops')?.addEventListener('click', saveAutopilotHops);
   $('#btnApRefresh')?.addEventListener('click', refreshAutopilot);
   root.querySelectorAll('.ap-rule-toggle').forEach(el => {
