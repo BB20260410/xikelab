@@ -39,7 +39,7 @@
     "vitest": "^4.1.7"
   },
   "build": {
-    "appId": "com.hxx.claude-panel",
+    "appId": "com.hxx.roundtable",
     "productName": "Roundtable",
     "asar": true,
     "asarUnpack": [
