@@ -5494,7 +5494,15 @@ async function deleteWebhook(id) {
 $('#btnWebhooks')?.addEventListener('click', openWebhookModal);
 
 // ========== v0.54 Sprint 4.5 — 📂 聊天归档配置 ==========
-const archiveState = { config: null, list: [] };
+// v0.84 真做 SSOT 第一步：archiveState 用 Proxy 包装，每次 set 自动镜像到 PanelStore
+const _archiveStateRaw = { config: null, list: [] };
+const archiveState = new Proxy(_archiveStateRaw, {
+  set(target, key, value) {
+    target[key] = value;
+    try { window.PanelStore?.set?.(`archive.${String(key)}`, value); } catch {}
+    return true;
+  },
+});
 
 // S18-3：改走 Modal 组件
 window.Modal?.register('archiveModal', {
