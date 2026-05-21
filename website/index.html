@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xike Lab · 定价</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; background: #0f1115; color: #e8eaed; line-height: 1.6; }
+    .hero { text-align: center; padding: 80px 20px 40px; max-width: 1200px; margin: 0 auto; }
+    .hero h1 { font-size: 48px; font-weight: 700; margin-bottom: 16px; }
+    .hero p { font-size: 18px; color: #b3b7bd; max-width: 600px; margin: 0 auto; }
+    .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1200px; margin: 60px auto; padding: 0 20px; }
+    .tier { background: #1a1d23; border: 1px solid #2a2e36; border-radius: 16px; padding: 32px; position: relative; }
+    .tier.featured { border-color: #10b981; transform: scale(1.05); }
+    .tier .badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #10b981; color: #000; font-size: 12px; padding: 4px 12px; border-radius: 12px; font-weight: 600; }
+    .tier h2 { font-size: 24px; margin-bottom: 8px; }
+    .tier .price { font-size: 48px; font-weight: 700; margin: 24px 0; }
+    .tier .price small { font-size: 16px; font-weight: 400; color: #b3b7bd; }
+    .tier ul { list-style: none; margin: 24px 0; }
+    .tier li { padding: 8px 0; color: #b3b7bd; }
+    .tier li::before { content: '✓ '; color: #10b981; font-weight: 700; }
+    .tier li.no::before { content: '✗ '; color: #555; }
+    .tier .buy { display: block; width: 100%; padding: 14px; background: #10b981; color: #000; text-align: center; text-decoration: none; border-radius: 8px; font-weight: 600; margin-top: 24px; }
+    .tier.free .buy { background: #2a2e36; color: #e8eaed; }
+    .compare { max-width: 1000px; margin: 80px auto; padding: 0 20px; }
+    .compare table { width: 100%; border-collapse: collapse; background: #1a1d23; border-radius: 12px; overflow: hidden; }
+    .compare th, .compare td { padding: 16px; text-align: left; border-bottom: 1px solid #2a2e36; }
+    .compare th { background: #0f1115; font-weight: 600; }
+    .compare td.yes { color: #10b981; }
+    .compare td.no { color: #555; }
+    .faq { max-width: 800px; margin: 80px auto; padding: 0 20px; }
+    .faq h2 { font-size: 32px; margin-bottom: 32px; text-align: center; }
+    .faq .q { background: #1a1d23; padding: 24px; border-radius: 12px; margin-bottom: 16px; }
+    .faq .q h3 { font-size: 18px; margin-bottom: 12px; }
+    .faq .q p { color: #b3b7bd; }
+    footer { text-align: center; padding: 40px 20px; color: #555; border-top: 1px solid #2a2e36; margin-top: 80px; }
+    footer a { color: #b3b7bd; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>Xike Lab</h1>
+    <p>本地多 AI 工作台 · Claude · GPT · Gemini · MiniMax · Ollama · MCP 一站式 · 数据全本地</p>
+  </div>
+
+  <div class="tiers">
+    <div class="tier free">
+      <h2>Free</h2>
+      <p>个人轻度使用</p>
+      <div class="price">$0 <small>永久</small></div>
+      <ul>
+        <li>单模型聊天 chat</li>
+        <li>多模型辩论 debate</li>
+        <li>MCP 3 个</li>
+        <li>Adapter (AI 服务商) 3 个</li>
+        <li class="no">AI 团队拆活 squad</li>
+        <li class="no">多模型联网核对 arena</li>
+        <li class="no">Autopilot 自驾</li>
+        <li class="no">Archive 归档</li>
+      </ul>
+      <a class="buy" href="https://github.com/hxx-panel/xikelab/releases">免费下载</a>
+    </div>
+
+    <div class="tier featured">
+      <div class="badge">最受欢迎</div>
+      <h2>Pro</h2>
+      <p>一次付费，永久使用</p>
+      <div class="price">$19 <small>永久</small></div>
+      <ul>
+        <li>Free 所有功能</li>
+        <li>AI 团队拆活 squad</li>
+        <li>多模型联网核对 arena</li>
+        <li>Autopilot 自驾自动化</li>
+        <li>MCP 不限数量</li>
+        <li>Adapter 不限数量</li>
+        <li>Archive 历史归档</li>
+        <li>Webhook 自动化</li>
+        <li>所有未来更新</li>
+      </ul>
+      <a class="buy" href="https://xikelab.lemonsqueezy.com">立即购买</a>
+    </div>
+
+    <div class="tier">
+      <h2>Team</h2>
+      <p>多人协作，独立空间</p>
+      <div class="price">$49 <small>永久</small></div>
+      <ul>
+        <li>Pro 所有功能</li>
+        <li>多 workspace 隔离</li>
+        <li>每个工作区独立数据</li>
+        <li>优先邮件支持</li>
+      </ul>
+      <a class="buy" href="https://xikelab.lemonsqueezy.com/team">购买 Team</a>
+    </div>
+  </div>
+
+  <div class="compare">
+    <h2 style="text-align:center;margin-bottom:32px;font-size:28px">对比同类产品</h2>
+    <table>
+      <thead>
+        <tr><th>功能</th><th>panel</th><th>LobeChat</th><th>LibreChat</th><th>ChatGPT Plus</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>多 AI 协作模式</td><td class="yes">4 种</td><td class="no">1 种</td><td class="no">1 种</td><td class="no">1 种</td></tr>
+        <tr><td>数据本地</td><td class="yes">✅ 全本地</td><td class="no">需自部署</td><td class="no">需自部署</td><td class="no">云端</td></tr>
+        <tr><td>MCP 一站接入</td><td class="yes">✅</td><td class="no">手动配</td><td class="no">手动配</td><td class="no">不支持</td></tr>
+        <tr><td>价格</td><td class="yes">$19 永久</td><td class="no">免费</td><td class="no">免费</td><td class="no">$20/月</td></tr>
+        <tr><td>10 年成本</td><td class="yes">$19</td><td>?</td><td>?</td><td class="no">$2400</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="faq">
+    <h2>常见问题</h2>
+    <div class="q">
+      <h3>Pro 是订阅还是买断？</h3>
+      <p>买断。一次 $19 永久使用 + 所有未来更新。我们不喜欢订阅疲劳。</p>
+    </div>
+    <div class="q">
+      <h3>Free 和 Pro 的本质区别？</h3>
+      <p>Free 让你试用 chat/debate 两种最基础模式；Pro 解锁完整 4 模式（含 squad 团队拆活和 arena 联网核对）+ 不限 MCP + 不限 adapter。</p>
+    </div>
+    <div class="q">
+      <h3>数据真的全本地么？</h3>
+      <p>是的。panel 是 macOS 桌面应用，所有对话历史、配置、license 文件都存 ~/.claude-panel/，权限 0o600（仅你可读）。我们没有服务器后端，做不到收集你的数据。</p>
+    </div>
+    <div class="q">
+      <h3>license 怎么发？</h3>
+      <p>购买后 LS/Polar 自动发邮件给你，里面是一串 license key。打开 panel → 点底部 Free 徽章 → 粘贴 → 激活。</p>
+    </div>
+    <div class="q">
+      <h3>能退款么？</h3>
+      <p>30 天无理由退款。发邮件到 support@panel.app 即可。</p>
+    </div>
+    <div class="q">
+      <h3>支持哪些 AI？</h3>
+      <p>Claude (Anthropic)、GPT (OpenAI)、Gemini (Google)、MiniMax、Ollama 本地模型、Claude Code Router、Claude Code CLI 等 8+ provider。</p>
+    </div>
+  </div>
+
+  <footer>
+    <p><a href="https://github.com/hxx-panel/xikelab">GitHub</a> · <a href="/docs">文档</a> · <a href="mailto:support@panel.app">support@panel.app</a></p>
+    <p style="margin-top:8px">© 2026 Xike Lab · 本地多 AI 工作台</p>
+  </footer>
+</body>
+</html>

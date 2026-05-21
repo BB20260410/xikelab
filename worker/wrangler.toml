@@ -1,0 +1,14 @@
+name = "xikelab-webhook"
+main = "src/index.js"
+compatibility_date = "2026-05-01"
+account_id = "6721d5d77c1adf82d8ecadb21a8c8c4a"
+
+# vars 在 Cloudflare Worker dashboard 配置（不放在这里防泄漏）
+# 必需的 secrets（用 `wrangler secret put` 推上去）:
+#   LS_WEBHOOK_SECRET  — Lemon Squeezy webhook 签名 secret
+#   LS_API_TOKEN       — Lemon Squeezy API token（验证 license 用）
+
+# 路由（如未来要绑 panel.xikelab.com）
+# [[routes]]
+# pattern = "panel.xikelab.com/*"
+# zone_name = "liyihang.net"

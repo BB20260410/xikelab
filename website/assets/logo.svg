@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Xikely Logo — 设计说明：
+    - 主体：X 字母（首字母 + 中文「息刻」交错的视觉隐喻）
+    - 中心圆点：「刻」= 时刻 / 锚点 / 一个静默的瞬间
+    - 外圆环：「息」= 包容 / 多 AI 协作的集会场所
+    - 4 个对称小点：4 房模式（chat / debate / squad / arena）
+    - 单色 monoline，可适配 dark / light 主题
+  作者：hxx（息刻系列产品统一品牌）
+  License：私有
+  与 Twitter X / Xbox / Anthropic / OpenAI 等已知品牌无视觉重合
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <!-- 外圆环（息：包容 / 集会场所）-->
+  <circle cx="128" cy="128" r="112" stroke="currentColor" stroke-width="6" fill="none" opacity="0.25"/>
+
+  <!-- 4 对称小点（4 房协作模式）-->
+  <circle cx="128" cy="28"  r="9" fill="currentColor" opacity="0.5"/>
+  <circle cx="228" cy="128" r="9" fill="currentColor" opacity="0.5"/>
+  <circle cx="128" cy="228" r="9" fill="currentColor" opacity="0.5"/>
+  <circle cx="28"  cy="128" r="9" fill="currentColor" opacity="0.5"/>
+
+  <!-- X 字母（两条对角线，stroke 粗细均匀）-->
+  <g stroke="currentColor" stroke-width="20" stroke-linecap="round" fill="none">
+    <line x1="76"  y1="76"  x2="180" y2="180"/>
+    <line x1="180" y1="76"  x2="76"  y2="180"/>
+  </g>
+
+  <!-- 中心圆点（刻：时刻 / 锚点）— 覆盖 X 交叉中心 -->
+  <circle cx="128" cy="128" r="14" fill="currentColor"/>
+  <circle cx="128" cy="128" r="6"  fill="#0f1115"/>
+</svg>
