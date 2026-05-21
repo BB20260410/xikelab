@@ -209,7 +209,7 @@ const routesOf = (app) => app._router.stack.filter(l => l.route)
     mcpStore: { list:()=>[], create:b=>b, update:(name,b)=>name === 'missing' ? null : { name, ...b }, delete:n=>n!=='missing', get:()=>null },
   });
   const r = routesOf(app);
-  t('S18-2c mcp 6 routes', r.length === 6,
+  t('S18-2c mcp 7 routes', r.length === 7,    // v0.70.3-t3: +call-history
     'count=' + r.length);
   t('mcp 返回 mcpClientManager 实例（server shutdown 用）',
     ret && ret.mcpClientManager && typeof ret.mcpClientManager.disconnect === 'function');

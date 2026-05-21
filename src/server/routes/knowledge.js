@@ -54,8 +54,10 @@ export function registerKnowledgeRoutes(app, deps) {
   app.post('/api/knowledge/:name/search', async (req, res) => {
     try {
       const { query, topK } = req.body || {};
-      const hits = await knowledgeStore.search({ name: req.params.name, query, topK });
-      res.json({ ok: true, hits });
+      // v0.70.3-t2: hybrid 可从 body 或 query 透传
+      const hybrid = req.body?.hybrid === true || req.query?.hybrid === '1';
+      const hits = await knowledgeStore.search({ name: req.params.name, query, topK, hybrid });
+      res.json({ ok: true, hits, mode: hybrid ? 'hybrid' : 'auto' });
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 }

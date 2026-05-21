@@ -5653,6 +5653,28 @@ window.Modal?.register('mcpModal', {
   onClose: () => { mcpState.activeName = null; mcpState.isNew = false; },
 });
 function openMcpModal() { window.Modal.open('mcpModal'); }
+
+// v0.70.3-t4: MCP 调用历史按钮（W7 接入可见）
+document.addEventListener('click', async (e) => {
+  if (e.target?.id !== 'btnMcpCallHistory') return;
+  try {
+    const r = await fetch('/api/mcp/call-history?limit=50').then(x => x.json());
+    if (!r.ok) { toast('拉历史失败：' + (r.error || ''), 'error'); return; }
+    const calls = r.calls || [];
+    if (calls.length === 0) {
+      await confirmModal({ title: '📜 MCP 调用历史', message: '当前无调用记录。\n触发任何 MCP tool（在房间内 / autopilot / squad）后这里会出现 jsonl 日志。', confirmLabel: '关闭', cancelLabel: '' });
+      return;
+    }
+    const lines = calls.slice(-30).reverse().map(c =>
+      `${c.at?.slice(11, 19) || '?'} · ${c.serverId}.${c.toolName} · ${c.durationMs}ms · ${c.success ? '✓' : '✗ ' + (c.error || '')}`
+    ).join('\n');
+    await confirmModal({
+      title: `📜 MCP 调用历史（最近 ${calls.length}）`,
+      message: lines,
+      confirmLabel: '关闭', cancelLabel: '',
+    });
+  } catch (e) { toast('异常：' + e.message, 'error'); }
+});
 function closeMcpModal() { window.Modal.close('mcpModal'); }
 
 async function refreshMcpList() {

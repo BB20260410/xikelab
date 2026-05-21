@@ -290,7 +290,9 @@ export class KnowledgeStore {
    * @param {object} params { name, query, topK }
    * @returns {Promise<Array<{ id, docId, text, score, mode }>>}
    */
-  async search({ name, query, topK = DEFAULT_TOP_K }) {
+  async search({ name, query, topK = DEFAULT_TOP_K, hybrid = false }) {
+    // v0.70.3-t1: hybrid=true → 走 hybridSearch (BM25 + vector RRF)
+    if (hybrid) return this.hybridSearch({ name, query, topK });
     const cleanName = safeName(name);
     if (!cleanName) throw new Error('kb name 不合法');
     if (typeof query !== 'string' || !query.trim()) throw new Error('query 必填');

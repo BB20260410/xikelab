@@ -76,5 +76,16 @@ export function registerMcpRoutes(app, deps) {
     }
   });
 
+  // v0.70.3-t3: MCP call 历史（学自 W7 MCP Inspector）
+  app.get('/api/mcp/call-history', async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(1000, parseInt(req.query.limit, 10) || 100));
+      const { recentMcpCalls } = await import('../../mcp/learned/call-logger.js');
+      res.json({ ok: true, calls: recentMcpCalls(limit) });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   return { mcpClientManager };
 }

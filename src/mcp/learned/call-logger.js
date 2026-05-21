@@ -1,7 +1,7 @@
 // call-logger — MCP tool call 历史 logger（W7 学自 MCP Inspector）
 // 独立 helper，未接入 McpClientManager——等 sprint 级独立设计接入
 
-import { writeFileSync, appendFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
+import { writeFileSync, appendFileSync, existsSync, mkdirSync, chmodSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -64,7 +64,6 @@ export function recentMcpCalls(limit = 100) {
   try {
     const file = LOG_FILE();
     if (!existsSync(file)) return [];
-    const { readFileSync } = require('node:fs');
     const lines = readFileSync(file, 'utf8').trim().split('\n').slice(-limit);
     return lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   } catch { return []; }
