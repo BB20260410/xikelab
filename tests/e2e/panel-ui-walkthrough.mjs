@@ -17,6 +17,11 @@ function track(name, pass, detail = '') {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 
   try {
+    // 提前注入 localStorage（防 telemetry/onboarding modal 拦截点击）
+    await page.addInitScript(() => {
+      localStorage.setItem('panel:telemetry:asked', '1');
+      localStorage.setItem('panel:onboarding:v1', '1');
+    });
     await page.goto(PANEL, { waitUntil: 'networkidle', timeout: 10000 });
     const title = await page.title();
     track('1. 首页加载', title === 'Claude 控制台', `title="${title}"`);
