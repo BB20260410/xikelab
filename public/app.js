@@ -2036,13 +2036,30 @@ function buildCmdkItems(query) {
   const q = query.trim().toLowerCase();
   const items = [];
 
-  // 命令组
-  const COMMANDS = [
-    { type: 'cmd', icon: '＋', title: '新建会话', subtitle: '⌘N', action: () => { closeCmdk(); openModal(); } },
-    { type: 'cmd', icon: '🌓', title: '切换主题（暗/亮）', subtitle: '⌘D', action: () => { toggleTheme(); closeCmdk(); } },
-    { type: 'cmd', icon: '🔄', title: '为当前会话接力', subtitle: '需先选中一个会话', action: () => { closeCmdk(); $('#btnHandoff')?.click(); } },
-    { type: 'cmd', icon: '⤴', title: '在 Terminal 打开当前会话', subtitle: '', action: () => { closeCmdk(); $('#btnExternal')?.click(); } },
-  ];
+  // v0.80 真迁：COMMANDS 静态声明从 cmdk-commands.js module 拿（main.js 桥接）
+  // 失败 fallback 用 inline 定义（main.js 没加载时兼容）
+  let COMMANDS;
+  if (window.PanelCmdk?.BUILTIN_COMMANDS) {
+    const dispatcher = {
+      openModal: () => { closeCmdk(); openModal(); },
+      toggleTheme: () => { toggleTheme(); closeCmdk(); },
+      btnHandoff: () => { closeCmdk(); $('#btnHandoff')?.click(); },
+      btnExternal: () => { closeCmdk(); $('#btnExternal')?.click(); },
+    };
+    COMMANDS = window.PanelCmdk.BUILTIN_COMMANDS.map(c => ({
+      type: 'cmd',
+      icon: c.icon, title: c.title, subtitle: c.subtitle,
+      action: dispatcher[c.actionRef] || (() => closeCmdk()),
+    }));
+  } else {
+    // fallback inline
+    COMMANDS = [
+      { type: 'cmd', icon: '＋', title: '新建会话', subtitle: '⌘N', action: () => { closeCmdk(); openModal(); } },
+      { type: 'cmd', icon: '🌓', title: '切换主题（暗/亮）', subtitle: '⌘D', action: () => { toggleTheme(); closeCmdk(); } },
+      { type: 'cmd', icon: '🔄', title: '为当前会话接力', subtitle: '需先选中一个会话', action: () => { closeCmdk(); $('#btnHandoff')?.click(); } },
+      { type: 'cmd', icon: '⤴', title: '在 Terminal 打开当前会话', subtitle: '', action: () => { closeCmdk(); $('#btnExternal')?.click(); } },
+    ];
+  }
   for (const c of COMMANDS) {
     if (!q || c.title.toLowerCase().includes(q)) items.push(c);
   }

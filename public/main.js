@@ -8,6 +8,8 @@ import { escapeHtml, escapeHtmlMl, safeSlice, shortenPath, formatSize, formatEla
 import * as Store from './src/web/state.js';
 // S29 starter：dialog 模块
 import { confirmModal as _confirmModal, promptModal as _promptModal } from './src/web/dialog.js';
+// v0.80 真做：cmdk commands 静态声明拆分
+import { matchCommands as _matchCmdk, resolveAction as _resolveCmdkAction, BUILTIN_COMMANDS as _CMDK_BUILTIN } from './src/web/cmdk-commands.js';
 
 // 下个 sprint 继续加：
 // import { initWebSocket } from './src/web/ws.js';
@@ -24,8 +26,10 @@ if (typeof window !== 'undefined') {
   window.PanelDialog = { confirmModal: _confirmModal, promptModal: _promptModal };
   // S18-5：PanelStore.get/set/subscribe/persist/restore；app.js 顶层 const state 暂未迁移
   window.PanelStore = Store;
+  // v0.80 真做：window.PanelCmdk 暴露
+  window.PanelCmdk = { matchCommands: _matchCmdk, resolveAction: _resolveCmdkAction, BUILTIN_COMMANDS: _CMDK_BUILTIN };
   // 启动时从 localStorage 恢复
   try { Store.restore(); } catch (e) { console.warn('[main.js] Store.restore', e); }
 }
 
-console.log('[main.js] S18-1/S18-5 loaded; window.PanelUtils + window.PanelStore ready');
+console.log('[main.js] S18-1/S18-5/v0.80 loaded; window.PanelUtils + PanelStore + PanelCmdk ready');
