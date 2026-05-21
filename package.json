@@ -16,7 +16,8 @@
     "dist:all": "electron-builder --mac --win --linux",
     "test": "vitest run",
     "test:watch": "vitest",
-    "perf-check": "node scripts/perf-check.mjs"
+    "perf-check": "node scripts/perf-check.mjs",
+    "test:e2e": "node tests/e2e/panel-ui-walkthrough.mjs"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
+    "playwright": "^1.60.0",
     "vitest": "^4.1.7"
   },
   "build": {
