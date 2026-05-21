@@ -1,10 +1,19 @@
 # Claude Panel
 
-> 可视化多 Claude Code 会话管理面板 · v0.56
+> 本地多 AI 工作台 · v2.0
 >
-> 浏览器 GUI / 真终端内嵌 / 思维镜安全机制 / Codex 风格设计
+> Claude / GPT / Gemini / MiniMax / Ollama 8+ provider 一站接入
+> 4 种 AI 协作模式（chat/debate/squad/arena）· MCP 一站式 · 数据全本地 0o600
 
-![status](https://img.shields.io/badge/version-0.56-orange) ![macOS](https://img.shields.io/badge/macOS-arm64%20%7C%20x64-blue) ![Electron](https://img.shields.io/badge/Electron-42-9feaf9)
+![status](https://img.shields.io/badge/version-2.0.0-brightgreen) ![macOS](https://img.shields.io/badge/macOS-arm64%20%7C%20x64-blue) ![Electron](https://img.shields.io/badge/Electron-42-9feaf9) ![License](https://img.shields.io/badge/License-Ed25519--offline-orange)
+
+## 📦 下载 / 安装
+
+- **源码运行**（推荐）：`git clone https://github.com/BB20260410/claude-panel && cd claude-panel && npm install && npm start`，浏览器开 http://localhost:51735
+- **预编译 .app**：v2.0 暂未发布 .app（better-sqlite3 与 Electron 42 native ABI 兼容性等社区修复，源码运行 100% 可用）
+- **v1.0.0 / v1.5.0 / v2.0.0 Release Notes**：见 [GitHub Releases](https://github.com/BB20260410/claude-panel/releases)
+- **定价 / 购买**：见 [pricing.html](./public/pricing.html) 或 panel UI 顶栏点 Free 徽章
+
 
 ---
 
