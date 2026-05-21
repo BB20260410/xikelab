@@ -6621,6 +6621,102 @@ $('#btnWebhookNew')?.addEventListener('click', () => {
   });
 })();
 
+// B-004 v0.9: 选中文字浮层（学 Cherry Studio 划词助手）
+(function initSelectionPopover() {
+  if (typeof window === 'undefined') return;
+  let popover = null;
+  const MIN_LEN = 5;     // 最少选 5 字符
+  const MAX_LEN = 4000;  // 超长不弹（防误触）
+
+  function hide() {
+    if (popover) { try { popover.remove(); } catch {} popover = null; }
+  }
+
+  function show(text, rect) {
+    hide();
+    popover = document.createElement('div');
+    popover.className = 'selection-popover';
+    popover.innerHTML = `
+      <button data-act="explain" title="把选中文字作为 prompt 加到对话框 + 加'解释一下'前缀">🔍 解释</button>
+      <button data-act="translate" title="翻译这段">🌐 翻译</button>
+      <button data-act="rewrite" title="改写优化">✍️ 改写</button>
+      <button data-act="to-input" title="加到当前输入框">📥 加到输入</button>
+    `;
+    // 定位在选中区右上方
+    const top = Math.max(8, rect.top - 44);
+    const left = Math.min(window.innerWidth - 280, Math.max(8, rect.right - 280));
+    popover.style.top = top + 'px';
+    popover.style.left = left + 'px';
+    document.body.appendChild(popover);
+
+    popover.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('mousedown', (e) => e.preventDefault());  // 防失焦
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        applyAction(btn.dataset.act, text);
+        hide();
+      });
+    });
+  }
+
+  function applyAction(act, text) {
+    const prefixes = {
+      explain: '请详细解释下面这段文字：\n\n',
+      translate: '请把下面这段翻译成中文（如果已是中文则翻译成英文）：\n\n',
+      rewrite: '请帮我改写下面这段，更通顺/精炼：\n\n',
+      'to-input': '',
+    };
+    const prefix = prefixes[act] || '';
+    const payload = prefix + text;
+    // 优先找：聊天室 chat → chat input → topic
+    const targets = ['#chatRoomInput', '#chatInput', '#roomTopicInput'];
+    for (const sel of targets) {
+      const ta = document.querySelector(sel);
+      if (ta && ta.offsetParent !== null) {
+        ta.value = (ta.value ? ta.value + '\n\n' : '') + payload;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.focus();
+        try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch {}
+        if (typeof toast === 'function') toast(`✓ 已加到 ${sel.slice(1)}（${text.length} 字）`, 'success', 2000);
+        return;
+      }
+    }
+    if (typeof toast === 'function') toast('没找到可见输入框，请先打开一个房间', 'warn', 3000);
+  }
+
+  document.addEventListener('selectionchange', () => {
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed || sel.toString().trim().length === 0) {
+      hide();
+      return;
+    }
+    const text = sel.toString().trim();
+    if (text.length < MIN_LEN || text.length > MAX_LEN) {
+      hide();
+      return;
+    }
+    // 不在 input/textarea/cmdk modal 内的选区才弹（防嵌套）
+    const anchor = sel.anchorNode?.parentElement;
+    if (!anchor) return;
+    if (anchor.closest('input, textarea, .cmdk-modal, .confirm-modal, .selection-popover')) {
+      hide();
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    show(text, rect);
+  });
+
+  document.addEventListener('mousedown', (e) => {
+    if (popover && !popover.contains(e.target)) hide();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hide();
+  });
+})();
+
 // v0.56 S17-extra：topic textarea 附件上传（选文件 / 拖拽 / 粘贴）+ 实时字数统计
 (function initTopicAttachments() {
   const ta = $('#roomTopicInput');

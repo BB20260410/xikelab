@@ -935,6 +935,38 @@ html.dark {
 #topicCharCount.warn { color: #d97706; font-weight: 600; }
 #topicCharCount.danger { color: var(--color-danger-alt); font-weight: 700; }
 
+/* B-004 v0.9: 选中文字浮层（学 Cherry Studio 划词助手） */
+.selection-popover {
+  position: fixed;
+  z-index: 10500;
+  background: var(--bg-surface, #fff);
+  border: 1px solid var(--color-border-heavy);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  padding: 4px;
+  display: flex;
+  gap: 2px;
+  font-size: 12px;
+  animation: selection-fade-in 120ms;
+}
+.selection-popover button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--color-text-foreground);
+  font: inherit;
+  white-space: nowrap;
+}
+.selection-popover button:hover {
+  background: var(--bg-hover, color-mix(in oklab, var(--orange) 12%, transparent));
+}
+@keyframes selection-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* v0.56 U6：textarea 全屏展开 */
 .room-topic-input.is-expanded {
   position: fixed; inset: 5vh 5vw; z-index: 200;
