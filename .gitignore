@@ -45,3 +45,24 @@ test-results/
 # Env
 .env
 .env.local
+
+# === 增强：v2.0 商品化阶段加防泄漏 ===
+.env.*
+*.pem
+*-private-key*
+*-token.json
+github-token.json
+keygen.json
+webhook-secrets.json
+license.txt
+licenses-issued.jsonl
+mcp-calls-*.jsonl
+metrics-*.jsonl
+autopilot-log.jsonl
+panel.db
+panel.db-*
+logs/
+.DS_Store
+*.log
+.playwright-mcp/
+panel-*.png

@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "perf-check": "node scripts/perf-check.mjs",
-    "test:e2e": "node tests/e2e/panel-ui-walkthrough.mjs"
+    "test:e2e": "node tests/e2e/panel-ui-walkthrough.mjs",
+    "dist:publish": "electron-builder --mac --publish always"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -50,7 +51,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "hxx-panel",
+        "owner": "BB20260410",
         "repo": "claude-panel",
         "releaseType": "release"
       }
