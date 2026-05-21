@@ -352,6 +352,92 @@ export class KnowledgeStore {
     return scored.slice(0, k).filter(r => r.score > 0);
   }
 
+  // v0.70 W10 集成：hybrid search（BM25 + embedding 两路 RRF 融合）
+  // 学自 R2R，比单路 BM25 / 单路 embedding 召回更高
+  async hybridSearch({ name, query, topK = DEFAULT_TOP_K }) {
+    const cleanName = safeName(name);
+    if (!cleanName) throw new Error('kb name 不合法');
+    if (typeof query !== 'string' || !query.trim()) throw new Error('query 必填');
+    const k = Math.max(1, Math.min(MAX_TOP_K, Number(topK) || DEFAULT_TOP_K));
+
+    const chunks = this._readAllChunks(cleanName);
+    if (chunks.length === 0) return [];
+
+    // 路 1: BM25（强制走 BM25 path，临时关掉 embedding 优先）
+    const allEmbedded = chunks.every((c) => Array.isArray(c.embedding) && c.embedding.length > 0);
+
+    // 跑 BM25 (复用现有 search 逻辑 fallback path)
+    const bm25Hits = await this._bm25Only(cleanName, query, k * 2, chunks);
+
+    // 路 2: embedding（如果有）
+    let vecHits = [];
+    if (allEmbedded) {
+      const idx = this._readIndex(cleanName);
+      const qvec = await embedViaOllama(query, idx?.embedModel || DEFAULT_EMBED_MODEL, idx?.embedUrl || DEFAULT_OLLAMA_URL);
+      if (qvec) {
+        vecHits = chunks.map((c) => ({
+          id: c.id, docId: c.docId, text: c.text,
+          score: cosineSim(qvec, c.embedding),
+        })).sort((a, b) => b.score - a.score).slice(0, k * 2);
+      }
+    }
+
+    // 融合
+    const { mergeHybrid } = await import('./learned/hybrid-merge.js');
+    const merged = mergeHybrid(bm25Hits, vecHits, { topN: k });
+
+    // 富化 text/docId 回填
+    const byId = new Map(chunks.map(c => [c.id, c]));
+    return merged.map(m => {
+      const orig = byId.get(m.id);
+      return {
+        id: m.id,
+        docId: orig?.docId,
+        text: orig?.text,
+        score: m.rrfScore,
+        mode: 'hybrid',
+        sources: m.sources,
+      };
+    });
+  }
+
+  /** 仅 BM25 的内部 helper（hybridSearch 用） */
+  async _bm25Only(name, query, k, chunks) {
+    const queryTokens = tokenize(query);
+    if (queryTokens.length === 0) return [];
+    const N = chunks.length;
+    const df = new Map();
+    for (const c of chunks) {
+      const seen = new Set();
+      for (const t of (c._tokens || tokenize(c.text))) {
+        if (!seen.has(t)) { seen.add(t); df.set(t, (df.get(t) || 0) + 1); }
+      }
+    }
+    const idf = new Map();
+    for (const t of queryTokens) {
+      const dft = df.get(t) || 0;
+      idf.set(t, Math.log((N + 1) / (1 + dft)) + 0.5);
+    }
+    const avgLen = chunks.reduce((s, c) => s + (c._tokens?.length || tokenize(c.text).length), 0) / N || 1;
+    const k1 = 1.5, b = 0.75;
+    const scored = chunks.map((c) => {
+      const tokens = c._tokens || tokenize(c.text);
+      const tf = new Map();
+      for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+      let score = 0;
+      for (const t of queryTokens) {
+        const f = tf.get(t) || 0;
+        if (f === 0) continue;
+        const numerator = f * (k1 + 1);
+        const denominator = f + k1 * (1 - b + b * tokens.length / avgLen);
+        score += (idf.get(t) || 0) * (numerator / denominator);
+      }
+      return { id: c.id, docId: c.docId, text: c.text, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, k).filter(r => r.score > 0);
+  }
+
   /** 给 dispatcher 用：把 query 在某 KB 的 topK chunks 拼成可注入 system prompt 的段 */
   async buildContextFor({ name, query, topK = DEFAULT_TOP_K }) {
     const hits = await this.search({ name, query, topK });
