@@ -23,6 +23,7 @@
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chart.js": "^4.5.1",
+    "electron-updater": "^6.8.3",
     "express": "^4.21.2",
     "node-pty": "^1.0.0",
     "ws": "^8.18.0"
@@ -44,6 +45,12 @@
     "directories": {
       "output": "out"
     },
+    "publish": [{
+      "provider": "github",
+      "owner": "hxx-panel",
+      "repo": "claude-panel",
+      "releaseType": "release"
+    }],
     "files": [
       "server.js",
       "electron-main.js",
