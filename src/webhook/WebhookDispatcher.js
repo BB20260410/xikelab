@@ -53,7 +53,7 @@ function buildPayload(format, ctx) {
         color,
         url: panelUrl || undefined,
         timestamp: new Date().toISOString(),
-        footer: { text: 'Xikely' },
+        footer: { text: 'Xike Lab' },
       }],
     };
   }
@@ -141,7 +141,7 @@ export async function testWebhook(w) {
     mode: 'debate',
     eventCategory: 'room_done',
     eventType: 'debate_done',
-    summary: '这是来自 Xikely的测试推送 — 看到这条说明 webhook 工作正常',
+    summary: '这是来自 Xike Lab的测试推送 — 看到这条说明 webhook 工作正常',
     panelUrl: `http://localhost:${process.env.PORT || 51735}`,
   });
   await postJson(w.url, payload, w.headers || {});

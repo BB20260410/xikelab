@@ -1,4 +1,4 @@
-// Xikely — Archive routes (S18-2b)
+// Xike Lab — Archive routes (S18-2b)
 // v0.54 Sprint 4.5 — 归档配置 / 手动归档 / 列归档
 // 从 server.js 1752-1788 提取，行为完全一致
 

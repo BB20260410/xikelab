@@ -58,7 +58,7 @@ export class McpClientManager {
     }
 
     const client = new Client(
-      { name: 'xikely', version: '0.55.0' },
+      { name: 'xikelab', version: '0.55.0' },
       { capabilities: { tools: {}, resources: {}, prompts: {} } }
     );
 

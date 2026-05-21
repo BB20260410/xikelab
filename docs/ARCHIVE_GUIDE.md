@@ -7,7 +7,7 @@
 ## 1. 快速开始
 
 1. 顶栏点 📂 按钮打开配置 modal
-2. 改 `rootPath`（默认 `~/Documents/xikely-archive`）
+2. 改 `rootPath`（默认 `~/Documents/xikelab-archive`）
 3. 选目录结构：
    - **按时间分类 → 房间名分类**（推荐）：`<root>/2026-05-20/搜索2-b31b9a35/`
    - **按房间名分类 → 时间分类**：`<root>/搜索2-b31b9a35/2026-05-20/`
@@ -130,7 +130,7 @@ curl -X PUT http://localhost:51735/api/archive/config \
 
 # 切回默认
 curl -X PUT http://localhost:51735/api/archive/config \
-  -d '{ "rootPath": "~/Documents/xikely-archive" }'
+  -d '{ "rootPath": "~/Documents/xikelab-archive" }'
 ```
 
 或者每个房用 `exportPath` 单独配，rootPath 留默认。

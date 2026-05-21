@@ -1,4 +1,4 @@
-# Xikely v1.0 Release Notes
+# Xike Lab v1.0 Release Notes
 
 > 2026-05-21
 > 商品化首发版本
@@ -31,15 +31,15 @@ panel 是一个**多 AI 工作台**，让你在一个界面里：
 ## 📦 安装
 
 ### macOS（推荐）
-1. 从 GitHub Release 下载 `Xikely.app.zip`
+1. 从 GitHub Release 下载 `Xike Lab.app.zip`
 2. 解压 → 拖到 Applications
 3. 首次启动右键选「打开」绕过 Gatekeeper（未签名）
 4. 自动触发 onboarding walkthrough
 
 ### 源码运行
 ```bash
-git clone https://github.com/hxx-panel/xikely.git
-cd xikely
+git clone https://github.com/hxx-panel/xikelab.git
+cd xikelab
 npm install
 npm start                 # 后端 server 51735
 # 浏览器开 http://localhost:51735

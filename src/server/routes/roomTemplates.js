@@ -1,4 +1,4 @@
-// Xikely — Room Templates routes (S18-2e1)
+// Xike Lab — Room Templates routes (S18-2e1)
 // v0.53 Sprint 3 阶段 4：房间模板（builtin + user）
 // 从 server.js 1877-1909 提取
 // 注意：rooms 主 CRUD（list/create/get/delete/patch）+ advanced (debate/forward/retry/quick/search) 仍留 server.js，

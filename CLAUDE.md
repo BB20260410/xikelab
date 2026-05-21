@@ -1,4 +1,4 @@
-# Xikely — Claude Code 项目规则
+# Xike Lab — Claude Code 项目规则
 
 > 给 AI 接手时读：本文件描述项目工程约束、代码风格、目录约定。
 > 用户视角入门看 `README.md`；变更历史看 `HANDOFF.md`。

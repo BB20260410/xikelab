@@ -1,4 +1,4 @@
-// Xikely — Modal 组件（S18-3）
+// Xike Lab — Modal 组件（S18-3）
 // 统一处理 open/close API + onOpen/onClose hook + event delegation + focus trap
 // 不重做：portal（app.js 顶部 IIFE 已自动）、ESC 关（closeTopOverlay 全局已有）、
 //        modal-bg 双击关（app.js 全局 mousedown+mouseup 已有，但要让它感知 Modal）

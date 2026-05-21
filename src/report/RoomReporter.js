@@ -245,7 +245,7 @@ PM 把任务拆成了哪 N 个子任务，依赖关系如何，列表展示。
 
 /** 默认输出文件名：<rootDir>/<roomName>-report-<YYYY-MM-DD-HHmmss>.md */
 export function defaultReportPath(room, rootDir) {
-  const base = rootDir ? expandHome(rootDir) : join(homedir(), 'Documents', 'xikely-reports');
+  const base = rootDir ? expandHome(rootDir) : join(homedir(), 'Documents', 'xikelab-reports');
   const d = new Date();
   const ts = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
   const filename = `${safeFilename(room.name || '未命名')}-report-${ts}.md`;

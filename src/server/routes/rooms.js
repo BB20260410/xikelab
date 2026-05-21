@@ -1,4 +1,4 @@
-// Xikely — Rooms 主 CRUD routes (S18-2e2)
+// Xike Lab — Rooms 主 CRUD routes (S18-2e2)
 // 5 个核心 routes：GET list / POST create / GET :id / DELETE :id / PATCH :id
 // 从 server.js 2086-2271 提取，行为完全一致
 //

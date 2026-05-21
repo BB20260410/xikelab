@@ -1,4 +1,4 @@
-# 5 分钟上手 Xikely
+# 5 分钟上手 Xike Lab
 
 ## 🎯 panel 是什么
 
@@ -12,7 +12,7 @@
 
 ### 方式 1 · 下载 .app（推荐普通用户）
 
-1. 到 [GitHub Release](https://github.com/hxx-panel/xikely/releases) 下载 `Xikely.app.zip`
+1. 到 [GitHub Release](https://github.com/hxx-panel/xikelab/releases) 下载 `Xike Lab.app.zip`
 2. 解压 → 拖到 Applications
 3. 首次右键选「打开」绕过 Gatekeeper
 4. 自动启动 onboarding 引导
@@ -20,8 +20,8 @@
 ### 方式 2 · 源码运行（推荐开发者）
 
 ```bash
-git clone https://github.com/hxx-panel/xikely.git
-cd xikely
+git clone https://github.com/hxx-panel/xikelab.git
+cd xikelab
 npm install
 npm start    # 后端 51735
 # 浏览器开 http://localhost:51735
