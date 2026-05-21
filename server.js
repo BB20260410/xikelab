@@ -68,6 +68,8 @@ import { registerWorkspaceRoutes } from './src/server/routes/workspaces.js';
 import { registerCommercialSetupRoutes } from './src/server/routes/commercial-setup.js';
 // v2.0 final + 1: Keychain 密码代理（panel 自动填密码到 Chrome，密码不进 LLM 对话）
 import { registerAutoFillRoutes } from './src/server/routes/auto-fill.js';
+// v2.0 final + 2: Lemon Squeezy API 集成（查 store / orders / 自动注册 webhook）
+import { registerLemonSqueezyRoutes } from './src/server/routes/lemonsqueezy.js';
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
 import { mcpStore } from './src/mcp/McpStore.js';
@@ -1306,6 +1308,8 @@ registerWorkspaceRoutes(app);
 registerCommercialSetupRoutes(app);
 // v2.0 final + 1: Keychain auto-fill
 registerAutoFillRoutes(app);
+// v2.0 final + 2: Lemon Squeezy API
+registerLemonSqueezyRoutes(app);
 
 // 中断 busy
 // v0.47 阶段 3：Claude Code hook 事件接收端点（借鉴 disler/claude-code-hooks-multi-agent-observability）
