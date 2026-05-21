@@ -66,6 +66,8 @@ import { registerEmbeddingsRoutes } from './src/server/routes/embeddings.js';
 import { registerWorkspaceRoutes } from './src/server/routes/workspaces.js';
 // v2.0 final：商品化准备状态
 import { registerCommercialSetupRoutes } from './src/server/routes/commercial-setup.js';
+// v2.0 final + 1: Keychain 密码代理（panel 自动填密码到 Chrome，密码不进 LLM 对话）
+import { registerAutoFillRoutes } from './src/server/routes/auto-fill.js';
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
 import { mcpStore } from './src/mcp/McpStore.js';
@@ -1302,6 +1304,8 @@ registerEmbeddingsRoutes(app);
 registerWorkspaceRoutes(app);
 // v2.0 final：商品化准备状态
 registerCommercialSetupRoutes(app);
+// v2.0 final + 1: Keychain auto-fill
+registerAutoFillRoutes(app);
 
 // 中断 busy
 // v0.47 阶段 3：Claude Code hook 事件接收端点（借鉴 disler/claude-code-hooks-multi-agent-observability）
