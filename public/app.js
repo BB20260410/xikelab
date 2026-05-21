@@ -3166,7 +3166,11 @@ function openSquadDetail(taskId) {
     const div = document.createElement('div');
     if (ev.kind === 'attempt') {
       div.className = 'squad-attempt';
-      div.innerHTML = `<div class="squad-attempt-head">🔨 第 ${ev.i} 次提交 · ${escapeHtml(ev.by)} · ${ev.at?.slice(11, 19) || ''}</div>${renderMarkdown(ev.content || '')}`;
+      // v0.70.2-t5: 第 2+ 次 attempt 加"对比上次"按钮（W8 squad-diff-preview）
+      const diffBtnHtml = ev.i >= 2
+        ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-attempt-diff="${ev.i - 1}-${ev.i}" data-task-id="${escapeHtml(t.id)}" title="对比第 ${ev.i - 1} 次和第 ${ev.i} 次的内容差异">📐 对比上次</button>`
+        : '';
+      div.innerHTML = `<div class="squad-attempt-head">🔨 第 ${ev.i} 次提交 · ${escapeHtml(ev.by)} · ${ev.at?.slice(11, 19) || ''} ${diffBtnHtml}</div>${renderMarkdown(ev.content || '')}`;
     } else {
       div.className = 'squad-review ' + (ev.verdict === 'pass' ? 'pass' : 'reject');
       div.innerHTML = `<div class="squad-review-head">${ev.verdict === 'pass' ? '✅ 通过' : '❌ 打回'} · ${escapeHtml(ev.by)} · ${ev.at?.slice(11, 19) || ''} · 置信度 ${(ev.confidence || 0).toFixed(2)}</div>
@@ -3178,6 +3182,26 @@ function openSquadDetail(taskId) {
   }
   drawer.classList.remove('hidden');
   drawer.querySelector('#squadDetailClose').addEventListener('click', () => drawer.classList.add('hidden'));
+  // v0.70.2-t5: attempt 对比按钮
+  drawer.querySelectorAll('[data-attempt-diff]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const [fromStr, toStr] = btn.dataset.attemptDiff.split('-');
+      const tid = btn.dataset.taskId;
+      const roomId = roomState.activeId;
+      if (!roomId || !tid) return;
+      try {
+        const r = await fetch(`/api/rooms/${roomId}/tasks/${tid}/diff?from=${parseInt(fromStr) - 1}&to=${parseInt(toStr) - 1}`).then(x => x.json());
+        if (!r.ok) { toast('对比失败：' + (r.error || ''), 'error'); return; }
+        if (!r.diff) { toast(r.reason || 'attempt 不足', 'warn'); return; }
+        const d = r.diff;
+        await confirmModal({
+          title: `📐 attempt ${fromStr} → ${toStr} 对比（+${d.added}/-${d.removed} 行）`,
+          message: d.unified || '(无差异)',
+          confirmLabel: '关闭', cancelLabel: '',
+        });
+      } catch (e) { toast('异常：' + e.message, 'error'); }
+    });
+  });
   const injectBtn = drawer.querySelector('#squadInjectBtn');
   if (injectBtn) {
     injectBtn.addEventListener('click', async () => {
