@@ -54,6 +54,10 @@ import { registerSessionsReadonlyRoutes } from './src/server/routes/sessions-rea
 import { registerImgCacheRoutes } from './src/server/routes/img-cache.js';
 // v1.0 Task 1.1：telemetry endpoint
 import { registerTelemetryRoutes } from './src/server/routes/telemetry.js';
+// v1.5 Task 3.1：license endpoint
+import { registerLicenseRoutes } from './src/server/routes/license.js';
+// v1.5 Task 3.3：Lemon Squeezy / Polar payment webhooks
+import { registerPaymentWebhookRoutes } from './src/server/routes/payment-webhooks.js';
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
 import { mcpStore } from './src/mcp/McpStore.js';
@@ -158,7 +162,15 @@ function send500(res, e, context = '') {
 
 // v0.51 T-13 fix: 隐藏 X-Powered-By 泄露技术栈
 app.disable('x-powered-by');
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  // v1.5 Task 3.3 — webhook HMAC 验签需要 raw body
+  verify: (req, _res, buf) => {
+    if (req.originalUrl && req.originalUrl.startsWith('/api/webhooks/')) {
+      req.rawBody = buf.toString('utf8');
+    }
+  },
+}));
 // v0.51 T-48 fix: body parser 错误统一返 JSON（默认是 Express HTML 错误页）
 app.use((err, req, res, next) => {
   if (err && err.type === 'entity.parse.failed') {
@@ -1270,6 +1282,10 @@ registerSessionsReadonlyRoutes(app, { sessions });
 registerImgCacheRoutes(app);
 // v1.0 Task 1.1：telemetry
 registerTelemetryRoutes(app);
+// v1.5 Task 3.1：license
+registerLicenseRoutes(app);
+// v1.5 Task 3.3：payment webhooks
+registerPaymentWebhookRoutes(app);
 
 // 中断 busy
 // v0.47 阶段 3：Claude Code hook 事件接收端点（借鉴 disler/claude-code-hooks-multi-agent-observability）
@@ -1935,9 +1951,24 @@ app.get('/api/room-adapters', (req, res) => {
   });
 });
 
-app.put('/api/room-adapters', (req, res) => {
+app.put('/api/room-adapters', async (req, res) => {
   const r = cleanRoomAdaptersConfig(req.body || {}, roomAdaptersConfig);
   if (!r.ok) return res.status(422).json({ error: r.error });
+  // v1.5 Task 3.2 — Free tier adapter limit 3
+  try {
+    const lm = await import('./src/license/LicenseManager.js');
+    if (!lm.hasFeature('adapters-unlimited')) {
+      const enabledCount = Object.values(r.config || {}).filter(c => c && c.apiKey && c.apiKey.trim()).length;
+      if (enabledCount > 3) {
+        return res.status(402).json({
+          error: `Free 层最多 3 个 adapter（当前 ${enabledCount}）`,
+          tier: lm.getCurrentTier(),
+          feature: 'adapters-unlimited',
+          upgradeUrl: 'https://panel.app/pricing',
+        });
+      }
+    }
+  } catch {}
   const save = saveRoomAdaptersConfig(r.config);
   if (!save.ok) return send500(res, new Error(save.error));
   roomAdaptersConfig = r.config;

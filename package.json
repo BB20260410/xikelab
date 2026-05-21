@@ -1,6 +1,6 @@
 {
   "name": "claude-panel",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "productName": "Claude Panel",
   "description": "可视化多 Claude Code 会话管理面板：多 session / 流式输出 / 内嵌真终端 / 思维镜 5 套安全机制 / Codex 风格设计",
   "author": "hxx",

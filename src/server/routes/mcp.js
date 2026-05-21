@@ -5,6 +5,9 @@
 // 内部创建 McpClientManager（原 server.js 1759 的 const）
 
 import { McpClientManager } from '../../mcp/McpClientManager.js';
+import { hasFeature, getCurrentTier } from '../../license/LicenseManager.js';
+
+const FREE_MCP_LIMIT = 3;
 
 export function registerMcpRoutes(app, deps) {
   const { mcpStore } = deps;
@@ -20,6 +23,18 @@ export function registerMcpRoutes(app, deps) {
     try {
       const body = req.body || {};
       if (JSON.stringify(body).length > 16 * 1024) return res.status(413).json({ error: 'body 过大' });
+      // v1.5 Task 3.2 — Free tier MCP limit 3
+      if (!hasFeature('mcp-unlimited')) {
+        const cur = mcpStore.list().length;
+        if (cur >= FREE_MCP_LIMIT) {
+          return res.status(402).json({
+            error: `Free 层最多 ${FREE_MCP_LIMIT} 个 MCP server（当前 ${cur}）`,
+            tier: getCurrentTier(),
+            feature: 'mcp-unlimited',
+            upgradeUrl: 'https://panel.app/pricing',
+          });
+        }
+      }
       const item = mcpStore.create(body);
       res.json({ ok: true, server: item });
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }

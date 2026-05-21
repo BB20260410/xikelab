@@ -8,6 +8,7 @@
 
 import { statSync } from 'fs';
 import { homedir } from 'os';
+import { hasFeature, getCurrentTier } from '../../license/LicenseManager.js';
 
 export function registerRoomsRoutes(app, deps) {
   const {
@@ -52,6 +53,16 @@ export function registerRoomsRoutes(app, deps) {
     else if (mode === 'chat') roomMode = 'chat';
     else if (mode === 'arena') roomMode = 'arena';
     else roomMode = 'debate';
+
+    // v1.5 Task 3.2 — Pro tier gate for squad/arena
+    if ((roomMode === 'squad' || roomMode === 'arena') && !hasFeature(roomMode)) {
+      return res.status(402).json({
+        error: `${roomMode === 'squad' ? 'AI 团队拆活（squad）' : '多模型联网核对（arena）'} 模式需要 Pro license`,
+        tier: getCurrentTier(),
+        feature: roomMode,
+        upgradeUrl: 'https://panel.app/pricing',
+      });
+    }
 
     let defaultMembers;
     if (roomMode === 'squad') {
