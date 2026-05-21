@@ -122,11 +122,12 @@ export class McpClientManager {
     }
   }
 
-  /** 调一个 tool（带超时 + v0.70 W7：调用历史 jsonl 日志） */
+  /** 调一个 tool（带超时 + v0.70 W7 jsonl 日志 + v0.9.x 超时强制 disconnect 防资源泄漏）*/
   async callTool(name, toolName, args = {}) {
     const entry = await this.ensureConnected(name);
     const callP = entry.client.callTool({ name: toolName, arguments: args });
-    const timeoutP = new Promise((_, rej) => setTimeout(() => rej(new Error('callTool timeout')), CALL_TOOL_TIMEOUT_MS));
+    let timedOut = false;
+    const timeoutP = new Promise((_, rej) => setTimeout(() => { timedOut = true; rej(new Error('callTool timeout')); }, CALL_TOOL_TIMEOUT_MS));
     const t0 = Date.now();
     try {
       const out = await Promise.race([callP, timeoutP]);
@@ -134,6 +135,10 @@ export class McpClientManager {
       return out;
     } catch (e) {
       try { logMcpCall({ serverId: name, toolName, input: args, error: e.message, durationMs: Date.now() - t0 }); } catch {}
+      // v0.9.x B-012: 超时时强制 disconnect，让 spawn 子进程被 kill（防资源泄漏）
+      if (timedOut) {
+        try { await this.disconnect(name); } catch {}
+      }
       throw e;
     }
   }
