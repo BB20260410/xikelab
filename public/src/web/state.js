@@ -93,3 +93,15 @@ export function restore() {
 
 // 调试出口
 export function _debug() { return _store; }
+
+// v0.84 starter: 5 个散落 state 的 schema 定义（未实际迁移）
+/**
+ * @typedef {Object} PanelStoreSchema
+ * @property {Array} sessions               app.js:13 const state.sessions
+ * @property {Array} archivedSessions       app.js:13 const state.archivedSessions
+ * @property {string|null} activeId         app.js:13
+ * @property {Object} roomState             app.js:2351 整个 roomState 命名空间
+ * @property {Object} pluginState           app.js:3882 { list, activeId }
+ * @property {Object} archiveState          app.js:5480 { config, list }
+ * @property {Object} autopilotState        app.js:5908 { config, logs }
+ */
