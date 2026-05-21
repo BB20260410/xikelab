@@ -5834,6 +5834,8 @@ function renderMcpDetail(s) {
     <div class="mcp-form-actions">
       ${isNew ? '' : '<button class="cxbtn cxbtn-danger cxbtn-sm left-grow" id="btnMcpDelete">🗑 删除</button>'}
       <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnMcpTest" ${isNew ? 'disabled title="先保存才能测试"' : ''}>🧪 测试连接 + 列工具</button>
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnMcpResources" ${isNew ? 'disabled title="先保存才能查看"' : ''}>📂 查看 Resources</button>
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnMcpPrompts" ${isNew ? 'disabled title="先保存才能查看"' : ''}>💬 查看 Prompts</button>
       <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-close-mcp>取消</button>
       <button class="cxbtn cxbtn-primary" id="btnMcpSave">${isNew ? '✓ 创建' : '💾 保存'}</button>
     </div>
@@ -5847,6 +5849,9 @@ function renderMcpDetail(s) {
   $('#btnMcpSave')?.addEventListener('click', () => saveMcp(isNew ? null : s.name));
   $('#btnMcpTest')?.addEventListener('click', () => testMcp(s.name));
   $('#btnMcpDelete')?.addEventListener('click', () => deleteMcp(s.name));
+  // B-013: MCP resources / prompts 查看
+  $('#btnMcpResources')?.addEventListener('click', () => viewMcpResources(s.name));
+  $('#btnMcpPrompts')?.addEventListener('click', () => viewMcpPrompts(s.name));
   // S18-3：data-close-mcp 由 Modal event delegation 接管，不再每次重绑
 }
 
@@ -5895,6 +5900,49 @@ async function saveMcp(nameOrNull) {
       toast('保存失败：' + (r.error || 'unknown'), 'error');
     }
   } catch (e) { toast('保存失败：' + e.message, 'error'); }
+}
+
+// B-013 v0.9：MCP resources 查看（goose-style "MCP 一等公民"）
+async function viewMcpResources(name) {
+  try {
+    const r = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}/resources`).then(x => x.json());
+    if (!r.ok) { toast('拉 resources 失败：' + (r.error || ''), 'error'); return; }
+    const list = r.resources || [];
+    if (list.length === 0) {
+      await confirmModal({ title: `📂 ${name} · Resources`, message: '该 MCP server 未暴露任何 resource。\n\nresource 是 MCP server 提供的数据源（文件/URL/查询结果等），AI 可以列出 + 读取。', confirmLabel: '关闭', cancelLabel: '' });
+      return;
+    }
+    const lines = list.map((r, i) =>
+      `[${i + 1}] ${r.name || r.uri || '?'}\n     uri: ${r.uri || '-'}\n     ${r.description ? r.description.slice(0, 100) : ''}\n     mime: ${r.mimeType || '-'}`
+    ).join('\n\n');
+    await confirmModal({
+      title: `📂 ${name} · Resources (${list.length})`,
+      message: lines,
+      confirmLabel: '关闭', cancelLabel: '',
+    });
+  } catch (e) { toast('异常：' + e.message, 'error'); }
+}
+
+// B-013 v0.9：MCP prompts 查看
+async function viewMcpPrompts(name) {
+  try {
+    const r = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}/prompts`).then(x => x.json());
+    if (!r.ok) { toast('拉 prompts 失败：' + (r.error || ''), 'error'); return; }
+    const list = r.prompts || [];
+    if (list.length === 0) {
+      await confirmModal({ title: `💬 ${name} · Prompts`, message: '该 MCP server 未暴露任何 prompt 模板。\n\nprompt 是 MCP server 预定义的 prompt 模板（可带参数），AI 可一键应用。', confirmLabel: '关闭', cancelLabel: '' });
+      return;
+    }
+    const lines = list.map((p, i) => {
+      const args = (p.arguments || []).map(a => `${a.name}${a.required ? '*' : ''}`).join(', ');
+      return `[${i + 1}] ${p.name || '?'}\n     args: ${args || '(无)'}\n     ${p.description ? p.description.slice(0, 100) : ''}`;
+    }).join('\n\n');
+    await confirmModal({
+      title: `💬 ${name} · Prompts (${list.length})`,
+      message: lines,
+      confirmLabel: '关闭', cancelLabel: '',
+    });
+  } catch (e) { toast('异常：' + e.message, 'error'); }
 }
 
 async function testMcp(name) {

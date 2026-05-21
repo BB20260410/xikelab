@@ -76,6 +76,26 @@ export function registerMcpRoutes(app, deps) {
     }
   });
 
+  // B-013: 单独拉 resources（不强制重连，用 cache）
+  app.get('/api/mcp/servers/:name/resources', async (req, res) => {
+    try {
+      const resources = await mcpClientManager.listResources(req.params.name);
+      res.json({ ok: true, resources: resources || [] });
+    } catch (e) {
+      res.status(502).json({ ok: false, error: e.message });
+    }
+  });
+
+  // B-013: 单独拉 prompts
+  app.get('/api/mcp/servers/:name/prompts', async (req, res) => {
+    try {
+      const prompts = await mcpClientManager.listPrompts(req.params.name);
+      res.json({ ok: true, prompts: prompts || [] });
+    } catch (e) {
+      res.status(502).json({ ok: false, error: e.message });
+    }
+  });
+
   // v0.70.3-t3: MCP call 历史（学自 W7 MCP Inspector）
   app.get('/api/mcp/call-history', async (req, res) => {
     try {
