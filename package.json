@@ -1,8 +1,8 @@
 {
-  "name": "hangora",
+  "name": "xikely",
   "version": "2.0.0",
-  "productName": "Hangora",
-  "description": "Hangora — Local-first multi-AI workbench. Supports Claude, GPT, Gemini, MiniMax, Ollama and 8+ providers. 4 collaboration modes (chat/debate/squad/arena), MCP one-stop, all data local 0o600.",
+  "productName": "Xikely",
+  "description": "Xikely — Local-first multi-AI workbench. Supports Claude, GPT, Gemini, MiniMax, Ollama and 8+ providers. 4 collaboration modes (chat/debate/squad/arena), MCP one-stop, all data local 0o600.",
   "author": "hxx",
   "main": "electron-main.js",
   "type": "module",
@@ -39,8 +39,8 @@
     "vitest": "^4.1.7"
   },
   "build": {
-    "appId": "com.hxx.hangora",
-    "productName": "Hangora",
+    "appId": "com.hxx.xikely",
+    "productName": "Xikely",
     "asar": true,
     "asarUnpack": [
       "node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
@@ -52,7 +52,7 @@
       {
         "provider": "github",
         "owner": "BB20260410",
-        "repo": "hangora",
+        "repo": "xikely",
         "releaseType": "release"
       }
     ],
@@ -91,7 +91,7 @@
       "identity": null
     },
     "dmg": {
-      "title": "Hangora v${version}",
+      "title": "Xikely v${version}",
       "writeUpdateInfo": false
     },
     "linux": {

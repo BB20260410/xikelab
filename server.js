@@ -1,4 +1,4 @@
-// Hangora — 多 Claude 会话管理后端
+// Xikely — 多 Claude 会话管理后端
 // 不用 pty（macOS arm64 binding 问题），用 claude stream-json API 模式
 // 每条用户消息 = spawn 一次 claude --resume <sid> --input-format stream-json，pipe stdin/stdout
 
@@ -985,7 +985,7 @@ app.post('/api/watcher/test', async (req, res) => {
 // v0.52: 优先级链 HANDOFF_NEW_CHAT.md → HANDOFF.md → package.json
 app.get('/api/version', (req, res) => {
   let version = 'unknown';
-  let appName = 'Hangora';
+  let appName = 'Xikely';
   try {
     const pkg = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
     version = pkg.version || version;
@@ -3692,7 +3692,7 @@ app.get('/v1/models', (req, res) => {
           id,
           object: 'model',
           created: 0,
-          owned_by: 'hangora',
+          owned_by: 'xikely',
         });
       }
     }
@@ -3947,7 +3947,7 @@ server.on('error', (err) => {
   process.exit(1);
 });
 server.listen(PORT, HOST, () => {
-  console.log(`🚀 Hangora @ http://${HOST}:${PORT}`);
+  console.log(`🚀 Xikely @ http://${HOST}:${PORT}`);
   console.log(`   Using claude bin: ${CLAUDE_BIN}`);
   if (HOST !== '127.0.0.1') {
     console.log(`   ⚠️  监听 ${HOST}（非本地），PTY 终端将暴露给该接口，请确认网络安全`);

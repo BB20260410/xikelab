@@ -1,4 +1,4 @@
-# Hangora v2.0.0 — 数据底座 + 多 workspace + 向量搜索 + 结构化日志
+# Xikely v2.0.0 — 数据底座 + 多 workspace + 向量搜索 + 结构化日志
 
 发布日期：2026-05-21
 代号：Vector-First

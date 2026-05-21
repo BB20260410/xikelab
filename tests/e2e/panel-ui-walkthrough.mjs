@@ -24,7 +24,7 @@ function track(name, pass, detail = '') {
     });
     await page.goto(PANEL, { waitUntil: 'networkidle', timeout: 10000 });
     const title = await page.title();
-    track('1. 首页加载', title === 'Hangora', `title="${title}"`);
+    track('1. 首页加载', title === 'Xikely', `title="${title}"`);
 
     const topBtns = ['btnOverview','btnTerminal','btnRooms','btnPlugins','btnRoomAdapters','btnWebhooks','btnArchive','btnMcp','btnAutopilot'];
     for (const id of topBtns) {

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hangora.local/plugin-manifest.schema.json",
-  "title": "Hangora Plugin Manifest",
-  "description": "Describe any CLI tool to be wrapped by Hangora. v1 (W1)",
+  "$id": "https://xikely.local/plugin-manifest.schema.json",
+  "title": "Xikely Plugin Manifest",
+  "description": "Describe any CLI tool to be wrapped by Xikely. v1 (W1)",
   "type": "object",
   "required": ["id", "displayName", "type"],
   "additionalProperties": false,

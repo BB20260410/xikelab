@@ -71,7 +71,7 @@ console.log('2. 自动跳到创建 repo 页');
 await page.goto('https://github.com/new');
 await page.waitForSelector('input#repository_name', { timeout: 10000 });
 
-const repoName = args.repo || 'hangora';
+const repoName = args.repo || 'xikely';
 await page.fill('input#repository_name', repoName);
 console.log(`   已填 repo 名：${repoName}`);
 console.log('');

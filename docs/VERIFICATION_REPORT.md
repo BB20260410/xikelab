@@ -1,4 +1,4 @@
-# Hangora — 严格规范验证报告
+# Xikely — 严格规范验证报告
 
 ## 1. 壁纸（8K + 224 PPI + Display P3）
 

@@ -1,4 +1,4 @@
-// Hangora — MCP routes (S18-2c)
+// Xikely — MCP routes (S18-2c)
 // v0.55 Sprint 12 — MCP（Model Context Protocol）服务器配置 + 客户端管理
 // 从 server.js 1759-1825 提取，行为完全一致
 //

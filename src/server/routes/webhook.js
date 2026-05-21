@@ -1,4 +1,4 @@
-// Hangora — Webhook routes (S18-2a)
+// Xikely — Webhook routes (S18-2a)
 // v0.54 Sprint 4 — 出站 webhook 推送 API
 // 从 server.js 1959-2012 提取，行为完全一致
 //

@@ -3,14 +3,14 @@
 ## 当前方案（v1.0）· electron-builder
 
 ```bash
-npm run package    # macOS 不签名快测（out/mac-arm64/Hangora.app）
+npm run package    # macOS 不签名快测（out/mac-arm64/Xikely.app）
 npm run dist       # macOS 完整签名打包（需 Apple Developer 账号 + .p12）
 npm run dist:all   # 全平台 mac/win/linux
 ```
 
 ### 实测（2026-05-21）
 - 打包成功 ✅
-- `Hangora.app` 真能 open 启动
+- `Xikely.app` 真能 open 启动
 - 启动后 3 个进程（electron 主进程 + server.js 子进程 + Renderer）
 - 体积 **304MB**（electron 自带 chromium runtime，已知限制）
 

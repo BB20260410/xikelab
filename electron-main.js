@@ -24,7 +24,7 @@ async function initAutoUpdater() {
         defaultId: 0,
         cancelId: 1,
         title: '发现新版本',
-        message: `Hangora ${info.version} 已发布`,
+        message: `Xikely ${info.version} 已发布`,
         detail: '点击「立即下载」开始更新（下载完成后下次启动自动安装）',
       });
       if (r.response === 0) autoUpdater.downloadUpdate();
@@ -35,7 +35,7 @@ async function initAutoUpdater() {
         buttons: ['立即重启', '退出时安装'],
         defaultId: 0,
         title: '更新已下载',
-        message: `Hangora ${info.version} 已下载`,
+        message: `Xikely ${info.version} 已下载`,
         detail: '需重启 panel 完成安装',
       });
       if (r.response === 0) autoUpdater.quitAndInstall();
@@ -69,7 +69,7 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#F4F1EA',
     webPreferences: { nodeIntegration: false, contextIsolation: true },
-    title: 'Hangora',
+    title: 'Xikely',
   });
 
   const tryLoad = (retries = 20) => {
@@ -94,7 +94,7 @@ app.whenReady().then(() => {
   // v1.0 Task 1.3: 启动自动更新
   initAutoUpdater().catch(() => {});
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'Hangora', submenu: [
+    { label: 'Xikely', submenu: [
       { role: 'about' },
       { type: 'separator' },
       { label: '检查更新', click: () => autoUpdater?.checkForUpdates().catch(() => {}) },

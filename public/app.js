@@ -1,4 +1,4 @@
-// Hangora — 前端
+// Xikely — 前端
 
 // v0.56 修复：.inspector 的 backdrop-filter 让自身成为 fixed 子元素的 containing block
 // 导致所有 .modal 被囚禁在右侧 300px 内不可见 → 现挪到 body 顶层逃逸
@@ -5592,7 +5592,7 @@ function renderArchiveModal() {
       <div class="archive-section-title">🌳 全局归档根目录</div>
       <div class="archive-form-row">
         <label>rootPath（绝对路径，支持 ~/）</label>
-        <input id="arRootPath" maxlength="1024" value="${escapeHtml(cfg.rootPath || '')}" placeholder="~/Documents/hangora-archive" />
+        <input id="arRootPath" maxlength="1024" value="${escapeHtml(cfg.rootPath || '')}" placeholder="~/Documents/xikely-archive" />
         <div class="help">所有房间完成后归档到这个目录下。沙箱限制：必须在 home 子树或 /tmp 内，不能命中 .ssh / .aws / Library/Keychains 等敏感目录。</div>
       </div>
       <div class="archive-form-row">

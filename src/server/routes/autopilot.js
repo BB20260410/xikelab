@@ -1,4 +1,4 @@
-// Hangora — Autopilot routes (S18-2d)
+// Xikely — Autopilot routes (S18-2d)
 // v0.56 Sprint 15-R4 — Autopilot 控制 API
 // 从 server.js 3733-3774 提取，行为完全一致
 

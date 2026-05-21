@@ -91,7 +91,7 @@
     bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center';
     bg.innerHTML = `
       <div class="license-modal" style="background:#1a1d23;padding:24px;border-radius:8px;max-width:500px;width:90%;color:#e8eaed">
-        <h3 style="margin:0 0 16px">激活 Hangora Pro</h3>
+        <h3 style="margin:0 0 16px">激活 Xikely Pro</h3>
         <p style="font-size:13px;color:#b3b7bd;margin-bottom:12px">
           粘贴你购买后收到的 license key（base64.base64 格式）。<br/>
           没有？<a href="https://panel.app/pricing" target="_blank" style="color:#10b981">在这里购买</a>
