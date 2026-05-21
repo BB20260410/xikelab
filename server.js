@@ -2148,6 +2148,27 @@ app.post('/api/rooms/:id/tasks/:tid/inject', (req, res) => {
   res.json({ ok: true, injection: inj });
 });
 
+// v0.70 W8 集成：squad task 多次 attempt 之间的 diff（学自 aider/Cline）
+// GET /api/rooms/:id/tasks/:tid/diff?from=N&to=M  → unified diff + added/removed 行数
+app.get('/api/rooms/:id/tasks/:tid/diff', async (req, res) => {
+  try {
+    const r = roomStore.get(req.params.id);
+    if (!r) return res.status(404).json({ error: 'room not found' });
+    const t = (r.taskList || []).find(x => x.id === req.params.tid);
+    if (!t) return res.status(404).json({ error: 'task not found' });
+    const attempts = t.attempts || [];
+    if (attempts.length < 2) return res.json({ ok: true, diff: null, reason: 'need ≥2 attempts' });
+    const from = parseInt(req.query.from, 10);
+    const to = parseInt(req.query.to, 10);
+    const a = Number.isFinite(from) ? attempts[from] : attempts[attempts.length - 2];
+    const b = Number.isFinite(to) ? attempts[to] : attempts[attempts.length - 1];
+    if (!a || !b) return res.status(400).json({ error: 'invalid from/to' });
+    const { diffAttempts } = await import('./src/room/learned/squad-diff-preview.js');
+    const d = diffAttempts(a, b);
+    res.json({ ok: true, diff: d, fromIdx: attempts.indexOf(a), toIdx: attempts.indexOf(b) });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // v0.52 Sprint1-F：把当前房的 finalConsensus 作为 topic 转给新房
 app.post('/api/rooms/forward', async (req, res) => {
   if (roomStore.list().length >= MAX_ROOMS) {
