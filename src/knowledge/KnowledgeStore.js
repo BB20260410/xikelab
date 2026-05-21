@@ -44,7 +44,10 @@ function safeName(s) {
   return s.slice(0, MAX_NAME);
 }
 
-/** 按段落 + 长度阈值切 chunk（每段超 MAX_CHUNK_CHARS 时按 ~MAX_CHUNK_CHARS 切，重叠 OVERLAP） */
+/** 按段落 + 长度阈值切 chunk
+ * v0.74 W10 学习：长段落按"句子"切（中英分隔符），不再按字符硬切
+ * 避免把句子从中间砍掉破坏检索相关性
+ */
 function chunkText(text) {
   const paragraphs = text.split(/\n{2,}/g).map(p => p.trim()).filter(Boolean);
   const chunks = [];
@@ -52,13 +55,28 @@ function chunkText(text) {
     if (p.length <= MAX_CHUNK_CHARS) {
       chunks.push(p);
     } else {
-      let i = 0;
-      while (i < p.length) {
-        const slice = p.slice(i, i + MAX_CHUNK_CHARS);
-        chunks.push(slice);
-        if (i + MAX_CHUNK_CHARS >= p.length) break;
-        i += (MAX_CHUNK_CHARS - CHUNK_OVERLAP);
+      // v0.74：按句子切（中英标点）
+      const sentences = p.split(/(?<=[。！？!?\n])\s*/).filter(Boolean);
+      let buf = '';
+      for (const s of sentences) {
+        if (buf.length + s.length <= MAX_CHUNK_CHARS) {
+          buf += s;
+        } else {
+          if (buf) chunks.push(buf);
+          // 单句已经超大 → fallback 硬切
+          if (s.length > MAX_CHUNK_CHARS) {
+            let i = 0;
+            while (i < s.length) {
+              chunks.push(s.slice(i, i + MAX_CHUNK_CHARS));
+              i += (MAX_CHUNK_CHARS - CHUNK_OVERLAP);
+            }
+            buf = '';
+          } else {
+            buf = s;
+          }
+        }
       }
+      if (buf) chunks.push(buf);
     }
   }
   return chunks;
