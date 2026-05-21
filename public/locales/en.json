@@ -1,0 +1,70 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "back": "Back",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "error": "Error",
+    "success": "Success",
+    "warning": "Warning",
+    "yes": "Yes",
+    "no": "No",
+    "enabled": "Enabled",
+    "disabled": "Disabled"
+  },
+  "topbar": {
+    "overview": "Overview",
+    "terminal": "Terminal",
+    "rooms": "Multi-AI Rooms",
+    "plugins": "Plugins",
+    "adapters": "Adapter Config",
+    "webhooks": "Webhooks",
+    "archive": "Archive",
+    "mcp": "MCP Servers",
+    "autopilot": "Autopilot",
+    "login": "Login Claude Code",
+    "theme": "Toggle Theme",
+    "collapse_inspector": "Collapse Inspector"
+  },
+  "rooms": {
+    "modes": {
+      "chat": "Single Model Chat",
+      "debate": "Multi-Model Debate",
+      "squad": "AI Team Workflow",
+      "arena": "Multi-Model Fact-Check"
+    },
+    "delete_confirm": "Permanently delete room \"{{name}}\"?\n\nAll turns / conversation / taskList / finalConsensus will be lost.\nThis action is irreversible.",
+    "delete_now": "Delete Permanently"
+  },
+  "autopilot": {
+    "title": "Autopilot",
+    "enabled_desc": "Auto forward/notify when rooms done/error",
+    "disabled_desc": "Off by default. Enable to auto-trigger room chains.",
+    "dry_run": "Dry Run",
+    "log_title": "Execution Log"
+  },
+  "mcp": {
+    "title": "MCP Servers",
+    "resources": "View Resources",
+    "prompts": "View Prompts",
+    "call_history": "Call History"
+  },
+  "selection_popover": {
+    "explain": "Explain",
+    "translate": "Translate",
+    "rewrite": "Rewrite",
+    "to_input": "Add to Input"
+  },
+  "telemetry": {
+    "title": "Error Reporting (Optional)",
+    "desc": "Report panel crashes to your Sentry to help fix bugs. Off by default.",
+    "accept": "Accept",
+    "decline": "Decline",
+    "dsn_label": "Sentry DSN (optional, accept without DSN OK)"
+  }
+}

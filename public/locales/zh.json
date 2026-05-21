@@ -1,0 +1,70 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "delete": "删除",
+    "edit": "编辑",
+    "close": "关闭",
+    "back": "返回",
+    "refresh": "刷新",
+    "loading": "加载中…",
+    "error": "错误",
+    "success": "成功",
+    "warning": "警告",
+    "yes": "是",
+    "no": "否",
+    "enabled": "已启用",
+    "disabled": "已关闭"
+  },
+  "topbar": {
+    "overview": "总览面板",
+    "terminal": "内嵌终端",
+    "rooms": "多 AI 聊天室",
+    "plugins": "Plugin 中心",
+    "adapters": "Adapter 配置",
+    "webhooks": "Webhook 推送",
+    "archive": "聊天归档",
+    "mcp": "MCP 服务器",
+    "autopilot": "Autopilot 自驾",
+    "login": "登录 Claude Code",
+    "theme": "切换主题",
+    "collapse_inspector": "折叠右侧面板"
+  },
+  "rooms": {
+    "modes": {
+      "chat": "单模型聊天",
+      "debate": "多模型辩论",
+      "squad": "AI 团队拆活",
+      "arena": "多模型联网核对"
+    },
+    "delete_confirm": "永久删除房间「{{name}}」？\n\n将丢失所有 turn / conversation / taskList / finalConsensus。\n此操作不可恢复。",
+    "delete_now": "永久删除"
+  },
+  "autopilot": {
+    "title": "Autopilot 自驾",
+    "enabled_desc": "房 done/error 时按规则自动 forward / notify",
+    "disabled_desc": "默认关。开启后房自动触发跨房链路。",
+    "dry_run": "试跑",
+    "log_title": "执行日志"
+  },
+  "mcp": {
+    "title": "MCP 服务器",
+    "resources": "查看 Resources",
+    "prompts": "查看 Prompts",
+    "call_history": "调用历史"
+  },
+  "selection_popover": {
+    "explain": "解释",
+    "translate": "翻译",
+    "rewrite": "改写",
+    "to_input": "加到输入"
+  },
+  "telemetry": {
+    "title": "错误上报（可选）",
+    "desc": "panel 崩溃时上报错误到你的 Sentry，方便修 bug。默认关闭。",
+    "accept": "同意",
+    "decline": "拒绝",
+    "dsn_label": "Sentry DSN（可空，仅同意不填）"
+  }
+}
