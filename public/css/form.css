@@ -1,0 +1,54 @@
+/* public/css/form.css — v0.82 真做拆 view 第 3 组：cxbtn 按钮系统 + form input
+ * 拆自 style.css line 248-284 周边
+ * 双轨过渡保留 style.css 同组定义
+ */
+
+.cxbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: var(--text-sm);
+  font-family: inherit;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  white-space: nowrap;
+}
+.cxbtn:active:not(:disabled) { transform: scale(0.98); }
+.cxbtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.cxbtn:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.cxbtn-primary {
+  background: var(--btn-pri-bg);
+  color: var(--btn-pri-fg);
+}
+.cxbtn-primary:hover:not(:disabled)  { background: var(--btn-pri-hover); }
+.cxbtn-primary:active:not(:disabled) { background: var(--btn-pri-active); }
+
+.cxbtn-secondary {
+  background: var(--btn-sec-bg);
+  color: var(--btn-sec-fg);
+  border: 1px solid var(--color-border-light);
+}
+.cxbtn-secondary:hover:not(:disabled)  { background: var(--btn-sec-hover); border-color: var(--color-border-heavy); }
+.cxbtn-secondary:active:not(:disabled) { background: var(--btn-sec-active); }
+
+.cxbtn-tertiary {
+  background: transparent;
+  color: var(--color-text-foreground-secondary);
+}
+.cxbtn-tertiary:hover:not(:disabled) { background: var(--bg-hover); }
+
+.cxbtn-danger {
+  background: var(--color-danger);
+  color: #fff;
+}
+.cxbtn-danger:hover:not(:disabled) { background: var(--color-red-deep); }
+
+.cxbtn-sm { padding: 4px 10px; font-size: var(--text-xs); }

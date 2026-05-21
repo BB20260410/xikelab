@@ -1,0 +1,34 @@
+/* public/css/utility.css — v0.82 真做拆 view 第 2 组：通用 utility classes
+ * 拆自 style.css line 3279-3280 + 周边 muted/small/hint-text 等
+ * 双轨过渡：style.css 同组定义保留，本文件后加载覆盖
+ */
+
+.muted   { color: var(--gray-mid); }
+.small   { font-size: 12px; }
+
+.hint-text {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-top: 14px;
+}
+.hint-text kbd {
+  display: inline-block;
+  padding: 0 6px;
+  margin: 0 1px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 4px;
+  background: var(--bg-top);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* 通用文本工具 — 防中文按字垂直排（memory feedback）*/
+.text-wrap-cjk {
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* 可点击隐藏 */
+.is-hidden { display: none !important; }
+.invisible { visibility: hidden; }
