@@ -26,7 +26,7 @@ export const VALID_STRUCTURES = ['time-then-room', 'room-then-time', 'flat'];
 export const VALID_TIME_FORMATS = ['YYYY-MM-DD', 'YYYY-MM'];
 export const VALID_EVENTS = ['debate_done', 'squad_done', 'arena_done'];
 
-const DEFAULT_ROOT = join(homedir(), 'Documents', 'roundtable-archive');
+const DEFAULT_ROOT = join(homedir(), 'Documents', 'hangora-archive');
 const DEFAULT_CONFIG = {
   version: 1,
   rootPath: DEFAULT_ROOT,

@@ -1,4 +1,4 @@
-// Roundtable — ES module 主入口 (S18-1 已激活)
+// Hangora — ES module 主入口 (S18-1 已激活)
 // 已通过 index.html `<script type="module" src="/main.js">` 加载（defer，在 app.js 之后跑）
 // 桥接策略：挂 window.PanelUtils 让 app.js（IIFE）有渐进迁移路径
 // 下个 sprint：把 app.js 顶层符号（state/$/$$/etc）逐步迁入 src/web/ module，app.js 改用 window.PanelUtils.*

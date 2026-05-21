@@ -1,4 +1,4 @@
-// Roundtable — Dialog module (S29 starter)
+// Hangora — Dialog module (S29 starter)
 // confirmModal + promptModal 主实现挪到 ES module
 // app.js 内同名函数现为 thin wrapper delegate 到 window.PanelDialog.*
 

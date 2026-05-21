@@ -58,7 +58,7 @@ export class McpClientManager {
     }
 
     const client = new Client(
-      { name: 'roundtable', version: '0.55.0' },
+      { name: 'hangora', version: '0.55.0' },
       { capabilities: { tools: {}, resources: {}, prompts: {} } }
     );
 

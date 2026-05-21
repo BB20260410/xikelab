@@ -1,4 +1,4 @@
-// Roundtable — UI 原子组件集（S18-4）
+// Hangora — UI 原子组件集（S18-4）
 // 当前 app.js 非 module，本文件用 IIFE 暴露 window.UI.*
 // S18-1 改 module 后再升级 ES module export
 (function () {

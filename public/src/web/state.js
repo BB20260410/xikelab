@@ -1,4 +1,4 @@
-// Roundtable — 统一 state store ES module (S18-5 starter)
+// Hangora — 统一 state store ES module (S18-5 starter)
 // 当前**未被任何代码使用**（app.js 仍用顶层 const state/roomState/pluginState 各自分散）
 // 下次对话用户授权激活后：把 app.js 内散落的 state 对象合并到这里
 //

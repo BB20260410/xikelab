@@ -1,8 +1,8 @@
 {
-  "name": "roundtable",
+  "name": "hangora",
   "version": "2.0.0",
-  "productName": "Roundtable",
-  "description": "Roundtable — Local-first multi-AI workbench. Supports Claude, GPT, Gemini, MiniMax, Ollama and 8+ providers. 4 collaboration modes (chat/debate/squad/arena), MCP one-stop, all data local 0o600.",
+  "productName": "Hangora",
+  "description": "Hangora — Local-first multi-AI workbench. Supports Claude, GPT, Gemini, MiniMax, Ollama and 8+ providers. 4 collaboration modes (chat/debate/squad/arena), MCP one-stop, all data local 0o600.",
   "author": "hxx",
   "main": "electron-main.js",
   "type": "module",
@@ -39,8 +39,8 @@
     "vitest": "^4.1.7"
   },
   "build": {
-    "appId": "com.hxx.roundtable",
-    "productName": "Roundtable",
+    "appId": "com.hxx.hangora",
+    "productName": "Hangora",
     "asar": true,
     "asarUnpack": [
       "node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
@@ -52,7 +52,7 @@
       {
         "provider": "github",
         "owner": "BB20260410",
-        "repo": "roundtable",
+        "repo": "hangora",
         "releaseType": "release"
       }
     ],
@@ -91,7 +91,7 @@
       "identity": null
     },
     "dmg": {
-      "title": "Roundtable v${version}",
+      "title": "Hangora v${version}",
       "writeUpdateInfo": false
     },
     "linux": {

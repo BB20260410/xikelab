@@ -7,7 +7,7 @@ const STORAGE_KEY = 'panel:onboarding:v1';
 const STEPS = [
   {
     target: '.brand',
-    title: '👋 欢迎使用 Roundtable',
+    title: '👋 欢迎使用 Hangora',
     body: 'panel 是你的多 AI 工作台。\n\n这里是品牌区。下面是 11 个功能图标，从左到右分别是总览/终端/聊天室/插件/配置等。',
     position: 'right',
   },

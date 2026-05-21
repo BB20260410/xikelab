@@ -70,7 +70,7 @@ panel 内置：
 ### 场景 2：错误自动归档
 
 ```
-任何房 error → autopilot 触发 archive 规则 → 自动 markdown 导出到 ~/Documents/roundtable-archive/
+任何房 error → autopilot 触发 archive 规则 → 自动 markdown 导出到 ~/Documents/hangora-archive/
 ```
 
 效果：失败房不丢，事后能复盘。

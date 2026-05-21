@@ -1,4 +1,4 @@
-// Roundtable — Skills routes (S18-2f)
+// Hangora — Skills routes (S18-2f)
 // v0.55 Sprint 13-C — Skills 系统
 // 从 server.js 3825-3867 提取
 

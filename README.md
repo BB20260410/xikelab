@@ -1,4 +1,4 @@
-# Roundtable
+# Hangora
 
 > 本地多 AI 工作台 · v2.0
 >
@@ -9,9 +9,9 @@
 
 ## 📦 下载 / 安装
 
-- **源码运行**（推荐）：`git clone https://github.com/BB20260410/roundtable && cd roundtable && npm install && npm start`，浏览器开 http://localhost:51735
+- **源码运行**（推荐）：`git clone https://github.com/BB20260410/hangora && cd hangora && npm install && npm start`，浏览器开 http://localhost:51735
 - **预编译 .app**：v2.0 暂未发布 .app（better-sqlite3 与 Electron 42 native ABI 兼容性等社区修复，源码运行 100% 可用）
-- **v1.0.0 / v1.5.0 / v2.0.0 Release Notes**：见 [GitHub Releases](https://github.com/BB20260410/roundtable/releases)
+- **v1.0.0 / v1.5.0 / v2.0.0 Release Notes**：见 [GitHub Releases](https://github.com/BB20260410/hangora/releases)
 - **定价 / 购买**：见 [pricing.html](./public/pricing.html) 或 panel UI 顶栏点 Free 徽章
 
 
@@ -38,7 +38,7 @@
 ### 方式 1：双击 .app（最简）
 
 ```bash
-git clone <repo> roundtable && cd roundtable
+git clone <repo> hangora && cd hangora
 npm install
 npm run dist          # 打包 .dmg 到 out/
 open out/*.dmg        # 装到 Applications
