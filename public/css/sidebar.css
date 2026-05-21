@@ -1,0 +1,48 @@
+/* public/css/sidebar.css — v0.82 真做拆 view 第 4 组：sidebar / brand
+ * 拆自 style.css line 2018-2080+ 范围
+ * 双轨过渡保留 style.css 同组定义
+ */
+
+.sidebar {
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--color-text-foreground) 4%, var(--bg-surface)) 0%,
+    color-mix(in oklab, var(--color-text-foreground) 6%, var(--bg-surface)) 100%
+  );
+  backdrop-filter: blur(2.5px) saturate(180%);
+  -webkit-backdrop-filter: blur(2.5px) saturate(180%);
+  border-right: 1px solid var(--color-border-light);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.brand {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 10px 8px;
+}
+.brand-icon {
+  width: 36px; height: 36px;
+  background: var(--orange); color: #fff;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  font-size: 18px; font-weight: 600;
+  flex-shrink: 0;
+}
+.brand-text { flex: 1; min-width: 0; }
+.brand-title {
+  font-weight: 600; font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.brand-subtitle {
+  color: var(--gray-mid); font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.brand-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 10px 10px;
+}

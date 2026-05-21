@@ -12,6 +12,8 @@ import { confirmModal as _confirmModal, promptModal as _promptModal } from './sr
 import { matchCommands as _matchCmdk, resolveAction as _resolveCmdkAction, BUILTIN_COMMANDS as _CMDK_BUILTIN } from './src/web/cmdk-commands.js';
 // v0.80 真做：inspector 控件拆分
 import { initInspectorResize as _initInspResize, initInspectorToggle as _initInspToggle, initDebateStateClear as _initDebateClear } from './src/web/inspector.js';
+// v0.80 真做：WS helpers
+import { buildWsUrl as _buildWsUrl, backoffDelay as _backoffDelay, createWsDispatcher as _createWsDisp, createReconnectingWs as _createReconnWs } from './src/web/ws-helpers.js';
 
 // 下个 sprint 继续加：
 // import { initWebSocket } from './src/web/ws.js';
@@ -32,6 +34,8 @@ if (typeof window !== 'undefined') {
   window.PanelCmdk = { matchCommands: _matchCmdk, resolveAction: _resolveCmdkAction, BUILTIN_COMMANDS: _CMDK_BUILTIN };
   // v0.80 真做：inspector 控件 - 但 app.js 已有 IIFE 调过，这里只暴露给外部脚本调
   window.PanelInspector = { initInspectorResize: _initInspResize, initInspectorToggle: _initInspToggle, initDebateStateClear: _initDebateClear };
+  // v0.80 真做：WS helpers
+  window.PanelWs = { buildWsUrl: _buildWsUrl, backoffDelay: _backoffDelay, createWsDispatcher: _createWsDisp, createReconnectingWs: _createReconnWs };
   // 启动时从 localStorage 恢复
   try { Store.restore(); } catch (e) { console.warn('[main.js] Store.restore', e); }
 }
