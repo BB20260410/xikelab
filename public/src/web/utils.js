@@ -6,6 +6,14 @@
 //   index.html 加 <script type="module" src="/main.js">
 //   main.js: import { escapeHtml } from './src/web/utils.js'
 
+// S29 starter: escapeHtmlEarly = escapeHtml 简化 alias，避免 dialog.js 依赖 app.js 顶部 helper
+export function escapeHtmlEarly(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
+
 export function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/[&<>"']/g, (c) =>

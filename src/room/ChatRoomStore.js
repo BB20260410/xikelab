@@ -19,7 +19,7 @@
 //
 // v0.52 兼容：老房间存的 kind 是 `r1_propose`（无 @n 后缀），前端 renderRounds 当作大轮 1 渲染。
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, renameSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, renameSync, copyFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -76,6 +76,21 @@ export class ChatRoomStore {
         if (r.status === 'running') r.status = 'paused';
         this.rooms.set(r.id, r);
       }
+      // S27 B3：rooms.json 大小 audit + 旧 archived 房间警告（不自动删除，避免数据丢失）
+      try {
+        const st = statSync(STORE_FILE);
+        const sizeMB = (st.size / 1024 / 1024).toFixed(1);
+        if (st.size > 2 * 1024 * 1024) {
+          const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000; // 180 天
+          const oldArchived = [...this.rooms.values()].filter(r =>
+            r.archived === true && r.archivedAt && new Date(r.archivedAt).getTime() < cutoff
+          );
+          console.warn(`[ChatRoomStore] rooms.json ${sizeMB}MB > 2MB，含 ${oldArchived.length} 个 archived >180 天`);
+          if (oldArchived.length > 0) {
+            console.warn(`[ChatRoomStore] 建议手动清理：API DELETE /api/rooms/<id> （ids: ${oldArchived.slice(0, 5).map(r => r.id.slice(0, 8)).join(',')}...）`);
+          }
+        }
+      } catch {}
     } catch (e) {
       // v0.51 B-01 fix: rooms.json 损坏时备份（避免下次 _doSave 原子写覆盖 → debate/squad 房间历史彻底丢）
       try {

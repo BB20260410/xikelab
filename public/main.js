@@ -6,6 +6,8 @@
 import { escapeHtml, escapeHtmlMl, safeSlice, shortenPath, formatSize, formatElapsed } from './src/web/utils.js';
 // S18-5 激活：统一 store
 import * as Store from './src/web/state.js';
+// S29 starter：dialog 模块
+import { confirmModal as _confirmModal, promptModal as _promptModal } from './src/web/dialog.js';
 
 // 下个 sprint 继续加：
 // import { initWebSocket } from './src/web/ws.js';
@@ -18,6 +20,8 @@ import * as Store from './src/web/state.js';
 // 注：app.js 顶层 escapeHtml/state 仍然定义，桥接是逐步迁移期的临时方案
 if (typeof window !== 'undefined') {
   window.PanelUtils = { escapeHtml, escapeHtmlMl, safeSlice, shortenPath, formatSize, formatElapsed };
+  // S29 starter：PanelDialog 桥接（让 app.js 内 wrapper delegate 过来）
+  window.PanelDialog = { confirmModal: _confirmModal, promptModal: _promptModal };
   // S18-5：PanelStore.get/set/subscribe/persist/restore；app.js 顶层 const state 暂未迁移
   window.PanelStore = Store;
   // 启动时从 localStorage 恢复

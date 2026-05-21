@@ -69,10 +69,13 @@ async function apiCall(path, opts = {}) {
 }
 
 // ─── v0.8 ConfirmModal（替代 confirm()）─────
-// Promise<boolean> — true=确认 / false=取消
-// opts: { title, message, confirmLabel='确认', cancelLabel='取消', danger=false }
+// S29 starter: 主实现挪到 src/web/dialog.js (window.PanelDialog.confirmModal)
+// 本 wrapper 22 处现有调用透明走 module；main.js 加载失败 fallback inline
 function confirmModal(opts, maybeTitle) {
-  // S17-6：兼容 confirmModal('message', 'title') 旧式调用
+  if (window.PanelDialog && window.PanelDialog.confirmModal) {
+    return window.PanelDialog.confirmModal(opts, maybeTitle);
+  }
+  // fallback inline
   if (typeof opts === 'string') opts = { message: opts, title: maybeTitle };
   opts = opts || {};
   return new Promise((resolve) => {
@@ -112,10 +115,12 @@ function confirmModal(opts, maybeTitle) {
 }
 
 // ─── v0.9 PromptModal（替代 prompt()）─────
-// Promise<string|null> — string=确认带值 / null=取消
-// opts: { title, message, value='', placeholder='', confirmLabel='确认', cancelLabel='取消', multiline=false }
+// S29 starter: 主实现挪到 src/web/dialog.js
 function promptModal(opts, maybeDefault) {
-  // v0.56 U13：兼容老式调用 promptModal('和谁聊？', 'codex')，规范化成 {title, value}
+  if (window.PanelDialog && window.PanelDialog.promptModal) {
+    return window.PanelDialog.promptModal(opts, maybeDefault);
+  }
+  // fallback inline
   if (typeof opts === 'string') opts = { title: opts, value: maybeDefault };
   opts = opts || {};
   return new Promise((resolve) => {
