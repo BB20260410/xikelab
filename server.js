@@ -2231,6 +2231,21 @@ app.post('/api/rooms/forward', async (req, res) => {
     if (topicContent.length > 1048576) {
       topicContent = topicContent.slice(0, 1048000) + '\n\n…（topic 已截断到 1MB 上限）';
     }
+
+    // v0.70 W3 集成：token 估算 + 警告（学自 LibreChat historyTrimmer）
+    // 不强行截断（用户选 'all' 是知情决定），仅记录估算 token 数到 broadcastGlobal warning
+    try {
+      const { estimateTokens, DEFAULT_MAX_CONTEXT } = await import('./src/room/historyTrimmer.js');
+      const estTokens = estimateTokens(topicContent);
+      // 取目标房任一成员最小 maxContext 作上限（保守）
+      const memberMax = (defaultMembers || []).reduce((min, m) => {
+        const cap = DEFAULT_MAX_CONTEXT[m.adapterId] || 100000;
+        return Math.min(min, cap);
+      }, Infinity);
+      if (Number.isFinite(memberMax) && estTokens > memberMax * 0.7) {
+        console.warn(`[forward] topicContent ~${estTokens} tokens > ${memberMax * 0.7} (70% of min member context). 可能爆 context。`);
+      }
+    } catch {}
   }
 
   // 防御：复用源房 cwd 时校一遍沙箱（万一沙箱白名单后来收紧）
