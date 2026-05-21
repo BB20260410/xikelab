@@ -8,7 +8,7 @@
  *   - 全套接入后能消除剩余 97 处硬编码颜色 + 字面值
  */
 
-:root.token-preview-W4 {
+:root {
   /* ===== Spacing ===== */
   --space-1: 4px;
   --space-2: 8px;
@@ -61,6 +61,6 @@
 /*
  * 启用方式（未来 sprint）：
  *   <html class="token-preview-W4"> 启用 preview，验证视觉无回归
- *   再把 :root.token-preview-W4 改成 :root，全量接入
+ *   再把 :root 改成 :root，全量接入
  *   最后 grep 替换硬编码值 → var(--space-X) / var(--shadow-Y) 等
  */
