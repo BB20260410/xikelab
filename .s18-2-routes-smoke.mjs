@@ -197,7 +197,7 @@ const routesOf = (app) => app._router.stack.filter(l => l.route)
       addDocument:async()=>({id:'d1'}), removeDocument:()=>true, search:async()=>[]
     },
   });
-  t('S18-2g knowledge 7 routes', routesOf(app).length === 7, 'count=' + routesOf(app).length);
+  t('S18-2g knowledge 8 routes', routesOf(app).length === 8, 'count=' + routesOf(app).length);   // v0.9.x B-020: +context endpoint
 }
 
 // === S18-2c mcp (6 routes) ===

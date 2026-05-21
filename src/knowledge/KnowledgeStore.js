@@ -459,21 +459,35 @@ export class KnowledgeStore {
   }
 
   /** 给 dispatcher 用：把 query 在某 KB 的 topK chunks 拼成可注入 system prompt 的段 */
-  async buildContextFor({ name, query, topK = DEFAULT_TOP_K }) {
-    const hits = await this.search({ name, query, topK });
-    if (hits.length === 0) return '';
+  async buildContextFor({ name, query, topK = DEFAULT_TOP_K, hybrid = false }) {
+    const hits = await this.search({ name, query, topK, hybrid });
+    if (hits.length === 0) return { context: '', citations: [] };
     const idx = this._readIndex(safeName(name));
     const docMap = new Map((idx?.docs || []).map(d => [d.id, d]));
-    const parts = hits.map((h, i) => {
+    // v0.9.x B-020：返回 citations 元数据让前端能 [1] [2] 跳转
+    const citations = hits.map((h, i) => {
       const doc = docMap.get(h.docId);
-      const src = doc ? doc.title + (doc.sourceUrl ? ` (${doc.sourceUrl})` : '') : '未知来源';
-      return `### 段落 ${i + 1}（来源：${src}）\n\n${h.text}`;
+      return {
+        index: i + 1,
+        chunkId: h.id,
+        docId: h.docId,
+        docTitle: doc?.title || '未知文档',
+        sourceUrl: doc?.sourceUrl || null,
+        textSnippet: (h.text || '').slice(0, 200),
+        score: h.score,
+      };
     });
-    return `# 📚 知识库检索结果（${hits.length} 段，按相关度排序）
+    const parts = hits.map((h, i) => {
+      const c = citations[i];
+      const src = c.docTitle + (c.sourceUrl ? ` (${c.sourceUrl})` : '');
+      return `### [${i + 1}] 段落 ${i + 1}（来源：${src}）\n\n${h.text}`;
+    });
+    const context = `# 📚 知识库检索结果（${hits.length} 段，按相关度排序）
 
-> 这些是基于用户当前任务从知识库《${name}》检索出来的相关内容。请优先参考下面段落作答，引用时标注"来源：X"。
+> 这些是基于用户当前任务从知识库《${name}》检索出来的相关内容。请优先参考下面段落作答；**在你的回答中引用某段时，请用 [1] [2] 标注**（例如：「方案 A 更合适 [3]」），前端会自动渲染成可点链接。
 
 ${parts.join('\n\n')}`;
+    return { context, citations };
   }
 }
 

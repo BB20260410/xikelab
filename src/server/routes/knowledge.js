@@ -60,4 +60,16 @@ export function registerKnowledgeRoutes(app, deps) {
       res.json({ ok: true, hits, mode: hybrid ? 'hybrid' : 'auto' });
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
+
+  // v0.9.x B-020: 引文回链 — 给 query 返回 { context, citations[] }
+  // citations 含 index / chunkId / docId / docTitle / sourceUrl / textSnippet
+  // 前端可用 citations 把 AI reply 中 [N] 渲染成可点链接
+  app.post('/api/knowledge/:name/context', async (req, res) => {
+    try {
+      const { query, topK } = req.body || {};
+      const hybrid = req.body?.hybrid === true || req.query?.hybrid === '1';
+      const r = await knowledgeStore.buildContextFor({ name: req.params.name, query, topK, hybrid });
+      res.json({ ok: true, context: r.context, citations: r.citations });
+    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+  });
 }
