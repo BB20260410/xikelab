@@ -742,7 +742,7 @@ html.dark {
 .plugin-list-item:hover { background: color-mix(in oklab, var(--bg-top) 60%, transparent); }
 .plugin-list-item.active { background: color-mix(in oklab, var(--color-accent-primary) 12%, transparent); border-color: color-mix(in oklab, var(--color-accent-primary) 30%, transparent); }
 .plugin-list-item.invalid { opacity: 0.55; }
-.plugin-list-item-name { font-weight: var(--font-weight-medium); display: flex; gap: 6px; align-items: center; }
+.plugin-list-item-name { font-weight: var(--font-weight-medium); display: flex; gap: 6px; align-items: center; min-width: 0; word-break: break-word; flex-wrap: wrap; }
 .plugin-list-item-meta { font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); display: flex; gap: 8px; }
 .plugin-list-item-tag { padding: 1px 6px; border-radius: 4px; background: color-mix(in oklab, var(--bg-top) 60%, transparent); font-family: var(--mono); }
 .plugin-list-item-tag.builtin { color: var(--color-accent-primary); }
@@ -751,7 +751,7 @@ html.dark {
 .plugin-empty { margin: auto; max-width: 580px; text-align: center; color: var(--color-text-foreground-secondary); }
 .plugin-empty-icon { font-size: 48px; margin-bottom: 12px; }
 .plugin-detail-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.plugin-detail-name { font-size: 20px; font-weight: var(--font-weight-semibold); }
+.plugin-detail-name { font-size: 20px; font-weight: var(--font-weight-semibold); min-width: 0; word-break: break-word; }
 .plugin-detail-meta { font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); display: flex; gap: 12px; }
 .plugin-detail-actions { margin-left: auto; display: flex; gap: 6px; }
 .plugin-detail-section { background: var(--bg-surface); border: 1px solid var(--color-border-light); border-radius: 10px; padding: 12px 14px; }
@@ -819,7 +819,7 @@ html.dark {
 }
 .room-list-item:hover { background: color-mix(in oklab, var(--bg-top) 60%, transparent); }
 .room-list-item.active { background: color-mix(in oklab, var(--color-accent-primary) 12%, transparent); border-color: color-mix(in oklab, var(--color-accent-primary) 30%, transparent); }
-.room-list-item-name { font-weight: var(--font-weight-medium); }
+.room-list-item-name { font-weight: var(--font-weight-medium); min-width: 0; word-break: break-word; }
 .room-list-item-meta { font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); display: flex; gap: 8px; }
 /* v0.52 房间归档按钮 hover 显示 */
 .room-list-item { position: relative; }
@@ -1247,7 +1247,7 @@ button[data-forward]:hover,
 }
 .squad-task-card:hover { border-color: var(--color-accent-primary); transform: translateY(-1px); }
 .squad-task-id { font-family: var(--mono); font-size: var(--text-xs); color: var(--color-text-foreground-tertiary); }
-.squad-task-title { font-weight: var(--font-weight-medium); font-size: var(--text-sm); line-height: 1.35; }
+.squad-task-title { font-weight: var(--font-weight-medium); font-size: var(--text-sm); line-height: 1.35; min-width: 0; word-break: break-word; }
 .squad-task-meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--color-text-foreground-tertiary); }
 .squad-task-meta .iter { font-family: var(--mono); }
 .squad-task-card.in_progress { border-color: var(--color-warn); }
