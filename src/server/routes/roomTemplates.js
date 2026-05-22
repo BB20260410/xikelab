@@ -3,6 +3,10 @@
 // 从 server.js 1877-1909 提取
 // 注意：rooms 主 CRUD（list/create/get/delete/patch）+ advanced (debate/forward/retry/quick/search) 仍留 server.js，
 // 依赖过多（10+ dispatchers + roomStore + safeResolveFsPath + ws clients 等）；按机制 D 锚仅提取 templates 子集
+//
+// Round 4 P1：模板含 prompt + members 配置 → 被 panel 加载后影响 LLM 行为，写入必须 owner-token
+
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerRoomTemplatesRoutes(app, deps) {
   const { roomTemplatesStore } = deps;
@@ -15,7 +19,7 @@ export function registerRoomTemplatesRoutes(app, deps) {
     }
   });
 
-  app.post('/api/room-templates', (req, res) => {
+  app.post('/api/room-templates', requireOwnerToken, (req, res) => {
     try {
       const body = req.body || {};
       if (JSON.stringify(body).length > 32 * 1024) {
@@ -28,7 +32,7 @@ export function registerRoomTemplatesRoutes(app, deps) {
     }
   });
 
-  app.delete('/api/room-templates/:id', (req, res) => {
+  app.delete('/api/room-templates/:id', requireOwnerToken, (req, res) => {
     try {
       if (String(req.params.id).startsWith('builtin:')) {
         return res.status(403).json({ ok: false, error: '内置模板不可删' });

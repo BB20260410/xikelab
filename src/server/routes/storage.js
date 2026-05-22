@@ -1,4 +1,8 @@
 // panel v2.0 Task 4.1 — SQLite 存储 REST API
+//
+// Round 4 P1：events 表是审计/路由依据，kv 表存任意配置，写端点必须 owner-token
+
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerStorageRoutes(app) {
   app.get('/api/storage/stats', async (req, res) => {
@@ -29,7 +33,7 @@ export function registerStorageRoutes(app) {
     }
   });
 
-  app.post('/api/storage/events', async (req, res) => {
+  app.post('/api/storage/events', requireOwnerToken, async (req, res) => {
     try {
       const { kind, ts, roomId, tag, ...rest } = req.body || {};
       if (!kind) return res.status(400).json({ error: 'kind required' });
@@ -52,7 +56,7 @@ export function registerStorageRoutes(app) {
     }
   });
 
-  app.put('/api/storage/kv/:key', async (req, res) => {
+  app.put('/api/storage/kv/:key', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../storage/SqliteStore.js');
       m.initSqlite();

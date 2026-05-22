@@ -1,7 +1,12 @@
 // panel v2.0 Task 4.2 — 向量索引 REST API
+//
+// Round 4 P1：embeddings 索引会消耗 LLM API 配额（每次 upsert 算一次 embedding 调用），
+//   写端点必须 owner-token 防本机其他 UID 进程刷配额
+
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerEmbeddingsRoutes(app) {
-  app.post('/api/embeddings/index', async (req, res) => {
+  app.post('/api/embeddings/index', requireOwnerToken, async (req, res) => {
     try {
       const { kind, refId, text, provider } = req.body || {};
       if (!kind || !refId || !text) return res.status(400).json({ error: 'kind/refId/text required' });
@@ -25,7 +30,7 @@ export function registerEmbeddingsRoutes(app) {
     }
   });
 
-  app.delete('/api/embeddings/:kind/:refId', async (req, res) => {
+  app.delete('/api/embeddings/:kind/:refId', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../embeddings/VectorIndex.js');
       const changes = m.deleteEmbedding({ kind: req.params.kind, refId: req.params.refId });

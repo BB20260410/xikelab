@@ -1,6 +1,11 @@
 // Xike Lab — Autopilot routes (S18-2d)
 // v0.56 Sprint 15-R4 — Autopilot 控制 API
 // 从 server.js 3733-3774 提取，行为完全一致
+//
+// Round 4 P1：autopilot 规则 = 自动触发动作（forward/abort/重试...）的配置；
+//   本机其他 UID 进程能写入恶意规则 → 拿用户付费配额跑垃圾任务，必须 owner-token
+
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerAutopilotRoutes(app, deps) {
   const { autopilotStore } = deps;
@@ -10,7 +15,7 @@ export function registerAutopilotRoutes(app, deps) {
     catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
-  app.post('/api/autopilot/toggle', (req, res) => {
+  app.post('/api/autopilot/toggle', requireOwnerToken, (req, res) => {
     try {
       const { enabled } = req.body || {};
       autopilotStore.setEnabled(!!enabled);
@@ -18,7 +23,7 @@ export function registerAutopilotRoutes(app, deps) {
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 
-  app.put('/api/autopilot/config', (req, res) => {
+  app.put('/api/autopilot/config', requireOwnerToken, (req, res) => {
     try {
       const { maxHopsDefault } = req.body || {};
       if (maxHopsDefault !== undefined) autopilotStore.setMaxHops(maxHopsDefault);
@@ -26,14 +31,14 @@ export function registerAutopilotRoutes(app, deps) {
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 
-  app.post('/api/autopilot/rules', (req, res) => {
+  app.post('/api/autopilot/rules', requireOwnerToken, (req, res) => {
     try {
       const r = autopilotStore.upsertRule(req.body || {});
       res.json({ ok: true, rule: r });
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 
-  app.delete('/api/autopilot/rules/:id', (req, res) => {
+  app.delete('/api/autopilot/rules/:id', requireOwnerToken, (req, res) => {
     try {
       const ok = autopilotStore.deleteRule(req.params.id);
       if (!ok) return res.status(404).json({ ok: false, error: 'not found or builtin (cannot delete; disable instead)' });

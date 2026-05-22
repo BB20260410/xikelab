@@ -1,4 +1,8 @@
 // panel v2.0 Task 4.3 — workspace REST API（team-tier 才能创建额外 workspace）
+//
+// Round 4 P1：创建/切换/删除 workspace 涉及独立 db/state，写端点必须 owner-token
+
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerWorkspaceRoutes(app) {
   app.get('/api/workspaces', async (req, res) => {
@@ -17,7 +21,7 @@ export function registerWorkspaceRoutes(app) {
     }
   });
 
-  app.post('/api/workspaces', async (req, res) => {
+  app.post('/api/workspaces', requireOwnerToken, async (req, res) => {
     try {
       const lm = await import('../../license/LicenseManager.js');
       if (!lm.hasFeature('workspaces')) {
@@ -37,7 +41,7 @@ export function registerWorkspaceRoutes(app) {
     }
   });
 
-  app.put('/api/workspaces/active', async (req, res) => {
+  app.put('/api/workspaces/active', requireOwnerToken, async (req, res) => {
     try {
       const { name } = req.body || {};
       const m = await import('../../workspace/WorkspaceManager.js');
@@ -48,7 +52,7 @@ export function registerWorkspaceRoutes(app) {
     }
   });
 
-  app.delete('/api/workspaces/:name', async (req, res) => {
+  app.delete('/api/workspaces/:name', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../workspace/WorkspaceManager.js');
       const r = m.deleteWorkspace(req.params.name);

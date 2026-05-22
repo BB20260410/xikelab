@@ -1,6 +1,10 @@
 // Xike Lab — Knowledge routes (S18-2g)
 // v0.55 Sprint 13-B — 知识库（KB）API
 // 从 server.js 3772-3823 提取
+//
+// Round 4 P1：知识库写入/删除 = 数据资产篡改，本机其他 UID 进程必须挡
+
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerKnowledgeRoutes(app, deps) {
   const { knowledgeStore } = deps;
@@ -18,7 +22,7 @@ export function registerKnowledgeRoutes(app, deps) {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
-  app.post('/api/knowledge', (req, res) => {
+  app.post('/api/knowledge', requireOwnerToken, (req, res) => {
     try {
       const { name, description } = req.body || {};
       const kb = knowledgeStore.create({ name, description });
@@ -26,7 +30,7 @@ export function registerKnowledgeRoutes(app, deps) {
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 
-  app.delete('/api/knowledge/:name', (req, res) => {
+  app.delete('/api/knowledge/:name', requireOwnerToken, (req, res) => {
     try {
       const ok = knowledgeStore.delete(req.params.name);
       if (!ok) return res.status(404).json({ ok: false, error: 'not found' });
@@ -34,7 +38,7 @@ export function registerKnowledgeRoutes(app, deps) {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
-  app.post('/api/knowledge/:name/documents', async (req, res) => {
+  app.post('/api/knowledge/:name/documents', requireOwnerToken, async (req, res) => {
     try {
       const body = req.body || {};
       if (JSON.stringify(body).length > 4 * 1024 * 1024) return res.status(413).json({ error: 'body 过大（> 4MB）' });
@@ -43,7 +47,7 @@ export function registerKnowledgeRoutes(app, deps) {
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 
-  app.delete('/api/knowledge/:name/documents/:docId', (req, res) => {
+  app.delete('/api/knowledge/:name/documents/:docId', requireOwnerToken, (req, res) => {
     try {
       const ok = knowledgeStore.removeDocument(req.params.name, req.params.docId);
       if (!ok) return res.status(404).json({ ok: false, error: 'not found' });
