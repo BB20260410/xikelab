@@ -4,7 +4,8 @@
 import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerLemonSqueezyRoutes(app) {
-  app.get('/api/lemonsqueezy/health', async (req, res) => {
+  // Round 5 H#3：所有 LS GET 都消耗 LS API 配额；orders 还泄漏买家邮箱 → 全部 owner-token
+  app.get('/api/lemonsqueezy/health', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../integrations/LemonSqueezyClient.js');
       const h = await m.healthCheck();
@@ -14,7 +15,7 @@ export function registerLemonSqueezyRoutes(app) {
     }
   });
 
-  app.get('/api/lemonsqueezy/stores', async (req, res) => {
+  app.get('/api/lemonsqueezy/stores', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../integrations/LemonSqueezyClient.js');
       const r = await m.listStores();
@@ -32,7 +33,7 @@ export function registerLemonSqueezyRoutes(app) {
     }
   });
 
-  app.get('/api/lemonsqueezy/products', async (req, res) => {
+  app.get('/api/lemonsqueezy/products', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../integrations/LemonSqueezyClient.js');
       const { storeId } = req.query;
@@ -52,7 +53,7 @@ export function registerLemonSqueezyRoutes(app) {
     }
   });
 
-  app.get('/api/lemonsqueezy/orders', async (req, res) => {
+  app.get('/api/lemonsqueezy/orders', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../integrations/LemonSqueezyClient.js');
       const { storeId, limit = '50' } = req.query;
@@ -71,7 +72,7 @@ export function registerLemonSqueezyRoutes(app) {
     }
   });
 
-  app.get('/api/lemonsqueezy/webhooks', async (req, res) => {
+  app.get('/api/lemonsqueezy/webhooks', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../integrations/LemonSqueezyClient.js');
       const r = await m.listWebhooks(req.query);

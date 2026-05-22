@@ -6,7 +6,8 @@
 import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerLicenseRoutes(app) {
-  app.get('/api/license/status', async (req, res) => {
+  // Round 5 7M：status/features/check 含 email/tier（隐私），verify 暴露公钥验证 → 全部 owner-token
+  app.get('/api/license/status', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../license/LicenseManager.js');
       res.json({ ok: true, ...m.getStatus() });
@@ -38,7 +39,7 @@ export function registerLicenseRoutes(app) {
     }
   });
 
-  app.get('/api/license/features', async (req, res) => {
+  app.get('/api/license/features', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../license/LicenseManager.js');
       const l = m.loadLicense({ force: true });
@@ -48,7 +49,7 @@ export function registerLicenseRoutes(app) {
     }
   });
 
-  app.get('/api/license/check/:feature', async (req, res) => {
+  app.get('/api/license/check/:feature', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../license/LicenseManager.js');
       const has = m.hasFeature(req.params.feature);
@@ -58,7 +59,7 @@ export function registerLicenseRoutes(app) {
     }
   });
 
-  app.post('/api/license/verify', async (req, res) => {
+  app.post('/api/license/verify', requireOwnerToken, async (req, res) => {
     try {
       const licenseStr = (req.body?.license || '').trim();
       if (!licenseStr) return res.status(400).json({ ok: false, error: 'license body required' });

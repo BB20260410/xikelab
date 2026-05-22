@@ -44,7 +44,7 @@ export function registerTelemetryRoutes(app) {
     }
   });
 
-  app.post('/api/telemetry/decline', async (req, res) => {
+  app.post('/api/telemetry/decline', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../telemetry/ErrorReporter.js');
       m.declineTelemetry();
@@ -79,7 +79,7 @@ export function registerTelemetryRoutes(app) {
     }
   });
 
-  app.post('/api/analytics/capture', async (req, res) => {
+  app.post('/api/analytics/capture', requireOwnerToken, async (req, res) => {
     try {
       const { event, properties } = req.body || {};
       if (!event) return res.status(400).json({ ok: false, error: 'event required' });
@@ -92,7 +92,7 @@ export function registerTelemetryRoutes(app) {
   });
 
   // 测试发一个 fake error，看是否真到 Sentry
-  app.post('/api/telemetry/test', async (req, res) => {
+  app.post('/api/telemetry/test', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../telemetry/ErrorReporter.js');
       if (!m.isEnabled()) {

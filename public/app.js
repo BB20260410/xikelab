@@ -1,5 +1,58 @@
 // Xike Lab — 前端
 
+// Round 5：owner-token bootstrap —— 后端启动时打印 ?t=<token> 入口 URL；
+// 这里读出存 sessionStorage 然后清掉 URL（避免 referer / 浏览历史 / 截图泄漏）。
+// 之后 api() 和 wsUrl() 自动注入；用户手动复制 URL 才能拿 token，
+// 本机其他 UID 裸 curl `/` 拿不到（HTML 静态文件不 inject）。
+(() => {
+  try {
+    const params = new URLSearchParams(location.search);
+    const t = (params.get('t') || '').trim();
+    if (t && t.length >= 32) {
+      sessionStorage.setItem('panel-owner-token', t);
+      params.delete('t');
+      const q = params.toString();
+      history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash);
+    }
+  } catch {}
+})();
+function getOwnerToken() {
+  try { return sessionStorage.getItem('panel-owner-token') || ''; } catch { return ''; }
+}
+function wsUrl(path) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const token = getOwnerToken();
+  const sep = path.includes('?') ? '&' : '?';
+  return `${proto}://${location.host}${path}${token ? sep + 'token=' + encodeURIComponent(token) : ''}`;
+}
+
+// Round 5：全局 fetch 劫持兜底 —— app.js 有 70+ 处直接 fetch('/api/...')，
+// 改每处太繁琐易漏；这里只对同源 /api/ 和 /v1/ 路径注入 token，
+// 跨域请求（anthropic.com 等）和已被显式设过 header 的请求不受影响。
+(() => {
+  if (window.__panelFetchPatched) return;
+  window.__panelFetchPatched = true;
+  const _fetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      const url = typeof input === 'string'
+        ? input
+        : (input && typeof input.url === 'string' ? input.url : '');
+      const sameOriginApi = url.startsWith('/api/') || url.startsWith('/v1/');
+      if (sameOriginApi && typeof input === 'string') {
+        const token = getOwnerToken();
+        if (token) {
+          init = init || {};
+          const h = new Headers(init.headers || {});
+          if (!h.has('X-Panel-Owner-Token')) h.set('X-Panel-Owner-Token', token);
+          init.headers = h;
+        }
+      }
+    } catch {}
+    return _fetch(input, init);
+  };
+})();
+
 // v0.56 修复：.inspector 的 backdrop-filter 让自身成为 fixed 子元素的 containing block
 // 导致所有 .modal 被囚禁在右侧 300px 内不可见 → 现挪到 body 顶层逃逸
 (() => {
@@ -35,9 +88,12 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
 async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  const token = getOwnerToken();
+  if (token) headers['X-Panel-Owner-Token'] = token;
   const r = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
     ...opts,
+    headers,
   });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
@@ -757,8 +813,7 @@ async function selectSession(id) {
   attachSessionWS(id);
 }
 function attachSessionWS(id) {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  state.ws = new WebSocket(`${proto}://${location.host}/ws/${id}`);
+  state.ws = new WebSocket(wsUrl(`/ws/${id}`));
   state.ws.addEventListener('close', () => {
     // 用户切走或会话被删则不重连
     if (state.activeId !== id) return;
@@ -2204,8 +2259,7 @@ async function openTerm(cwd) {
     termState.fitAddon = fitAddon;
 
     // 连 WS
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws/term/${r.termId}`);
+    const ws = new WebSocket(wsUrl(`/ws/term/${r.termId}`));
     termState.ws = ws;
     ws.onmessage = (ev) => {
       try {
@@ -2519,8 +2573,7 @@ async function selectRoom(id) {
   attachRoomWS(id);
 }
 function attachRoomWS(id) {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws/room/${id}`);
+  const ws = new WebSocket(wsUrl(`/ws/room/${id}`));
   roomState.ws = ws;
   ws.onmessage = ev => {
     try { handleRoomEvent(JSON.parse(ev.data)); } catch {}
@@ -5038,8 +5091,7 @@ const globalWsState = { ws: null, reconnectAttempts: 0, reconnectTimer: null };
 function ensureGlobalWs() {
   if (globalWsState.ws && globalWsState.ws.readyState <= 1) return globalWsState.ws;
   try {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/ws/global`);
+    const ws = new WebSocket(wsUrl('/ws/global'));
     globalWsState.ws = ws;
     ws.onopen = () => { globalWsState.reconnectAttempts = 0; };
     ws.onmessage = (e) => {

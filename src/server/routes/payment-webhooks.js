@@ -156,8 +156,8 @@ export function registerPaymentWebhookRoutes(app) {
     }
   });
 
-  // 查询签发记录
-  app.get('/api/webhooks/issued', (req, res) => {
+  // 查询签发记录 —— Round 5 H#2：包含 email/tier/license 前 32 字符，必须 owner-token
+  app.get('/api/webhooks/issued', requireOwnerToken, (req, res) => {
     try {
       if (!fs.existsSync(ISSUED_LOG)) return res.json({ ok: true, items: [] });
       const lines = fs.readFileSync(ISSUED_LOG, 'utf8').trim().split('\n').filter(Boolean);

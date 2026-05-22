@@ -5,7 +5,8 @@
 import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerStorageRoutes(app) {
-  app.get('/api/storage/stats', async (req, res) => {
+  // Round 5 7M：所有 GET 都加 token — stats 信息少但 events/kv 全是房间路由/任意配置，统一鉴权
+  app.get('/api/storage/stats', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../storage/SqliteStore.js');
       m.initSqlite();
@@ -15,7 +16,7 @@ export function registerStorageRoutes(app) {
     }
   });
 
-  app.get('/api/storage/events', async (req, res) => {
+  app.get('/api/storage/events', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../storage/SqliteStore.js');
       m.initSqlite();
@@ -46,7 +47,7 @@ export function registerStorageRoutes(app) {
     }
   });
 
-  app.get('/api/storage/kv/:key', async (req, res) => {
+  app.get('/api/storage/kv/:key', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../storage/SqliteStore.js');
       m.initSqlite();

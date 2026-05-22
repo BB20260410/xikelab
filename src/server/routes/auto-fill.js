@@ -106,7 +106,8 @@ tell application "System Events" to keystroke inputStr`;
 
 export function registerAutoFillRoutes(app) {
   // GET /api/auto-fill/status — 列已存 site，不含密码
-  app.get('/api/auto-fill/status', (req, res) => {
+  // Round 5 7M：sites 列表暴露 Keychain 里存了哪些登录站点 + chromeUrl 暴露当前活动 tab → owner-token
+  app.get('/api/auto-fill/status', requireOwnerToken, (req, res) => {
     try {
       const sites = listKeychainSites();
       res.json({
@@ -189,7 +190,8 @@ export function registerAutoFillRoutes(app) {
   });
 
   // GET /api/auto-fill/audit — 查最近 100 条操作
-  app.get('/api/auto-fill/audit', (req, res) => {
+  // Round 5 7M：audit 含 site + URL 历史 + 状态 → owner-token
+  app.get('/api/auto-fill/audit', requireOwnerToken, (req, res) => {
     try {
       if (!fs.existsSync(AUDIT_LOG)) return res.json({ ok: true, items: [] });
       const lines = fs.readFileSync(AUDIT_LOG, 'utf8').trim().split('\n').filter(Boolean);

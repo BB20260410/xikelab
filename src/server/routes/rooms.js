@@ -9,6 +9,8 @@
 import { statSync } from 'fs';
 import { homedir } from 'os';
 import { hasFeature, getCurrentTier } from '../../license/LicenseManager.js';
+// Round 5 H#6：rooms 写端点会拉起 LLM dispatcher 烧配额、注入 adapter、毁聊天 → 全部 owner-token
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerRoomsRoutes(app, deps) {
   const {
@@ -28,7 +30,7 @@ export function registerRoomsRoutes(app, deps) {
   });
 
   // 创建房间
-  app.post('/api/rooms', (req, res) => {
+  app.post('/api/rooms', requireOwnerToken, (req, res) => {
     if (roomStore.list().length >= MAX_ROOMS) {
       return res.status(429).json({ error: `已达房间总数上限（${MAX_ROOMS}）。先删除一些旧房间` });
     }
@@ -105,7 +107,7 @@ export function registerRoomsRoutes(app, deps) {
   });
 
   // 删除房间
-  app.delete('/api/rooms/:id', (req, res) => {
+  app.delete('/api/rooms/:id', requireOwnerToken, (req, res) => {
     const id = req.params.id;
     // v0.49 N-20 fix: 删房间前先 abort dispatcher + 关 ws clients，避免泄漏
     // v0.53 fix: 之前漏 arenaDispatcher
@@ -124,7 +126,7 @@ export function registerRoomsRoutes(app, deps) {
   });
 
   // 更新成员 / 名字 / cwd / qaStrictness
-  app.patch('/api/rooms/:id', (req, res) => {
+  app.patch('/api/rooms/:id', requireOwnerToken, (req, res) => {
     const r = roomStore.get(req.params.id);
     if (!r) return res.status(404).json({ error: 'not found' });
     const patch = {};
