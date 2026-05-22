@@ -97,6 +97,8 @@ import { PluginSpawnAdapter } from './src/plugin/PluginSpawnAdapter.js';
 import { PluginHttpAdapter } from './src/plugin/PluginHttpAdapter.js';
 import { MiniMaxChatAdapter } from './src/room/MiniMaxChatAdapter.js';
 import { CCRSpawnAdapter } from './src/room/CCRSpawnAdapter.js';
+// 路径沙箱（拆出便于 in-process 单测）
+import { safeResolveFsPath } from './src/server/services/path-sandbox.js';
 // v0.54 Sprint 10：删除 Ruflo 集成 import
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -451,29 +453,8 @@ function broadcastSession(session, msg) {
 }
 
 // v0.49 B-02 fix: 文件 API 路径沙箱
-// 允许：用户 home（不含敏感子目录）/ /tmp。其它一律 403。
-const FORBIDDEN_HOME_SUBPATHS = ['.ssh', '.aws', '.gnupg', '.docker', '.kube', 'Library/Keychains', 'Library/Application Support/com.apple.TCC', '.password-store'];
-function safeResolveFsPath(p) {
-  if (!p || typeof p !== 'string') return null;
-  if (p.startsWith('~')) p = p.replace(/^~/, homedir());
-  let real;
-  try { real = realpathSync(p); }
-  catch { return null; }
-  const allowedRoots = [];
-  try { allowedRoots.push(realpathSync(homedir())); } catch {}
-  try { allowedRoots.push(realpathSync('/tmp')); } catch { allowedRoots.push('/tmp'); }
-  const inRoot = allowedRoots.some(root => real === root || real.startsWith(root + '/'));
-  if (!inRoot) return null;
-  // 在 home 子树里禁止敏感目录
-  const HOME = (() => { try { return realpathSync(homedir()); } catch { return homedir(); } })();
-  if (real === HOME || real.startsWith(HOME + '/')) {
-    const rel = real === HOME ? '' : real.slice(HOME.length + 1);
-    for (const f of FORBIDDEN_HOME_SUBPATHS) {
-      if (rel === f || rel.startsWith(f + '/')) return null;
-    }
-  }
-  return real;
-}
+// 实现拆到 src/server/services/path-sandbox.js（in-process 单测友好）
+// safeResolveFsPath 由文件顶部 import 进来
 
 function sendMessageToClaude(session, userText) {
   // v0.51 ZZ-08 fix: 深度防御 — archived session 任何路径都不该 spawn（T-46 在端点层，这里在函数层）
