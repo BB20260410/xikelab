@@ -16,6 +16,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 const AUDIT_LOG = path.join(os.homedir(), '.claude-panel', 'auto-fill-audit.jsonl');
 
@@ -121,7 +122,8 @@ export function registerAutoFillRoutes(app) {
 
   // POST /api/auto-fill/password — 填密码到 Chrome 当前焦点框
   // body: { site: "github.com" }
-  app.post('/api/auto-fill/password', async (req, res) => {
+  // 改：owner-token 保护 — 防本机其他 UID 进程 curl 触发把密码 type 到 Chrome 焦点框
+  app.post('/api/auto-fill/password', requireOwnerToken, async (req, res) => {
     const { site } = req.body || {};
     if (!site || typeof site !== 'string') {
       return res.status(400).json({ ok: false, error: 'site required' });
@@ -175,7 +177,8 @@ export function registerAutoFillRoutes(app) {
 
   // POST /api/auto-fill/type — 通用 type 任意文本（非密码用，如邮箱/用户名）
   // 这个允许 LLM 通过对话传字符串（不敏感的）
-  app.post('/api/auto-fill/type', async (req, res) => {
+  // 改：owner-token 保护 — type 端点也能把任意文本 keystroke 到当前焦点，必须本机 owner
+  app.post('/api/auto-fill/type', requireOwnerToken, async (req, res) => {
     const { text } = req.body || {};
     if (!text || typeof text !== 'string' || text.length > 200) {
       return res.status(400).json({ ok: false, error: 'text required (max 200 chars)' });
