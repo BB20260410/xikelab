@@ -53,6 +53,8 @@ import { registerSessionsReadonlyRoutes } from './src/server/routes/sessions-rea
 import { registerImgCacheRoutes } from './src/server/routes/img-cache.js';
 // v1.0 Task 1.1：telemetry endpoint
 import { registerTelemetryRoutes } from './src/server/routes/telemetry.js';
+// Round 4 P0：plugin/PTY/WS 这些会跑任意进程的入口必须 owner-token 防本机其他 UID 进程 curl 拿 RCE
+import { requireOwnerToken, verifyOwnerTokenString } from './src/server/auth/owner-token.js';
 // v1.5 Task 3.1：license endpoint
 import { registerLicenseRoutes } from './src/server/routes/license.js';
 // v1.5 Task 3.3：Lemon Squeezy / Polar payment webhooks
@@ -2027,7 +2029,8 @@ app.get('/api/plugins/:id', (req, res) => {
 });
 
 // POST /api/plugins/install — 装一份用户 manifest（body 直接是 manifest 对象）
-app.post('/api/plugins/install', (req, res) => {
+// 改：owner-token 保护 — manifest 里可以指定 bin path → 装恶意 manifest = RCE 入口
+app.post('/api/plugins/install', requireOwnerToken, (req, res) => {
   const manifest = req.body;
   if (!manifest || typeof manifest !== 'object') return res.status(400).json({ error: 'manifest 必须是 JSON 对象' });
   // 大小上限
@@ -2038,7 +2041,7 @@ app.post('/api/plugins/install', (req, res) => {
 });
 
 // DELETE /api/plugins/:id — 卸载用户 plugin（内置禁删）
-app.delete('/api/plugins/:id', (req, res) => {
+app.delete('/api/plugins/:id', requireOwnerToken, (req, res) => {
   const id = req.params.id;
   if (!/^[a-z][a-z0-9_-]{0,39}$/.test(id)) return res.status(400).json({ error: 'plugin id 非法' });
   const r = pluginRegistry.uninstall(id);
@@ -2047,14 +2050,15 @@ app.delete('/api/plugins/:id', (req, res) => {
 });
 
 // POST /api/plugins/reload — 重扫两个目录
-app.post('/api/plugins/reload', (req, res) => {
+app.post('/api/plugins/reload', requireOwnerToken, (req, res) => {
   const loaded = pluginRegistry.reload();
   res.json({ ok: true, plugins: pluginRegistry.list(), count: loaded.length });
 });
 
 // POST /api/plugins/:id/exec — 跑一个 command
 // body: { commandId, params, prompt, model, cwd, abortAfterMs? }
-app.post('/api/plugins/:id/exec', async (req, res) => {
+// 改：owner-token 保护 — exec 会按 manifest 拼 argv 启子进程，必须本机 owner
+app.post('/api/plugins/:id/exec', requireOwnerToken, async (req, res) => {
   const id = req.params.id;
   if (!/^[a-z][a-z0-9_-]{0,39}$/.test(id)) return res.status(400).json({ error: 'plugin id 非法' });
   const entry = pluginRegistry.get(id);
@@ -3520,7 +3524,8 @@ const terminals = new Map(); // termId → { term, clients: Set, cwd, createdAt 
 
 // v0.51 S-05 fix: PTY 终端总数上限（每个 PTY = 一个 shell 进程，资源消耗大）
 const MAX_TERMINALS = 20;
-app.post('/api/term', (req, res) => {
+// 改：owner-token 保护 — 创建 PTY 直接拿到 shell 进程 = 任意命令执行
+app.post('/api/term', requireOwnerToken, (req, res) => {
   if (terminals.size >= MAX_TERMINALS) {
     return res.status(429).json({ error: `已达终端总数上限（${MAX_TERMINALS}）。先关掉不用的终端` });
   }
@@ -3572,13 +3577,14 @@ app.post('/api/term', (req, res) => {
   }
 });
 
-app.get('/api/term', (req, res) => {
+// 改：owner-token 保护 — 暴露的 termId 是 WS 升级所需的猜测目标，列出来 = 让外部 UID 进程直接 attach
+app.get('/api/term', requireOwnerToken, (req, res) => {
   res.json([...terminals.entries()].map(([id, t]) => ({
     id, pid: t.term.pid, cwd: t.cwd, shell: t.shell, createdAt: t.createdAt,
   })));
 });
 
-app.delete('/api/term/:id', (req, res) => {
+app.delete('/api/term/:id', requireOwnerToken, (req, res) => {
   const t = terminals.get(req.params.id);
   if (!t) return res.status(404).json({ error: 'not found' });
   try { t.term.kill(); } catch {}
@@ -3885,6 +3891,15 @@ server.on('upgrade', (req, socket, head) => {
     const termId = termMatch[1];
     const t = terminals.get(termId);
     if (!t) return socket.destroy();
+    // Round 4 P0：WS 升级也得验 owner-token（浏览器 WS 不能加 header → 用 query ?token=）
+    // 不验就 = 本机其他 UID 进程可以 wscat 直接接管 shell I/O
+    const token = url.searchParams.get('token') || '';
+    if (!verifyOwnerTokenString(token)) {
+      console.warn('[ws] /ws/term/ owner-token mismatch — dropping');
+      socket.write('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
       t.clients.add(ws);
       ws.send(JSON.stringify({ type: 'connected', termId, cwd: t.cwd }));

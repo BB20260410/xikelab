@@ -28,6 +28,7 @@ export function getOrCreateOwnerToken() {
   }
 }
 
+// 给 Express 路由用：HTTP 头 X-Panel-Owner-Token
 export function requireOwnerToken(req, res, next) {
   const owner = getOrCreateOwnerToken();
   if (!owner) return res.status(500).json({ error: 'owner token unavailable' });
@@ -43,4 +44,18 @@ export function requireOwnerToken(req, res, next) {
     return res.status(401).json({ error: 'owner token compare failed' });
   }
   next();
+}
+
+// 给 WS upgrade 用：浏览器 WebSocket 不能加自定义 header，必须靠 query string ?token=
+// 返回 boolean；timing-safe 比较
+export function verifyOwnerTokenString(provided) {
+  const owner = getOrCreateOwnerToken();
+  if (!owner) return false;
+  const p = (provided || '').toString().trim();
+  if (!p || p.length !== owner.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(p), Buffer.from(owner));
+  } catch {
+    return false;
+  }
 }
