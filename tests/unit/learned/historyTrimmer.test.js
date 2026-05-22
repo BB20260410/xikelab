@@ -27,7 +27,7 @@ describe('trimHistoryByTokens', () => {
   });
   it('容量小 - 丢旧留新', () => {
     const r = trimHistoryByTokens({
-      messages: Array(20).fill(0).map((_, i) => ({ role: 'user', content: '内容'.repeat(50) })),
+      messages: Array(20).fill(0).map(() => ({ role: 'user', content: '内容'.repeat(50) })),
       maxContextTokens: 500,
     });
     expect(r.droppedCount).toBeGreaterThan(0);

@@ -8,7 +8,7 @@ import { CollaborationDispatcher } from '../../../src/room/CollaborationDispatch
 const stubAdapter = {
   id: 'stub',
   displayName: '🧪 Stub',
-  async chat(messages) { return { reply: 'stub-reply', tokensIn: 1, tokensOut: 1 }; },
+  async chat() { return { reply: 'stub-reply', tokensIn: 1, tokensOut: 1 }; },
 };
 const stubAdapters = new Map([['stub', stubAdapter]]);
 const stubStore = {

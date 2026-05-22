@@ -11,7 +11,6 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readdirSync, statSync, readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync, copyFileSync, appendFileSync, openSync, readSync, closeSync, chmodSync, renameSync, unlinkSync } from 'fs';
 import { homedir } from 'os';
-import { relative as pathRelative } from 'path';
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 import { LoopGuard } from './src/safety/LoopGuard.js';
 import { DangerousPatternDetector } from './src/safety/DangerousPatternDetector.js';
@@ -73,7 +72,6 @@ import { registerLemonSqueezyRoutes } from './src/server/routes/lemonsqueezy.js'
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
 import { mcpStore } from './src/mcp/McpStore.js';
-import { McpClientManager } from './src/mcp/McpClientManager.js';
 import { skillStore } from './src/skills/SkillStore.js';
 import { knowledgeStore } from './src/knowledge/KnowledgeStore.js';
 import { breakers } from './src/safety/CircuitBreaker.js';
@@ -724,7 +722,7 @@ function sendMessageToClaude(session, userText) {
                   } else if (c.name === 'Write' && c.input?.file_path) {
                     toolContent = formatWritePreview(c.input);
                   }
-                } catch (e) { /* fallback 用原 JSON 截断 */ }
+                } catch { /* fallback 用原 JSON 截断 */ }
                 const m = {
                   role: 'tool_use',
                   content: toolContent,
@@ -1030,7 +1028,7 @@ app.post('/api/sessions', (req, res) => {
     if (!st.isDirectory()) {
       return res.status(400).json({ error: `cwd 不是目录：${workingDir}` });
     }
-  } catch (e) {
+  } catch {
     return res.status(400).json({ error: `cwd 不存在：${workingDir}` });
   }
 
@@ -1207,7 +1205,7 @@ app.get('/api/files', (req, res) => {
   try {
     const st = statSync(path);
     if (!st.isDirectory()) return res.status(400).json({ error: 'not a directory' });
-  } catch (e) {
+  } catch {
     return res.status(404).json({ error: 'not found' });
   }
   try {
@@ -1916,7 +1914,7 @@ app.get('/api/health/processes', (req, res) => {
           };
         }).filter(Boolean);
       }
-    } catch (e) {
+    } catch {
       // pgrep/ps 在某些环境不可用，silent fallback
     }
     const terms = [];

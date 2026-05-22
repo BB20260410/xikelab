@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { t, loadLocale, getLocale } from '../../../public/src/web/i18n.js';
+import { t } from '../../../public/src/web/i18n.js';
 
 // 模拟 fetch（Node 22 内置）
 describe('i18n', () => {

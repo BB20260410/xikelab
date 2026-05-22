@@ -43,31 +43,6 @@ async function api(path, opts = {}) {
   return r.json();
 }
 
-// S23 D6: apiCall helper — 跟 api() 不同的是失败时 toast 兜底返 null（非 throw）
-// 28 处 try { await fetch().then() } catch { toast(...) } 模式的目标替代
-// 用法：const r = await apiCall('/api/webhooks', { errorPrefix: '加载 webhook 失败' });
-//       if (!r) return; // 已 toast，调用方仅需 early return
-async function apiCall(path, opts = {}) {
-  const { method = 'GET', body, errorPrefix = '请求失败' } = opts;
-  try {
-    const r = await fetch(path, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const json = await r.json().catch(() => null);
-    if (!r.ok || (json && json.ok === false)) {
-      const msg = (json && json.error) || `HTTP ${r.status}`;
-      toast(errorPrefix + '：' + msg, 'error');
-      return null;
-    }
-    return json;
-  } catch (e) {
-    toast(errorPrefix + '：' + e.message, 'error');
-    return null;
-  }
-}
-
 // ─── v0.8 ConfirmModal（替代 confirm()）─────
 // S29 starter: 主实现挪到 src/web/dialog.js (window.PanelDialog.confirmModal)
 // 本 wrapper 22 处现有调用透明走 module；main.js 加载失败 fallback inline
@@ -831,7 +806,7 @@ function attachSessionWS(id) {
           refreshCtx();
           finalizeStderrDiv(); // v0.21: turn 完成 → stderr div 收尾
           // v0.30 fix: partial_stop 可能丢失 → 兜底 finalize 所有 streaming div
-          for (const [idx, div] of state.streamingDivs) {
+          for (const [, div] of state.streamingDivs) {
             if (div && !div.classList.contains('msg-finalized')) {
               const body = div.querySelector('.msg-body');
               if (body) {
@@ -881,7 +856,7 @@ function attachSessionWS(id) {
       } else if (msg.type === 'partial_stop') {
         handlePartialStop(msg);
       }
-    } catch (e) {}
+    } catch {}
   });
 }
 
@@ -1239,11 +1214,6 @@ async function interruptCurrentTurn() {
   }
 }
 $('#btnInterrupt')?.addEventListener('click', interruptCurrentTurn);
-// busy 时按钮总是显示（即使非 busy 也允许用户点中断当作 reset）
-function alwaysShowInterruptWhenStuck() {
-  // 如果 send 按钮 disabled 但其实 server 已不 busy（>5s 没活动），显式让用户能强释
-  // 这个 4s tick 由 setInterval(listSessions) 触发，listSessions 已经同步 activeBusy
-}
 
 async function send() {
   const input = $('#chatInput');
@@ -1376,7 +1346,7 @@ async function refreshCtx() {
     } else {
       banner.style.display = 'none';
     }
-  } catch (e) {
+  } catch {
     // 静默
   }
 }
@@ -1466,7 +1436,7 @@ async function loadQuickCwd() {
       c.addEventListener('click', () => $('#newCwd').value = it.path);
       wrap.appendChild(c);
     });
-  } catch (e) { wrap.innerHTML = ''; }
+  } catch { wrap.innerHTML = ''; }
 }
 
 $('#btnNew').addEventListener('click', openModal);
@@ -3206,7 +3176,7 @@ function openSquadDetail(taskId) {
   drawer.querySelector('#squadDetailClose').addEventListener('click', () => drawer.classList.add('hidden'));
   // v0.70.2-t5: attempt 对比按钮
   drawer.querySelectorAll('[data-attempt-diff]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', async () => {
       const [fromStr, toStr] = btn.dataset.attemptDiff.split('-');
       const tid = btn.dataset.taskId;
       const roomId = roomState.activeId;
@@ -4141,7 +4111,7 @@ async function runSearch(q) {
     } else {
       searchState.items = [];
     }
-  } catch (e) {
+  } catch {
     searchState.items = [];
   }
   renderSearchResults();
@@ -4577,13 +4547,10 @@ setInterval(() => {
 }, 4000);
 
 // ============ v0.52 Room Adapter 配置 modal ============
-let roomAdaptersConfigDraft = null; // 当前 modal 编辑中的副本
-
 async function openRoomAdaptersModal() {
   try {
     const r = await fetch('/api/room-adapters').then(x => x.json());
     if (!r?.ok) { toast('加载配置失败：' + (r?.error || ''), 'error'); return; }
-    roomAdaptersConfigDraft = r.config;
     const modal = $('#roomAdaptersModal');
     modal.style.display = 'flex';
 
@@ -4629,7 +4596,6 @@ async function openRoomAdaptersModal() {
 
 function closeRoomAdaptersModal() {
   $('#roomAdaptersModal').style.display = 'none';
-  roomAdaptersConfigDraft = null;
 }
 
 function renderCustomsList(customs) {
@@ -5325,7 +5291,6 @@ window.Modal?.register('webhookModal', {
   onClose: () => { webhookState.activeId = null; webhookState.isNew = false; },
 });
 function openWebhookModal() { window.Modal.open('webhookModal'); }
-function closeWebhookModal() { window.Modal.close('webhookModal'); }
 
 async function refreshWebhookList() {
   try {
@@ -5527,7 +5492,6 @@ window.Modal?.register('archiveModal', {
   },
 });
 function openArchiveModal() { window.Modal.open('archiveModal'); }
-function closeArchiveModal() { window.Modal.close('archiveModal'); }
 
 async function refreshArchiveConfig() {
   try {
@@ -5713,7 +5677,6 @@ document.addEventListener('click', async (e) => {
     });
   } catch (e) { toast('异常：' + e.message, 'error'); }
 });
-function closeMcpModal() { window.Modal.close('mcpModal'); }
 
 async function refreshMcpList() {
   try {

@@ -56,7 +56,7 @@ export class AutopilotController {
     }
   }
 
-  async _triggerRule(rule, room, msg) {
+  async _triggerRule(rule, room, _msg) {
     const hops = Number(room.autopilotHops) || 0;
     const maxHops = autopilotStore.getConfig().maxHopsDefault;
     if (hops >= maxHops) {

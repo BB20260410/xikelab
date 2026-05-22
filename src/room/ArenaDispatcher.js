@@ -123,7 +123,7 @@ export class ArenaDispatcher {
     } catch {}
   }
 
-  async start(roomId, topic, options = {}) {
+  async start(roomId, topic, _options = {}) {
     const room = this.store.get(roomId);
     if (!room) throw new Error('room not found: ' + roomId);
     if (room.status === 'running') throw new Error('room is already running');

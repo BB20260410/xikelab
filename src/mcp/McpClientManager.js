@@ -105,7 +105,7 @@ export class McpClientManager {
     try {
       const res = await entry.client.listResources();
       return res.resources || [];
-    } catch (e) {
+    } catch {
       // server 可能不支持 resources，安全返空
       return [];
     }
@@ -117,7 +117,7 @@ export class McpClientManager {
     try {
       const res = await entry.client.listPrompts();
       return res.prompts || [];
-    } catch (e) {
+    } catch {
       return [];
     }
   }

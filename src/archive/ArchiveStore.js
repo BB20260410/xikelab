@@ -15,7 +15,7 @@
 //
 // 房级 exportPath 在 ChatRoomStore.room.exportPath，覆盖 rootPath（其他配置仍用全局）
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync, chmodSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 

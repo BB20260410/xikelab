@@ -53,7 +53,7 @@ export class RoomAdapter {
   }
 
   /** 子类实现这个；不要 override chat() */
-  async _doChat(messages, opts = {}) {
+  async _doChat(messages, _opts = {}) {
     throw new Error('RoomAdapter._doChat() must be implemented by subclass');
   }
 

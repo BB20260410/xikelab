@@ -57,8 +57,8 @@ export class CostTracker {
     this.totalUsdCached += usd;
     // 限制内存：超过 1000 条丢前面
     if (this.samples.length > 1000) {
-      const dropped = this.samples.splice(0, this.samples.length - 1000);
       // 不重新算 totalUsdCached（已经累计完成，丢弃 sample 只影响窗口查询）
+      this.samples.splice(0, this.samples.length - 1000);
     }
   }
 

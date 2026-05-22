@@ -1,7 +1,7 @@
 // call-logger — MCP tool call 历史 logger（W7 学自 MCP Inspector）
 // 独立 helper，未接入 McpClientManager——等 sprint 级独立设计接入
 
-import { writeFileSync, appendFileSync, existsSync, mkdirSync, chmodSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, chmodSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 

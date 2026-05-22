@@ -38,7 +38,7 @@ export function createWsDispatcher(handlers = {}) {
       const msg = JSON.parse(rawData);
       const h = handlers[msg.type];
       if (h) h(msg);
-    } catch (e) {
+    } catch {
       // 静默吞，WS 消息格式错不应崩 panel
     }
   };

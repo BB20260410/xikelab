@@ -10,7 +10,7 @@
 //   3) 调 adapter.chat（默认 claude） → 拿 reply（markdown 报告）
 //   4) 可选：写盘到用户指定路径（沙箱）+ 返回内容
 
-import { writeFileSync, mkdirSync, existsSync, statSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 

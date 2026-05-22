@@ -1,6 +1,5 @@
 // 用 playwright + 用户 Chrome profile 自动建 LS Xike Lab Pro 产品
 import { chromium } from 'playwright';
-import fs from 'node:fs';
 
 const PROFILE = '/tmp/chrome-playwright-profile';
 

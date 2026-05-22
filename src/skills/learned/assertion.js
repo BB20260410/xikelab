@@ -38,7 +38,7 @@ export function runAssertion(output, assertion) {
         const re = new RegExp(assertion.value, assertion.flags || '');
         const m = re.test(text);
         return { pass: m, reason: m ? 'regex match' : 'regex no match' };
-      } catch (e) { return { pass: false, reason: 'invalid regex' }; }
+      } catch { return { pass: false, reason: 'invalid regex' }; }
     }
 
     case 'json_path': {

@@ -106,7 +106,7 @@ export class SkillStore {
         this.cache.set(name, entry);
         count++;
         if (count >= MAX_SKILLS) break;
-      } catch (e) {
+      } catch {
         // ignore single broken skill
       }
     }

@@ -7,7 +7,6 @@
 //   node scripts/register-github.mjs --email ilifelahepeq54@gmail.com [--mode signup|login]
 
 import { chromium } from 'playwright';
-import { spawnSync } from 'node:child_process';
 
 const args = parseArgs(process.argv.slice(2));
 const email = args.email || 'ilifelahepeq54@gmail.com';

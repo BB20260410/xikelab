@@ -2,7 +2,7 @@
 // 仿 ClaudeSpawnAdapter / CodexSpawnAdapter 风格
 // stdin 喂 prompt → stdout 收 reply
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
