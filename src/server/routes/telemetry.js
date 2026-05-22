@@ -3,6 +3,11 @@
 // POST /api/telemetry/accept { dsn? }  → 同意 + 可选填 DSN
 // POST /api/telemetry/decline  → 拒绝
 // POST /api/telemetry/test  → 发一个测试 event 给 DSN 验证连通
+//
+// 写入端点鉴权：accept / analytics/config 会落 Sentry DSN / PostHog key（敏感 secret）
+// 到 ~/.claude-panel/telemetry.json，需 owner-token 防本机其他 UID 进程植入
+
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerTelemetryRoutes(app) {
   app.get('/api/telemetry/config', async (req, res) => {
@@ -22,7 +27,7 @@ export function registerTelemetryRoutes(app) {
     }
   });
 
-  app.post('/api/telemetry/accept', async (req, res) => {
+  app.post('/api/telemetry/accept', requireOwnerToken, async (req, res) => {
     try {
       const dsn = String(req.body?.dsn || '').trim();
       if (dsn && !dsn.startsWith('https://')) {
@@ -50,7 +55,7 @@ export function registerTelemetryRoutes(app) {
   });
 
   // v1.1 Task 2.1: PostHog 配置 + 测试
-  app.post('/api/analytics/config', async (req, res) => {
+  app.post('/api/analytics/config', requireOwnerToken, async (req, res) => {
     try {
       const { host, key } = req.body || {};
       if (host && !host.startsWith('http')) {
