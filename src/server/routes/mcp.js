@@ -6,6 +6,9 @@
 
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { hasFeature, getCurrentTier } from '../../license/LicenseManager.js';
+// Round 4 P1：MCP server 配置 = 子进程 spawn 规格 → 写入 = 任意命令执行 RCE
+// POST/PUT/DELETE/test 必须 owner-token 防本机其他 UID 进程植入恶意 mcp config
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 const FREE_MCP_LIMIT = 3;
 
@@ -19,7 +22,7 @@ export function registerMcpRoutes(app, deps) {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
-  app.post('/api/mcp/servers', (req, res) => {
+  app.post('/api/mcp/servers', requireOwnerToken, (req, res) => {
     try {
       const body = req.body || {};
       if (JSON.stringify(body).length > 16 * 1024) return res.status(413).json({ error: 'body 过大' });
@@ -40,7 +43,7 @@ export function registerMcpRoutes(app, deps) {
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 
-  app.put('/api/mcp/servers/:name', async (req, res) => {
+  app.put('/api/mcp/servers/:name', requireOwnerToken, async (req, res) => {
     try {
       const body = req.body || {};
       if (JSON.stringify(body).length > 16 * 1024) return res.status(413).json({ error: 'body 过大' });
@@ -52,7 +55,7 @@ export function registerMcpRoutes(app, deps) {
     } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
   });
 
-  app.delete('/api/mcp/servers/:name', async (req, res) => {
+  app.delete('/api/mcp/servers/:name', requireOwnerToken, async (req, res) => {
     try {
       try { await mcpClientManager.disconnect(req.params.name); } catch {}
       const ok = mcpStore.delete(req.params.name);
@@ -62,7 +65,8 @@ export function registerMcpRoutes(app, deps) {
   });
 
   // 测试连接 + 列出 tools（一次调用 verify 连接 + capability）
-  app.post('/api/mcp/servers/:name/test', async (req, res) => {
+  // test 会 spawn 子进程跑 mcp server，必须 owner-token
+  app.post('/api/mcp/servers/:name/test', requireOwnerToken, async (req, res) => {
     try {
       // 强制重连：先 disconnect 再 ensureConnected
       try { await mcpClientManager.disconnect(req.params.name); } catch {}

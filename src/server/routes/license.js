@@ -1,4 +1,9 @@
 // panel v1.5 — license REST API
+//
+// Round 4 P1：activate/deactivate 写 license 文件（决定付费功能可用性），
+//   本机其他 UID 进程不能任意切换 license tier，必须 owner-token
+
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 export function registerLicenseRoutes(app) {
   app.get('/api/license/status', async (req, res) => {
@@ -10,7 +15,7 @@ export function registerLicenseRoutes(app) {
     }
   });
 
-  app.post('/api/license/activate', async (req, res) => {
+  app.post('/api/license/activate', requireOwnerToken, async (req, res) => {
     try {
       const licenseStr = (req.body?.license || '').trim();
       if (!licenseStr) return res.status(400).json({ ok: false, error: 'license body required' });
@@ -23,7 +28,7 @@ export function registerLicenseRoutes(app) {
     }
   });
 
-  app.post('/api/license/deactivate', async (req, res) => {
+  app.post('/api/license/deactivate', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../license/LicenseManager.js');
       m.clearLicense();
