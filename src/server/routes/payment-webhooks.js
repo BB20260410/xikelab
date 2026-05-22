@@ -6,47 +6,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { child, newTraceId } from '../../logger/index.js';
+import { requireOwnerToken } from '../auth/owner-token.js';
 
 const HOME = os.homedir();
 const SECRETS_PATH = path.join(HOME, '.claude-panel', 'webhook-secrets.json');
 const ISSUED_LOG = path.join(HOME, '.claude-panel', 'licenses-issued.jsonl');
 const PRIV_KEY_PATH = path.join(HOME, '.claude-panel-keys', 'panel-license-private-key.pem');
-const OWNER_TOKEN_PATH = path.join(HOME, '.claude-panel', 'owner-token.txt');
-
-// 写 secret 类端点用 owner-token 鉴权（防本机其他进程覆写）。
-// 首次启动时自动生成 32 字节随机 token，0600 落盘。
-function getOrCreateOwnerToken() {
-  try {
-    if (fs.existsSync(OWNER_TOKEN_PATH)) {
-      const t = fs.readFileSync(OWNER_TOKEN_PATH, 'utf8').trim();
-      if (t.length >= 32) return t;
-    }
-    const dir = path.dirname(OWNER_TOKEN_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const t = crypto.randomBytes(32).toString('hex');
-    fs.writeFileSync(OWNER_TOKEN_PATH, t + '\n', { mode: 0o600 });
-    return t;
-  } catch {
-    return null;
-  }
-}
-
-function requireOwnerToken(req, res, next) {
-  const owner = getOrCreateOwnerToken();
-  if (!owner) return res.status(500).json({ error: 'owner token unavailable' });
-  const provided = (req.get('X-Panel-Owner-Token') || '').trim();
-  if (!provided || provided.length !== owner.length) {
-    return res.status(401).json({ error: 'owner token required (see ~/.claude-panel/owner-token.txt)' });
-  }
-  try {
-    if (!crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(owner))) {
-      return res.status(401).json({ error: 'owner token mismatch' });
-    }
-  } catch {
-    return res.status(401).json({ error: 'owner token compare failed' });
-  }
-  next();
-}
 
 function loadSecrets() {
   try {

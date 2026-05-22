@@ -40,8 +40,13 @@ describe('isPrivateIp', () => {
     expect(isPrivateIp('ff00::1')).toBe(true);
   });
   it('IPv6 v4-mapped 私网拒', () => {
+    // dotted 形式
     expect(isPrivateIp('::ffff:127.0.0.1')).toBe(true);
     expect(isPrivateIp('::ffff:169.254.169.254')).toBe(true);
+    // hex 压缩形式（new URL 会把 dotted 自动压成这种）
+    expect(isPrivateIp('::ffff:7f00:1')).toBe(true);      // = 127.0.0.1
+    expect(isPrivateIp('::ffff:a9fe:a9fe')).toBe(true);    // = 169.254.169.254
+    expect(isPrivateIp('::ffff:c0a8:1')).toBe(true);       // = 192.168.0.1
   });
   it('IPv6 公网放行', () => {
     expect(isPrivateIp('2001:4860:4860::8888')).toBe(false); // Google DNS v6
@@ -69,6 +74,14 @@ describe('assertPublicUrl', () => {
     await expect(assertPublicUrl('http://127.0.0.1/')).rejects.toThrow();
     await expect(assertPublicUrl('http://10.0.0.1/')).rejects.toThrow();
     await expect(assertPublicUrl('http://169.254.169.254/latest/meta-data/')).rejects.toThrow();
+  });
+  it('拒 IPv6 literal 私网（URL hostname 带方括号也能识别）', async () => {
+    // new URL('http://[::1]/').hostname === '[::1]'，strip bracket 后才是 IP literal
+    await expect(assertPublicUrl('http://[::1]/')).rejects.toThrow(/private ip blocked/);
+    await expect(assertPublicUrl('http://[fc00::1]/')).rejects.toThrow(/private ip blocked/);
+    await expect(assertPublicUrl('http://[fe80::1]/')).rejects.toThrow(/private ip blocked/);
+    // IPv4-mapped IPv6 私网
+    await expect(assertPublicUrl('http://[::ffff:127.0.0.1]/')).rejects.toThrow(/private ip blocked/);
   });
   it('拒非法 url', async () => {
     await expect(assertPublicUrl('not a url')).rejects.toThrow();

@@ -1,6 +1,8 @@
 // Xike Lab v2.0 — Lemon Squeezy REST API 集成 endpoint
 // 让 panel UI 能查询 LS 状态 + 创建 checkout / webhook
 
+import { requireOwnerToken } from '../auth/owner-token.js';
+
 export function registerLemonSqueezyRoutes(app) {
   app.get('/api/lemonsqueezy/health', async (req, res) => {
     try {
@@ -88,7 +90,8 @@ export function registerLemonSqueezyRoutes(app) {
   });
 
   // 自动注册 webhook（部署后调用一次即可）
-  app.post('/api/lemonsqueezy/webhook-auto-register', async (req, res) => {
+  // 写 webhook secret 到 webhook-secrets.json，要 owner-token 鉴权
+  app.post('/api/lemonsqueezy/webhook-auto-register', requireOwnerToken, async (req, res) => {
     try {
       const { storeId, url, secret } = req.body || {};
       if (!storeId || !url || !secret) {
