@@ -18,7 +18,8 @@ export function registerEmbeddingsRoutes(app) {
     }
   });
 
-  app.post('/api/embeddings/search', async (req, res) => {
+  // Round 5 7M：search 触发 query embedding 调用（烧配额），list 暴露索引内容 → 全部 owner-token
+  app.post('/api/embeddings/search', requireOwnerToken, async (req, res) => {
     try {
       const { query, kind, limit, provider, minScore } = req.body || {};
       if (!query) return res.status(400).json({ error: 'query required' });
@@ -40,7 +41,7 @@ export function registerEmbeddingsRoutes(app) {
     }
   });
 
-  app.get('/api/embeddings/list', async (req, res) => {
+  app.get('/api/embeddings/list', requireOwnerToken, async (req, res) => {
     try {
       const m = await import('../../embeddings/VectorIndex.js');
       const items = m.listEmbeddings({ kind: req.query.kind, limit: req.query.limit ? parseInt(req.query.limit, 10) : 100 });

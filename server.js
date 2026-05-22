@@ -54,7 +54,7 @@ import { registerImgCacheRoutes } from './src/server/routes/img-cache.js';
 // v1.0 Task 1.1：telemetry endpoint
 import { registerTelemetryRoutes } from './src/server/routes/telemetry.js';
 // Round 4 P0：plugin/PTY/WS 这些会跑任意进程的入口必须 owner-token 防本机其他 UID 进程 curl 拿 RCE
-import { requireOwnerToken, verifyOwnerTokenString } from './src/server/auth/owner-token.js';
+import { requireOwnerToken, verifyOwnerTokenString, getOrCreateOwnerToken } from './src/server/auth/owner-token.js';
 // v1.5 Task 3.1：license endpoint
 import { registerLicenseRoutes } from './src/server/routes/license.js';
 // v1.5 Task 3.3：Lemon Squeezy / Polar payment webhooks
@@ -1005,7 +1005,7 @@ function checkSessionsCapacity(res) {
   }
   return true;
 }
-app.post('/api/sessions', (req, res) => {
+app.post('/api/sessions', requireOwnerToken, (req, res) => {
   if (!checkSessionsCapacity(res)) return;
   const { name, cwd, mainGoal } = req.body || {};
   if (typeof name === 'string' && name.length > MAX_NAME_LEN) {
@@ -1017,12 +1017,11 @@ app.post('/api/sessions', (req, res) => {
   if (typeof cwd === 'string' && cwd.length > MAX_CWD_LEN) {
     return res.status(400).json({ error: `cwd 过长（>${MAX_CWD_LEN}）` });
   }
-  let workingDir = cwd && cwd.trim() ? cwd.trim() : process.env.HOME;
-  if (workingDir.startsWith('~')) workingDir = workingDir.replace(/^~/, process.env.HOME);
-
-  // 必须是绝对路径
-  if (!workingDir.startsWith('/')) {
-    return res.status(400).json({ error: `cwd 必须是绝对路径或 ~ 开头：收到 "${workingDir}"` });
+  const rawCwd = cwd && typeof cwd === 'string' && cwd.trim() ? cwd.trim() : process.env.HOME;
+  // Round 5 H#7 fix: cwd 走 safeResolveFsPath 沙箱（与 rooms 一致），拒绝敏感目录与越权路径
+  const workingDir = safeResolveFsPath(rawCwd);
+  if (!workingDir) {
+    return res.status(403).json({ error: 'cwd 越权或敏感目录' });
   }
   // 必须存在且是目录
   try {
@@ -1089,7 +1088,7 @@ app.get('/api/sessions', (req, res) => {
 });
 
 // PATCH session（目前支持 toggle archived）
-app.patch('/api/sessions/:id', (req, res) => {
+app.patch('/api/sessions/:id', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   if (typeof req.body?.archived === 'boolean') {
@@ -1163,7 +1162,7 @@ app.get('/api/sessions/:id', (req, res) => {
 // 发消息
 // v0.49 N-16: 单条消息文本上限（防 spawn payload 失控）
 const MAX_USER_MESSAGE_LEN = 2 * 1024 * 1024; // 2MB 文本，覆盖文件附入 + 长 prompt
-app.post('/api/sessions/:id/messages', (req, res) => {
+app.post('/api/sessions/:id/messages', requireOwnerToken, (req, res) => {
   const text = req.body?.text;
   if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'empty text' });
   if (text.length > MAX_USER_MESSAGE_LEN) {
@@ -1179,7 +1178,7 @@ app.post('/api/sessions/:id/messages', (req, res) => {
 });
 
 // 关闭 session
-app.delete('/api/sessions/:id', (req, res) => {
+app.delete('/api/sessions/:id', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   if (s.child) {
@@ -1391,7 +1390,7 @@ app.get('/api/hooks', (req, res) => {
   res.json({ ok: true, count: events.length, events: events.slice(-limit) });
 });
 
-app.post('/api/sessions/:id/interrupt', (req, res) => {
+app.post('/api/sessions/:id/interrupt', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   // v0.38 P0-B: 标记此次退出是用户中断，exit handler 应跳过 watcher 判定
@@ -1421,7 +1420,7 @@ app.post('/api/sessions/:id/interrupt', (req, res) => {
 });
 
 // v0.20 强制释放卡住的 busy 状态（child 已死但 busy 没复位的兜底）
-app.post('/api/sessions/:id/reset-busy', (req, res) => {
+app.post('/api/sessions/:id/reset-busy', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   const wasChildAlive = s.child && !s.child.killed;
@@ -3031,7 +3030,7 @@ function buildClaudeTerminalScript(cwd, resumeId) {
   const asEsc = shellCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   return `tell application "Terminal"\n    activate\n    do script "${asEsc}"\nend tell`;
 }
-app.post('/api/sessions/:id/external', (req, res) => {
+app.post('/api/sessions/:id/external', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   // cwd 来自 session 创建时校验过的真实目录，但稳妥起见拒绝含控制字符的
@@ -3050,7 +3049,7 @@ app.post('/api/sessions/:id/external', (req, res) => {
 
 // v0.14: 在外部 Terminal 打开 + 自动跑 `claude /login`（OAuth 浏览器跳转流程）
 // 不在 panel 内嵌 PTY（macOS arm64 node-pty 有坑），用 osascript 最稳
-app.post('/api/login-claude', (req, res) => {
+app.post('/api/login-claude', requireOwnerToken, (req, res) => {
   const script = `tell application "Terminal"
     activate
     do script "echo '🔐 Claude Code 登录' && echo '完成后可关闭此窗口，回到 panel 继续' && echo '' && claude /login"
@@ -3069,7 +3068,7 @@ end tell`;
 });
 
 // 同时 spawn 多个 Terminal 窗口（批量）— v0.49 N-05 fix: 同 external 端点的 AppleScript 加固
-app.post('/api/spawn-batch', (req, res) => {
+app.post('/api/spawn-batch', requireOwnerToken, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 20) : [];
   const result = [];
   for (const id of ids) {
@@ -3695,7 +3694,8 @@ app.get('/v1/models', (req, res) => {
   }
 });
 
-app.post('/v1/chat/completions', async (req, res) => {
+// Round 5 H#5：OpenAI 兼容网关消耗用户 Claude/Codex/Gemini 配额 → owner-token 防本机其他 UID 刷
+app.post('/v1/chat/completions', requireOwnerToken, async (req, res) => {
   try {
     const body = req.body || {};
     if (!body.model || typeof body.model !== 'string') {
@@ -3849,8 +3849,24 @@ const ALLOWED_WS_ORIGINS = new Set([
   `http://127.0.0.1:${PORT_NUM}`,
   `http://[::1]:${PORT_NUM}`,
 ]);
+// Round 5 H#1：WS upgrade 统一 token 验证 helper（PTY 那条原本就有，这里抽出来给 global / room / session 复用）
+function _rejectWsUpgrade(socket, code, msg) {
+  try { socket.write(`HTTP/1.1 ${code} ${msg}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`); } catch {}
+  socket.destroy();
+}
+function _checkWsToken(url, socket, label) {
+  const token = url.searchParams.get('token') || '';
+  if (!verifyOwnerTokenString(token)) {
+    console.warn(`[ws] ${label} owner-token mismatch — dropping`);
+    _rejectWsUpgrade(socket, 401, 'Unauthorized');
+    return false;
+  }
+  return true;
+}
 server.on('upgrade', (req, socket, head) => {
-  // Origin 检查：Electron / 本机浏览器直连 panel 才放行；无 Origin（如 curl）也放行，因 CSRF 必须来自浏览器
+  // Round 5 H#1：以前的 Origin 软白名单 `if (origin && !whitelist...)` 在 origin 缺失时短路放行，
+  // 本机其他 UID 用 wscat 不带 Origin 即可绕过。改成靠 token 兜底（PTY/global/room/session 全部强制 ?token=）。
+  // Origin 检查保留为额外防 CSRF（浏览器场景 origin 必带），但不再作为唯一防线。
   const origin = req.headers.origin;
   if (origin && !ALLOWED_WS_ORIGINS.has(origin)) {
     console.warn('[ws] origin rejected:', origin);
@@ -3860,6 +3876,7 @@ server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   // v0.53 Sprint 3 panel 级全局 WS：/ws/global（接收 metrics_update / health_warning 等）
   if (url.pathname === '/ws/global') {
+    if (!_checkWsToken(url, socket, '/ws/global')) return;
     wss.handleUpgrade(req, socket, head, (ws) => {
       globalWsClients.add(ws);
       try { ws.send(JSON.stringify({ type: 'connected', channel: 'global' })); } catch {}
@@ -3870,6 +3887,7 @@ server.on('upgrade', (req, socket, head) => {
   // v0.39 聊天室 WS：/ws/room/:roomId
   const roomMatch = url.pathname.match(/^\/ws\/room\/([0-9a-f-]{36})$/);
   if (roomMatch) {
+    if (!_checkWsToken(url, socket, '/ws/room/')) return;
     const roomId = roomMatch[1];
     const room = roomStore.get(roomId);
     if (!room) return socket.destroy();
@@ -3893,13 +3911,7 @@ server.on('upgrade', (req, socket, head) => {
     if (!t) return socket.destroy();
     // Round 4 P0：WS 升级也得验 owner-token（浏览器 WS 不能加 header → 用 query ?token=）
     // 不验就 = 本机其他 UID 进程可以 wscat 直接接管 shell I/O
-    const token = url.searchParams.get('token') || '';
-    if (!verifyOwnerTokenString(token)) {
-      console.warn('[ws] /ws/term/ owner-token mismatch — dropping');
-      socket.write('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
-    }
+    if (!_checkWsToken(url, socket, '/ws/term/')) return;
     wss.handleUpgrade(req, socket, head, (ws) => {
       t.clients.add(ws);
       ws.send(JSON.stringify({ type: 'connected', termId, cwd: t.cwd }));
@@ -3920,6 +3932,7 @@ server.on('upgrade', (req, socket, head) => {
   // session chat WS：/ws/:sessionId
   const m = url.pathname.match(/^\/ws\/([0-9a-f-]{36})$/);
   if (!m) return socket.destroy();
+  if (!_checkWsToken(url, socket, '/ws/session/')) return;
   const id = m[1];
   const session = sessions.get(id);
   if (!session) return socket.destroy();
@@ -3949,7 +3962,17 @@ server.on('error', (err) => {
   process.exit(1);
 });
 server.listen(PORT, HOST, () => {
-  console.log(`🚀 Xike Lab @ http://${HOST}:${PORT}`);
+  // Round 5：owner-token bootstrap via URL query —— stdout 打印带 ?t= 的入口 URL，
+  // 前端读 query 存 sessionStorage，之后所有 fetch+WS 自动带 token。
+  // 攻击者裸 curl `/` 拿不到 token（HTML 静态文件不 inject），用户主动复制 URL 才能拿。
+  const ownerToken = getOrCreateOwnerToken();
+  const entryUrl = ownerToken
+    ? `http://${HOST}:${PORT}/?t=${ownerToken}`
+    : `http://${HOST}:${PORT}`;
+  console.log(`🚀 Xike Lab @ ${entryUrl}`);
+  if (!ownerToken) {
+    console.log(`   ⚠️  owner-token 生成失败（~/.claude-panel/owner-token.txt 写不进），UI 写端点会全部 401`);
+  }
   console.log(`   Using claude bin: ${CLAUDE_BIN}`);
   if (HOST !== '127.0.0.1') {
     console.log(`   ⚠️  监听 ${HOST}（非本地），PTY 终端将暴露给该接口，请确认网络安全`);

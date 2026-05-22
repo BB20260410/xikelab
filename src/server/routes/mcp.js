@@ -16,7 +16,8 @@ export function registerMcpRoutes(app, deps) {
   const { mcpStore } = deps;
   const mcpClientManager = new McpClientManager({ store: mcpStore });
 
-  app.get('/api/mcp/servers', (req, res) => {
+  // Round 5 7M：MCP server 列表暴露 spawn 命令规格 + tools/resources/prompts 会拉起子进程 → 全部 owner-token
+  app.get('/api/mcp/servers', requireOwnerToken, (req, res) => {
     try {
       res.json({ ok: true, servers: mcpStore.list(), status: mcpClientManager.status() });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
@@ -86,7 +87,7 @@ export function registerMcpRoutes(app, deps) {
   });
 
   // 单独拉 tools（不强制重连，用 cache）
-  app.get('/api/mcp/servers/:name/tools', async (req, res) => {
+  app.get('/api/mcp/servers/:name/tools', requireOwnerToken, async (req, res) => {
     try {
       const tools = await mcpClientManager.listTools(req.params.name);
       res.json({ ok: true, tools });
@@ -96,7 +97,7 @@ export function registerMcpRoutes(app, deps) {
   });
 
   // B-013: 单独拉 resources（不强制重连，用 cache）
-  app.get('/api/mcp/servers/:name/resources', async (req, res) => {
+  app.get('/api/mcp/servers/:name/resources', requireOwnerToken, async (req, res) => {
     try {
       const resources = await mcpClientManager.listResources(req.params.name);
       res.json({ ok: true, resources: resources || [] });
@@ -106,7 +107,7 @@ export function registerMcpRoutes(app, deps) {
   });
 
   // B-013: 单独拉 prompts
-  app.get('/api/mcp/servers/:name/prompts', async (req, res) => {
+  app.get('/api/mcp/servers/:name/prompts', requireOwnerToken, async (req, res) => {
     try {
       const prompts = await mcpClientManager.listPrompts(req.params.name);
       res.json({ ok: true, prompts: prompts || [] });
@@ -116,7 +117,7 @@ export function registerMcpRoutes(app, deps) {
   });
 
   // v0.70.3-t3: MCP call 历史（学自 W7 MCP Inspector）
-  app.get('/api/mcp/call-history', async (req, res) => {
+  app.get('/api/mcp/call-history', requireOwnerToken, async (req, res) => {
     try {
       const limit = Math.max(1, Math.min(1000, parseInt(req.query.limit, 10) || 100));
       const { recentMcpCalls } = await import('../../mcp/learned/call-logger.js');

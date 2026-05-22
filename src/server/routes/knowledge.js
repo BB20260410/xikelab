@@ -9,12 +9,13 @@ import { requireOwnerToken } from '../auth/owner-token.js';
 export function registerKnowledgeRoutes(app, deps) {
   const { knowledgeStore } = deps;
 
-  app.get('/api/knowledge', (req, res) => {
+  // Round 5 7M：KB 列表/详情含文档片段（数据泄漏），search/context 烧 LLM embedding 配额 → 全部 owner-token
+  app.get('/api/knowledge', requireOwnerToken, (req, res) => {
     try { res.json({ ok: true, kbs: knowledgeStore.list() }); }
     catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
-  app.get('/api/knowledge/:name', (req, res) => {
+  app.get('/api/knowledge/:name', requireOwnerToken, (req, res) => {
     try {
       const kb = knowledgeStore.get(req.params.name);
       if (!kb) return res.status(404).json({ ok: false, error: 'not found' });
@@ -55,7 +56,7 @@ export function registerKnowledgeRoutes(app, deps) {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
-  app.post('/api/knowledge/:name/search', async (req, res) => {
+  app.post('/api/knowledge/:name/search', requireOwnerToken, async (req, res) => {
     try {
       const { query, topK } = req.body || {};
       // v0.70.3-t2: hybrid 可从 body 或 query 透传
@@ -68,7 +69,7 @@ export function registerKnowledgeRoutes(app, deps) {
   // v0.9.x B-020: 引文回链 — 给 query 返回 { context, citations[] }
   // citations 含 index / chunkId / docId / docTitle / sourceUrl / textSnippet
   // 前端可用 citations 把 AI reply 中 [N] 渲染成可点链接
-  app.post('/api/knowledge/:name/context', async (req, res) => {
+  app.post('/api/knowledge/:name/context', requireOwnerToken, async (req, res) => {
     try {
       const { query, topK } = req.body || {};
       const hybrid = req.body?.hybrid === true || req.query?.hybrid === '1';
