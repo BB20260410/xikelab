@@ -46,6 +46,9 @@ test-results/
 .env
 .env.local
 
+# ESLint 本地输出（quality-gate 内部用，不进库）
+eslint-report.json
+
 # === 增强：v2.0 商品化阶段加防泄漏 ===
 .env.*
 *.pem
