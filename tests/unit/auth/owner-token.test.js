@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { getOrCreateOwnerToken, requireOwnerToken } from '../../../src/server/auth/owner-token.js';
+import { getOrCreateOwnerToken, requireOwnerToken, verifyOwnerTokenString } from '../../../src/server/auth/owner-token.js';
 
 const TOKEN_PATH = path.join(os.homedir(), '.claude-panel', 'owner-token.txt');
 
@@ -92,5 +92,28 @@ describe('requireOwnerToken middleware', () => {
     const { res, next, calls } = mockRes();
     requireOwnerToken(makeReq({ 'X-Panel-Owner-Token': '  ' + token + '  ' }), res, next);
     expect(calls.nextCalled).toBe(true);
+  });
+});
+
+describe('verifyOwnerTokenString (WS upgrade 用)', () => {
+  let token;
+  beforeAll(() => { token = getOrCreateOwnerToken(); });
+
+  it('正确 token → true', () => {
+    expect(verifyOwnerTokenString(token)).toBe(true);
+  });
+  it('错误 token（同长度）→ false', () => {
+    expect(verifyOwnerTokenString('x'.repeat(token.length))).toBe(false);
+  });
+  it('长度不一致 → false（防 timingSafeEqual 抛错）', () => {
+    expect(verifyOwnerTokenString('short')).toBe(false);
+  });
+  it('空字符串 / null / undefined → false', () => {
+    expect(verifyOwnerTokenString('')).toBe(false);
+    expect(verifyOwnerTokenString(null)).toBe(false);
+    expect(verifyOwnerTokenString(undefined)).toBe(false);
+  });
+  it('前后空格被 trim', () => {
+    expect(verifyOwnerTokenString('  ' + token + '  ')).toBe(true);
   });
 });
