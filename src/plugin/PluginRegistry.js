@@ -8,7 +8,7 @@
 //
 // 注意：本模块只管 manifest 装配。真正 spawn 跑命令交给 PluginSpawnAdapter。
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync, unlinkSync, chmodSync, renameSync, copyFileSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync, unlinkSync, chmodSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';

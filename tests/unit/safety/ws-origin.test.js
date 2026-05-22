@@ -12,7 +12,7 @@ describe('WS Origin 白名单（CSRF 防御）', () => {
         -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
         -H "Origin: http://evil.example.com" \
         http://localhost:51735/ws/global 2>&1 | head -3`, { encoding: 'utf8', timeout: 3000 });
-    } catch (e) {
+    } catch {
       // socket destroy 会让 curl 返非 0
       rejected = true;
     }

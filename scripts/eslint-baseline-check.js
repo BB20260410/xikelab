@@ -2,8 +2,8 @@
 // panel ESLint baseline check
 //
 // 读 eslint-report.json，按校准后 baseline 校验：
-//   - hard error <= 0（合 P5-V1 修复后应为 0）
-//   - warning   <= 60（真实 baseline 53，含 src/ + public/ 全量；允许 +7 浮动）
+//   - hard error <= 0（必须保持 0）
+//   - warning   <= 5（阶段 3 清理后实测 0，留 5 个缓冲位防止后续 PR 临时小幅引入）
 //
 // 失败时退出码 1 阻塞 CI；通过退出 0。
 // 同步信息打到 stdout，便于 CI 日志可追。
@@ -12,7 +12,7 @@ import { readFileSync } from 'fs';
 
 const REPORT = 'eslint-report.json';
 const HARD_ERROR_MAX = 0;
-const WARNING_MAX = 60;
+const WARNING_MAX = 5;
 
 let report;
 try {

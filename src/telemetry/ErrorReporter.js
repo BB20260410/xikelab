@@ -37,7 +37,7 @@ export function loadConfig() {
     const raw = readFileSync(CONFIG_FILE, 'utf-8');
     _config = JSON.parse(raw);
     return _config;
-  } catch (e) {
+  } catch {
     _config = { enabled: false, dsn: '', acceptedAt: null };
     return _config;
   }

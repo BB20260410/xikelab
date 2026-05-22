@@ -35,7 +35,6 @@ const MAX_COMMAND = 256;
 const MAX_ARG = 1024;
 const MAX_ARGS_COUNT = 30;
 const MAX_ENV_COUNT = 30;
-const MAX_ENV_KEY = 80;
 const MAX_ENV_VAL = 4096;
 const MAX_URL = 2048;
 const MAX_HEADERS_COUNT = 20;

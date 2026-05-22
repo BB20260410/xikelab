@@ -41,7 +41,7 @@ export class WatcherAdapter {
    * @param {SessionState} sessionState
    * @returns {Promise<WatcherVerdict>}
    */
-  async judge(sessionState) {
+  async judge(_sessionState) {
     throw new Error('WatcherAdapter.judge() must be implemented by subclass');
   }
 

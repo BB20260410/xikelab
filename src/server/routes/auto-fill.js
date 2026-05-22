@@ -12,7 +12,7 @@
 //   - 验证 Chrome 当前 URL 与请求的 site 匹配（防填错网站）
 //   - 所有调用记 audit log（不含密码）
 
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -24,7 +24,7 @@ function appendAudit(record) {
     const dir = path.dirname(AUDIT_LOG);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.appendFileSync(AUDIT_LOG, JSON.stringify({ ...record, ts: new Date().toISOString() }) + '\n', { mode: 0o600 });
-  } catch (e) {
+  } catch {
     // 不阻塞 — audit 失败也要继续
   }
 }
@@ -78,10 +78,8 @@ function typeStringIntoChrome(s) {
   spawnSync('/usr/bin/osascript', ['-e', 'tell application "Google Chrome" to activate'], { timeout: 3000 });
   // 等 0.3 秒
   spawnSync('/bin/sleep', ['0.3']);
-  // 2. type 字符串（密码不能用 keystroke "$VAR" 因为 shell 展开会 leak，必须通过 stdin/heredoc）
-  const script = `tell application "System Events" to keystroke (do shell script "cat") of (path to me)`;
-  // 实际更稳的做法：用 osascript file mode + echo via stdin
-  // 这里用 spawn 把密码直接 pipe 给 osascript，避免命令行/env leak
+  // 2. type 字符串（密码不能用 keystroke "$VAR" 因为 shell 展开会 leak）
+  // 用 spawn 把密码直接作为 argv 传给 osascript，避免 shell 展开/env leak
   const proc = spawnSync('/usr/bin/osascript', ['-e', `on run argv
     tell application "System Events" to keystroke (item 1 of argv)
   end run`, s], { timeout: 5000 });
@@ -105,9 +103,9 @@ export function registerAutoFillRoutes(app) {
   });
 
   // POST /api/auto-fill/password — 填密码到 Chrome 当前焦点框
-  // body: { site: "github.com", expectUrl?: "github.com/..." }
+  // body: { site: "github.com" }
   app.post('/api/auto-fill/password', (req, res) => {
-    const { site, expectUrl } = req.body || {};
+    const { site } = req.body || {};
     if (!site || typeof site !== 'string') {
       return res.status(400).json({ ok: false, error: 'site required' });
     }

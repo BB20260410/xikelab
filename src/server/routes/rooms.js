@@ -43,7 +43,7 @@ export function registerRoomsRoutes(app, deps) {
         const st = statSync(safe);
         if (!st.isDirectory()) return res.status(400).json({ error: 'cwd 不是目录' });
         roomCwd = safe;
-      } catch (e) {
+      } catch {
         return res.status(400).json({ error: 'cwd 不存在' });
       }
     }

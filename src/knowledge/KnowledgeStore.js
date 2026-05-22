@@ -12,7 +12,7 @@
 // embedding 默认走 ollama POST /api/embeddings（model = nomic-embed-text / bge-small-en-v1.5）
 // 用户没装 ollama 不影响 — 走 fallback。embed 失败也 fallback。
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, appendFileSync, rmSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, appendFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';

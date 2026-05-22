@@ -28,7 +28,7 @@ function migrateFile(filePath, kind) {
       const tag = obj.tag || obj.provider || obj.type || null;
       appendEvent({ kind, ts, roomId, tag, ...obj });
       imported++;
-    } catch (e) {
+    } catch {
       skipped++;
     }
   }

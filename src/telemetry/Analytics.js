@@ -11,10 +11,10 @@
 // - 永不阻塞 panel（任何上报失败 silent）
 // - 不发用户输入内容（只发 event name + metadata 维度）
 
-import { readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, hostname, platform, release } from 'node:os';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 
 const CONFIG_FILE = join(homedir(), '.claude-panel', 'telemetry.json');
 const FLUSH_INTERVAL_MS = 30_000;

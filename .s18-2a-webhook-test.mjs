@@ -18,7 +18,7 @@ const mockStore = {
 };
 let testWebhookShouldThrow = false;
 const mockMask = (u) => '[masked:' + (u || '') + ']';
-const mockTest = async (w) => {
+const mockTest = async (_w) => {
   if (testWebhookShouldThrow) throw new Error('mock test failed');
   return true;
 };

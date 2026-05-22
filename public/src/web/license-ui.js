@@ -127,7 +127,7 @@
           msg.textContent = '❌ ' + (r.error || '激活失败');
           msg.style.color = '#ef4444';
         }
-      } catch (e) {
+      } catch {
         msg.textContent = '❌ 网络错误';
         msg.style.color = '#ef4444';
       }
