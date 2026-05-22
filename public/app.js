@@ -2629,7 +2629,11 @@ function renderRoomDebate(room) {
     room.mode === 'arena' ? '  · 联网核对'  :
     '  · 辩论'
   );
-  $('#roomTopicInput').value = room.topic || '';
+  {
+    const _topicTa = $('#roomTopicInput');
+    _topicTa.value = room.topic || '';
+    _topicTa.dispatchEvent(new Event('input', { bubbles: false }));
+  }
   updateRoomStatusChip(room.status);
   renderRoomMembers(room);
   // v0.41/v0.48 按 mode 切换视图
@@ -6576,11 +6580,7 @@ $('#btnWebhookNew')?.addEventListener('click', () => {
     ta.addEventListener('input', () => fit(ta));
     // 初次设值后也 fit 一次
     setTimeout(() => fit(ta), 0);
-    // 当外部 JS 改 value 时（forward seed 等），用 MutationObserver 太重，用 timer 轻探
-    let lastLen = ta.value.length;
-    setInterval(() => {
-      if (ta.value.length !== lastLen) { lastLen = ta.value.length; fit(ta); }
-    }, 600);
+    // 外部 JS 改 value 后请 dispatchEvent('input')，不再轮询 — 见 renderRoomDetail
   });
 })();
 

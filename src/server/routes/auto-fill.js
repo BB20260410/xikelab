@@ -12,7 +12,7 @@
 //   - 验证 Chrome 当前 URL 与请求的 site 匹配（防填错网站）
 //   - 所有调用记 audit log（不含密码）
 
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -73,17 +73,34 @@ function getChromeActiveUrl() {
 }
 
 // 用 osascript System Events 把字符串 type 到当前焦点框
+// 关键：密码不能进 argv（macOS 进程列表可见），改用 stdin 传入。
+// osascript 用 `read input` 从 stdin 读单行，再 keystroke。
 function typeStringIntoChrome(s) {
   // 1. 确保 Chrome 在前台
   spawnSync('/usr/bin/osascript', ['-e', 'tell application "Google Chrome" to activate'], { timeout: 3000 });
   // 等 0.3 秒
   spawnSync('/bin/sleep', ['0.3']);
-  // 2. type 字符串（密码不能用 keystroke "$VAR" 因为 shell 展开会 leak）
-  // 用 spawn 把密码直接作为 argv 传给 osascript，避免 shell 展开/env leak
-  const proc = spawnSync('/usr/bin/osascript', ['-e', `on run argv
-    tell application "System Events" to keystroke (item 1 of argv)
-  end run`, s], { timeout: 5000 });
-  return proc.status === 0;
+  // 2. 从 stdin 读字符串后 keystroke（避免 argv / env / shell 展开 leak）
+  const script = `set inputStr to do shell script "cat"
+tell application "System Events" to keystroke inputStr`;
+  return new Promise(resolve => {
+    let done = false;
+    const proc = spawn('/usr/bin/osascript', ['-e', script], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      try { proc.kill('SIGKILL'); } catch {}
+      resolve(false);
+    }, 5000);
+    proc.on('error', () => {
+      if (done) return; done = true; clearTimeout(timer); resolve(false);
+    });
+    proc.on('exit', code => {
+      if (done) return; done = true; clearTimeout(timer); resolve(code === 0);
+    });
+    // `cat` 读到 EOF 后返回原文；写完密码立刻关 stdin
+    try { proc.stdin.end(s); } catch { /* exit handler 会兜底 */ }
+  });
 }
 
 export function registerAutoFillRoutes(app) {
@@ -104,7 +121,7 @@ export function registerAutoFillRoutes(app) {
 
   // POST /api/auto-fill/password — 填密码到 Chrome 当前焦点框
   // body: { site: "github.com" }
-  app.post('/api/auto-fill/password', (req, res) => {
+  app.post('/api/auto-fill/password', async (req, res) => {
     const { site } = req.body || {};
     if (!site || typeof site !== 'string') {
       return res.status(400).json({ ok: false, error: 'site required' });
@@ -139,7 +156,7 @@ export function registerAutoFillRoutes(app) {
     }
 
     // 3. type 到 Chrome（密码全程在 panel 进程内，不出口到外部）
-    const ok = typeStringIntoChrome(password);
+    const ok = await typeStringIntoChrome(password);
     appendAudit({
       action: 'fill',
       site,
@@ -158,12 +175,12 @@ export function registerAutoFillRoutes(app) {
 
   // POST /api/auto-fill/type — 通用 type 任意文本（非密码用，如邮箱/用户名）
   // 这个允许 LLM 通过对话传字符串（不敏感的）
-  app.post('/api/auto-fill/type', (req, res) => {
+  app.post('/api/auto-fill/type', async (req, res) => {
     const { text } = req.body || {};
     if (!text || typeof text !== 'string' || text.length > 200) {
       return res.status(400).json({ ok: false, error: 'text required (max 200 chars)' });
     }
-    const ok = typeStringIntoChrome(text);
+    const ok = await typeStringIntoChrome(text);
     appendAudit({ action: 'type', length: text.length, status: ok ? 'success' : 'failed' });
     res.json({ ok, typed: text.length });
   });
