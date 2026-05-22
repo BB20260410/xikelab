@@ -45,9 +45,17 @@ export function isPrivateIp(ip) {
     if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true; // fe80::/10
     if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // fc00::/7
     if (lower.startsWith('ff')) return true;  // 多播
-    // v4-mapped ::ffff:a.b.c.d
+    // v4-mapped IPv6：dotted 形式 ::ffff:a.b.c.d
     const m = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
     if (m) return isPrivateIp(m[1]);
+    // v4-mapped IPv6：hex 压缩形式 ::ffff:hhhh:hhhh（URL.hostname 压缩 ::ffff:127.0.0.1 → ::ffff:7f00:1）
+    const m2 = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (m2) {
+      const h1 = parseInt(m2[1], 16);
+      const h2 = parseInt(m2[2], 16);
+      const v4 = `${(h1 >> 8) & 0xff}.${h1 & 0xff}.${(h2 >> 8) & 0xff}.${h2 & 0xff}`;
+      return isPrivateIp(v4);
+    }
     return false;
   }
   return true;
@@ -61,7 +69,8 @@ export async function assertPublicUrl(url) {
   // 端口白名单：80/443 + 默认空（避开 22/3306/6379/Redis/Postgres 等内网服务）
   const port = u.port || (u.protocol === 'https:' ? '443' : '80');
   if (!['80', '443', '8080', '8443'].includes(port)) throw new Error(`port ${port} not allowed`);
-  const host = u.hostname;
+  // IPv6 literal 的 URL.hostname 带方括号（如 "[::1]"），net.isIP 不识别，得 strip 再判
+  const host = u.hostname.replace(/^\[/, '').replace(/\]$/, '');
   // 直接 IP literal：直接判
   if (net.isIP(host)) {
     if (isPrivateIp(host)) throw new Error('private ip blocked');
