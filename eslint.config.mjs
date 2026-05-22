@@ -39,7 +39,8 @@ const browserGlobals = {
   Event: 'readonly', CustomEvent: 'readonly', MouseEvent: 'readonly', KeyboardEvent: 'readonly',
   CSS: 'readonly', getComputedStyle: 'readonly',
   // Network / Storage
-  fetch: 'readonly', WebSocket: 'readonly', EventSource: 'readonly',
+  fetch: 'readonly', Headers: 'readonly', Request: 'readonly', Response: 'readonly',
+  WebSocket: 'readonly', EventSource: 'readonly',
   URL: 'readonly', URLSearchParams: 'readonly',
   AbortController: 'readonly', AbortSignal: 'readonly',
   localStorage: 'readonly', sessionStorage: 'readonly',
