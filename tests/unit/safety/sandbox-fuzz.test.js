@@ -4,11 +4,14 @@ import { execSync } from 'node:child_process';
 const PANEL = 'http://localhost:51735';
 
 function curlCode(url) {
-  try { return execSync(`curl -s -o /dev/null -w "%{http_code}" "${url}"`, { encoding: 'utf8', timeout: 3000 }); }
+  try { return execSync(`curl -s -o /dev/null -w "%{http_code}" "${url}" --max-time 2`, { encoding: 'utf8', timeout: 3000 }); }
   catch { return '0'; }
 }
 
-describe('沙箱 fuzz - 攻击 path 应被 reject', () => {
+// Panel server 在 :51735 跑时这些 e2e 探针才有意义；CI / 离线环境跳过整组
+const SERVER_LIVE = curlCode(`${PANEL}/`) !== '0';
+
+describe.skipIf(!SERVER_LIVE)('沙箱 fuzz - 攻击 path 应被 reject', () => {
   const attackPaths = [
     '/etc/passwd',
     '../../etc/passwd',
@@ -23,7 +26,7 @@ describe('沙箱 fuzz - 攻击 path 应被 reject', () => {
   }
 });
 
-describe('secrets masking', () => {
+describe.skipIf(!SERVER_LIVE)('secrets masking', () => {
   it('GET /api/room-adapters 返回 apiKey 应掩码', () => {
     const out = execSync(`curl -s "${PANEL}/api/room-adapters"`, { encoding: 'utf8', timeout: 3000 });
     if (out.includes('apiKey')) {

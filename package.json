@@ -16,6 +16,8 @@
     "dist:all": "electron-builder --mac --win --linux",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:baseline": "node scripts/eslint-baseline-check.js",
     "perf-check": "node scripts/perf-check.mjs",
     "test:e2e": "node tests/e2e/panel-ui-walkthrough.mjs",
     "dist:publish": "electron-builder --mac --publish always"
@@ -35,6 +37,7 @@
     "@tauri-apps/cli": "^2.11.2",
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
+    "eslint": "^9.39.4",
     "playwright": "^1.60.0",
     "vitest": "^4.1.7"
   },
