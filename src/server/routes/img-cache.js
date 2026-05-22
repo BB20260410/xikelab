@@ -11,11 +11,71 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, readdirSync, unlinkSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { promises as dns } from 'node:dns';
+import net from 'node:net';
 
 const CACHE_DIR = join(homedir(), '.claude-panel', 'img-cache');
 const MAX_FILE_SIZE = 8 * 1024 * 1024;       // 8MB / image
 const MAX_DIR_SIZE = 200 * 1024 * 1024;      // 200MB 总
 const FETCH_TIMEOUT_MS = 12_000;
+const MAX_REDIRECTS = 3;
+
+// SSRF 防护：拒 loopback / 私网 / 链路本地 / 多播 / 元数据服务
+// IPv4：127/8 10/8 172.16/12 192.168/16 169.254/16 100.64/10 0.0.0.0 224/4
+// IPv6：::1 fc00::/7 fe80::/10 ::ffff:私网（v4-mapped）
+export function isPrivateIp(ip) {
+  if (!ip) return true;
+  const v = net.isIP(ip);
+  if (v === 4) {
+    const p = ip.split('.').map(n => parseInt(n, 10));
+    if (p.some(n => Number.isNaN(n) || n < 0 || n > 255)) return true;
+    if (p[0] === 127) return true;
+    if (p[0] === 10) return true;
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 169 && p[1] === 254) return true;
+    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true;
+    if (p[0] === 0) return true;
+    if (p[0] >= 224) return true;          // 多播 + 保留
+    return false;
+  }
+  if (v === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === '::1' || lower === '::') return true;
+    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true; // fe80::/10
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // fc00::/7
+    if (lower.startsWith('ff')) return true;  // 多播
+    // v4-mapped ::ffff:a.b.c.d
+    const m = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (m) return isPrivateIp(m[1]);
+    return false;
+  }
+  return true;
+}
+
+// 解析 url → 拒非 http(s) / 拒非默认端口（避免扫内网服务）/ DNS lookup → 拒私网
+export async function assertPublicUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { throw new Error('invalid url'); }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('protocol not allowed');
+  // 端口白名单：80/443 + 默认空（避开 22/3306/6379/Redis/Postgres 等内网服务）
+  const port = u.port || (u.protocol === 'https:' ? '443' : '80');
+  if (!['80', '443', '8080', '8443'].includes(port)) throw new Error(`port ${port} not allowed`);
+  const host = u.hostname;
+  // 直接 IP literal：直接判
+  if (net.isIP(host)) {
+    if (isPrivateIp(host)) throw new Error('private ip blocked');
+    return;
+  }
+  // 域名：DNS 反查 — 拒任何指向私网的解析（防 DNS rebinding 的第一关）
+  let addrs;
+  try { addrs = await dns.lookup(host, { all: true, verbatim: true }); }
+  catch { throw new Error('dns lookup failed'); }
+  if (!addrs.length) throw new Error('dns no addrs');
+  for (const a of addrs) {
+    if (isPrivateIp(a.address)) throw new Error(`dns resolved to private ip ${a.address}`);
+  }
+}
 
 function ensureDir() {
   if (!existsSync(CACHE_DIR)) {
@@ -60,9 +120,8 @@ export function registerImgCacheRoutes(app) {
   app.get('/api/img-cache', async (req, res) => {
     const url = String(req.query.url || '').trim();
     if (!url) return res.status(400).json({ error: 'url required' });
-    // 仅 http/https 白名单（防 file:// / javascript: / data:）
-    if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'only http/https url allowed' });
     if (url.length > 2048) return res.status(400).json({ error: 'url too long' });
+    // 协议 / 端口 / 私网 IP 校验在 assertPublicUrl 内统一做
 
     ensureDir();
     const key = urlToKey(url);
@@ -80,14 +139,29 @@ export function registerImgCacheRoutes(app) {
       return res.end(buf);
     }
 
-    // miss，下载
+    // miss，下载（手动跟 redirect，每跳一次重做 SSRF 校验）
     try {
+      let curUrl = url;
+      let resp;
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-      let resp;
       try {
-        resp = await fetch(url, { signal: ac.signal, redirect: 'follow' });
+        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+          try { await assertPublicUrl(curUrl); }
+          catch (e) { clearTimeout(timer); return res.status(400).json({ error: `url blocked: ${e.message}` }); }
+          resp = await fetch(curUrl, { signal: ac.signal, redirect: 'manual' });
+          if (resp.status >= 300 && resp.status < 400) {
+            const loc = resp.headers.get('location');
+            if (!loc) return res.status(502).json({ error: 'redirect without Location' });
+            try { curUrl = new URL(loc, curUrl).toString(); }
+            catch { return res.status(502).json({ error: 'invalid redirect target' }); }
+            continue;
+          }
+          break;
+        }
       } finally { clearTimeout(timer); }
+      if (!resp) return res.status(502).json({ error: 'no response' });
+      if (resp.status >= 300 && resp.status < 400) return res.status(502).json({ error: 'too many redirects' });
       if (!resp.ok) return res.status(502).json({ error: `upstream ${resp.status}` });
       // B-005 安全：只允许 image mime（防被 LLM 误传 css/html/exe 做 proxy）
       const mime = resp.headers.get('content-type') || '';
