@@ -29,7 +29,12 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        # 用 npm install（不用 npm ci）绕过 npm bug #4828：
+        # vitest 4 的 rolldown native binding 是 optionalDependencies，
+        # 在 macOS 生成的 lock 不会强制列入 linux-x64-gnu binding，
+        # CI 上 npm ci 严格按 lock 拉就会找不到 native module。
+        # npm install 允许在 CI 上按平台重新解析 optional deps。
+        run: npm install --no-audit --no-fund
 
       - name: ESLint (baseline mode - hard error blocks merge)
         run: |
