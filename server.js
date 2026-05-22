@@ -240,6 +240,27 @@ app.use((req, res, next) => {
 });
 app.use(express.static(join(__dirname, 'public')));
 
+// Round 6 P0：app 级 owner-token 守卫——前 5 轮 audit 漏扫了 70+ 个 inline 路由（rooms/chat、file、watcher/config 等），
+//   默认所有 /api/ 和 /v1/ 都强制 owner-token，仅以下豁免：
+//     1) /api/version           — 公开版本号
+//     2) /api/hooks/:event POST — Claude Code binary 回调，自己进程跑不了 token
+//     3) /api/webhooks/lemon|polar — 支付平台 webhook，自带 HMAC 签名验证
+//     4) /v1/models             — OpenAI/Anthropic 兼容公开模型清单
+function _ownerTokenUnauth(req) {
+  if (req.method === 'OPTIONS') return true;
+  const p = req.path;
+  if (p === '/api/version') return true;
+  if (p === '/v1/models' && req.method === 'GET') return true;
+  if (p === '/api/webhooks/lemon' || p === '/api/webhooks/polar') return true;
+  if (req.method === 'POST' && /^\/api\/hooks\/[^/]+$/.test(p)) return true;
+  return false;
+}
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/') && !req.path.startsWith('/v1/')) return next();
+  if (_ownerTokenUnauth(req)) return next();
+  return requireOwnerToken(req, res, next);
+});
+
 const sessions = new Map();
 
 // 持久化：保存 / 恢复
