@@ -29,7 +29,14 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        # 绕过 npm bug #4828：vitest 4 的 rolldown native binding
+        # 是 platform-specific optional dependency，macOS 上生成的
+        # package-lock.json 不会列入其他平台 binding，linux CI 装不到
+        # @rolldown/binding-linux-x64-gnu。删 lock 让 npm 在 CI host
+        # 平台重新跨平台解析 optional deps。
+        run: |
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
 
       - name: ESLint (baseline mode - hard error blocks merge)
         run: |
