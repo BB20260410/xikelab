@@ -6410,12 +6410,14 @@ async function runReport() {
   // 渲染 progress
   const root = $('#reportModalBody');
   root.innerHTML = `
-    <div class="report-progress">
+    <div class="report-progress" data-started-at="${Date.now()}">
       <span class="spinner"></span>
-      正在让 ${escapeHtml(adapterId)} 总结全房聊天 — 长聊天可能 30~300s，结果通过 WS 推送回来…
+      正在让 ${escapeHtml(adapterId)} 总结全房聊天 — 长聊天可能 30s~5min，结果通过 WS 推送回来…
+      <div style="margin-top:6px;"><span data-elapsed="1" data-label="生成中">⏳ 生成中… 00:00</span></div>
       <div class="muted small" id="rpJobMeta" style="margin-top:10px;font-family:ui-monospace,monospace;font-size:11px;"></div>
     </div>
   `;
+  startElapsedTicker();
 
   // v0.55 Sprint 14 F1：改异步 job 模式（修 Safari fetch 60s timeout 报 "Load failed"）
   // 1) POST 立即返 jobId
