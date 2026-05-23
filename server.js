@@ -1361,9 +1361,19 @@ function trimHookPayload(body) {
   return keep;
 }
 
+// Round 7：hooks 端点本机 spam 防御 —— 令牌桶限速
+// 现状：~/.claude/settings.json 里用户自己写 curl，无 owner-token；任何本机 UID 都能 POST。
+// 风险：恶意进程 spam 数千假事件 → 挤掉 globalHookEvents（ring max 2000）里的真实记录，误导调试。
+// 设计：burst 500 / 600 events/min（≈10/sec sustained）远高于正常 Claude Code 任务峰值；
+//      超限静默丢弃（res 200 + dropped:'rate'）而非 503，避免 Claude Code 端报错。
+const _hookRateLimiter = rateLimiters.get('hooks-ingest', { perMinute: 600, burst: 500 });
+
 app.post('/api/hooks/:event', (req, res) => {
   const event = req.params.event;
   if (!VALID_HOOK_EVENTS.has(event)) return res.status(400).json({ error: 'unknown hook event: ' + event });
+  if (!_hookRateLimiter.tryAcquire()) {
+    return res.json({ ok: true, dropped: 'rate' });
+  }
   const body = req.body || {};
   const sessionId = body.session_id || body.sessionId || null;
   // v0.51 T-22 fix: record 顶层字段长度封顶
