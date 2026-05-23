@@ -6291,6 +6291,79 @@ function getAvailableAdapters() {
   return Array.from(ids);
 }
 
+// 各 adapter 的可选 model 列表 + 默认推荐（数组首项为预选）
+// 第一项 = 该 adapter 当家最强模型（生成报告时优先用），其后按降级排
+const REPORT_MODEL_OPTIONS = {
+  claude: [
+    { value: 'claude-opus-4-7', label: 'claude-opus-4-7（最强 · 推荐）' },
+    { value: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6（平衡 · CLI 默认）' },
+    { value: 'claude-haiku-4-5', label: 'claude-haiku-4-5（快·便宜）' },
+    { value: '', label: '（留空 / 让 CLI 自己选）' },
+  ],
+  codex: [
+    { value: 'gpt-5.5', label: 'gpt-5.5（最强 · CLI 默认）' },
+    { value: '', label: '（留空 / 让 CLI 自己选）' },
+  ],
+  'gemini-cli': [
+    { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro（最强 · 推荐）' },
+    { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash（快 · CLI 默认）' },
+    { value: '', label: '（留空 / 让 CLI 自己选）' },
+  ],
+};
+// __custom__ 哨兵 → 切换到手填文本框，覆盖 select 的预定义项
+const REPORT_MODEL_CUSTOM = '__custom__';
+
+function getReportModelOptions(adapterId) {
+  return REPORT_MODEL_OPTIONS[adapterId] || null;
+}
+
+/** 根据当前 adapter 渲染 model 选择区（已知 adapter → select；未知 → input） */
+function renderReportModelArea() {
+  const area = document.getElementById('rpModelArea');
+  if (!area) return;
+  const adapter = document.getElementById('rpAdapter')?.value || '';
+  const opts = getReportModelOptions(adapter);
+
+  if (!opts) {
+    // 未知 adapter（如用户自定义的 OpenAI 兼容条目）→ 纯文本输入兜底
+    area.innerHTML = `
+      <input id="rpModelCustom" maxlength="100" placeholder="如 deepseek-v3 / 留空走默认" />
+      <input type="hidden" id="rpModelSelect" value="${REPORT_MODEL_CUSTOM}" />
+      <div class="help">该 adapter 无预设 model 列表，可手填具体型号或留空。</div>
+    `;
+    return;
+  }
+  const selectHtml = opts.map((o, i) => `<option value="${escapeHtml(o.value)}" ${i === 0 ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+  area.innerHTML = `
+    <select id="rpModelSelect">
+      ${selectHtml}
+      <option value="${REPORT_MODEL_CUSTOM}">自定义（手填型号名）...</option>
+    </select>
+    <input id="rpModelCustom" maxlength="100" placeholder="自定义型号名" style="display:none;margin-top:6px;" />
+    <div class="help">报告浓缩任务推荐用最强模型；快/便宜模型可能漏掉细节。</div>
+  `;
+  const sel = document.getElementById('rpModelSelect');
+  const cus = document.getElementById('rpModelCustom');
+  sel?.addEventListener('change', () => {
+    if (sel.value === REPORT_MODEL_CUSTOM) {
+      cus.style.display = '';
+      cus.focus();
+    } else {
+      cus.style.display = 'none';
+      cus.value = '';
+    }
+  });
+}
+
+/** runReport 取最终 model：自定义 → 文本框值；预设 → select 值 */
+function getReportModelValue() {
+  const sel = document.getElementById('rpModelSelect');
+  const cus = document.getElementById('rpModelCustom');
+  if (!sel) return (cus?.value || '').trim();
+  if (sel.value === REPORT_MODEL_CUSTOM) return (cus?.value || '').trim();
+  return (sel.value || '').trim();
+}
+
 function renderReportForm() {
   const root = $('#reportModalBody');
   if (!root) return;
@@ -6305,8 +6378,8 @@ function renderReportForm() {
       <div class="help">推荐 claude（指令遵循 + 中文输出最稳）。注意：会调一次该 adapter 的真 LLM 请求，会算成本。</div>
     </div>
     <div class="report-form-row">
-      <label>model（可空，让 adapter 自己选）</label>
-      <input id="rpModel" maxlength="100" placeholder="如 claude-sonnet-4-6 / 留空走默认" />
+      <label>具体型号</label>
+      <div id="rpModelArea"></div>
     </div>
     <div class="report-form-row">
       <label>保存路径（可空 → 不写盘，只在 modal 里看 + 下载）</label>
@@ -6323,11 +6396,14 @@ function renderReportForm() {
   `;
   $('#btnReportGo')?.addEventListener('click', runReport);
   root.querySelectorAll('[data-close-report]').forEach(el => el.addEventListener('click', closeReportModal));
+  // adapter 切换时重渲染 model 区域；初次进入也渲一次
+  $('#rpAdapter')?.addEventListener('change', renderReportModelArea);
+  renderReportModelArea();
 }
 
 async function runReport() {
   const adapterId = $('#rpAdapter').value;
-  const model = ($('#rpModel').value || '').trim();
+  const model = getReportModelValue();
   const outputPath = ($('#rpOutputPath').value || '').trim();
   const autoPath = $('#rpAutoPath').checked;
 
