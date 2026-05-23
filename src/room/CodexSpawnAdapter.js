@@ -29,6 +29,9 @@ export class CodexSpawnAdapter extends RoomAdapter {
       timeout: opts.timeout || 1800000,  // v0.52 默认 30 分钟
     });
     this.bin = opts.bin || DEFAULT_CODEX_BIN;
+    // codex CLI 0.128.0 的 turn/start 硬上限是 1,048,576 字符（stdin 整段）；
+    // 扣掉 flattenMessages 分隔符 + system prompt + 模板 + 元信息，安全余量 ~48K。
+    this.maxPromptChars = 1_000_000;
   }
 
   async _doChat(messages, opts = {}) {

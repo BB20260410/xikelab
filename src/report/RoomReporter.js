@@ -44,18 +44,20 @@ function isPathSafe(absPath) {
 
 const MODE_LABEL = { debate: '辩论', squad: '小组', arena: '对决', chat: '闲聊' };
 
-/** 把 room 拍平成喂给 SUMMARY_PROMPT 的 markdown 段 */
-function flattenRoomContent(room) {
+/** 把 room 拍平成喂给 SUMMARY_PROMPT 的 markdown 段
+ *  @param maxChars 整体字符上限，默认 MAX_TOTAL_CONTENT；可被 adapter.maxPromptChars 覆盖到更低值（如 codex 1M）
+ */
+function flattenRoomContent(room, maxChars = MAX_TOTAL_CONTENT) {
   const lines = [];
   let used = 0;
   function push(s) {
-    if (used >= MAX_TOTAL_CONTENT) return;
+    if (used >= maxChars) return;
     const trimmed = s.length > MAX_CONTENT_PER_TURN
       ? s.slice(0, MAX_CONTENT_PER_TURN) + '\n…(单条截断)'
       : s;
-    if (used + trimmed.length > MAX_TOTAL_CONTENT) {
-      lines.push(trimmed.slice(0, MAX_TOTAL_CONTENT - used));
-      used = MAX_TOTAL_CONTENT;
+    if (used + trimmed.length > maxChars) {
+      lines.push(trimmed.slice(0, maxChars - used));
+      used = maxChars;
     } else {
       lines.push(trimmed);
       used += trimmed.length;
@@ -73,7 +75,7 @@ function flattenRoomContent(room) {
       if (c.thinking) continue;
       const who = c.from === 'user' ? '【用户】' : `【${c.displayName || c.from}】`;
       push(`### ${who} ${c.at || ''}\n${c.content || ''}\n`);
-      if (used >= MAX_TOTAL_CONTENT) break;
+      if (used >= maxChars) break;
     }
   }
 
@@ -85,9 +87,9 @@ function flattenRoomContent(room) {
       for (const t of (r.turns || [])) {
         const tag = t.error ? '❌ ' : '';
         push(`#### ${tag}${t.displayName || t.speaker}${t.tokensOut ? ` (${t.tokensOut} tok)` : ''}\n${t.content || ''}\n`);
-        if (used >= MAX_TOTAL_CONTENT) break;
+        if (used >= maxChars) break;
       }
-      if (used >= MAX_TOTAL_CONTENT) break;
+      if (used >= maxChars) break;
     }
   }
 
@@ -101,7 +103,7 @@ function flattenRoomContent(room) {
       if (lastGood) push(`**Dev 最终交付**：\n${lastGood.content || ''}\n`);
       const lastReview = (t.reviews || [])[t.reviews.length - 1];
       if (lastReview) push(`**QA 最终 verdict**：${lastReview.verdict} — ${lastReview.reasoning || ''}\n`);
-      if (used >= MAX_TOTAL_CONTENT) break;
+      if (used >= maxChars) break;
     }
   }
 
@@ -110,7 +112,7 @@ function flattenRoomContent(room) {
     push(`## 已有的最终共识（来自 Judge / PM 总结）\n${room.finalConsensus}\n`);
   }
 
-  return { content: lines.join('\n'), truncated: used >= MAX_TOTAL_CONTENT };
+  return { content: lines.join('\n'), truncated: used >= maxChars };
 }
 
 /** 按 room.mode 选 prompt 模板 */
@@ -266,7 +268,11 @@ export async function generateReport({ room, adapter, model, outputPath } = {}) 
   if (!adapter || typeof adapter.chat !== 'function') return { ok: false, error: 'adapter (with .chat) required' };
 
   const startedAt = Date.now();
-  const { content: flatContent, truncated } = flattenRoomContent(room);
+  // 各 adapter 后端有不同的输入上限（如 codex CLI 0.128.0 stdin 硬上限 1,048,576 字符）；
+  // 取 min(全局 cap, adapter 自报上限) 决定本次实际截断点。
+  const adapterMax = Number.isFinite(adapter.maxPromptChars) ? adapter.maxPromptChars : Infinity;
+  const effectiveMax = Math.min(MAX_TOTAL_CONTENT, adapterMax);
+  const { content: flatContent, truncated } = flattenRoomContent(room, effectiveMax);
   if (!flatContent.trim()) {
     return { ok: false, error: '房间内无任何聊天内容可总结' };
   }
