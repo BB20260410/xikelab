@@ -920,7 +920,7 @@ app.get('/api/watcher/providers', (req, res) => {
   res.json({ ok: true, providers, defaultId: watcherConfig.provider || 'ollama' });
 });
 
-app.put('/api/watcher/config', (req, res) => {
+app.put('/api/watcher/config', requireOwnerToken, (req, res) => {
   const incoming = req.body || {};
   // 如果 apiKey 是脱敏后的（含 ...），保留原值不覆盖
   if (typeof incoming.apiKey === 'string' && incoming.apiKey.includes('...')) {
@@ -976,7 +976,7 @@ app.put('/api/watcher/config', (req, res) => {
 });
 
 // 测试 adapter 连通性（dry-run）
-app.post('/api/watcher/test', async (req, res) => {
+app.post('/api/watcher/test', requireOwnerToken, async (req, res) => {
   if (!watcherAdapter) return res.json({ ok: false, error: '监视者未启用或未配置 API key' });
   try {
     const verdict = await watcherAdapter.judge({
@@ -1986,7 +1986,7 @@ app.get('/api/room-adapters', (req, res) => {
   });
 });
 
-app.put('/api/room-adapters', async (req, res) => {
+app.put('/api/room-adapters', requireOwnerToken, async (req, res) => {
   const r = cleanRoomAdaptersConfig(req.body || {}, roomAdaptersConfig);
   if (!r.ok) return res.status(422).json({ error: r.error });
   // v1.5 Task 3.2 — Free tier adapter limit 3
