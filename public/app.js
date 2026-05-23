@@ -6469,7 +6469,7 @@ async function runReport() {
     return;
   }
 
-  // 监听 WS 等结果（超时 5 min）
+  // 监听 WS 等结果（超时 10 min，> 后端 RoomReporter 8 min，让后端先报错回来不是被前端先 kill）
   listener = (ev) => {
     try {
       const msg = JSON.parse(ev.data);
@@ -6495,7 +6495,7 @@ async function runReport() {
     // WS 还没连上时延迟挂载（ensureGlobalWs 创建后会重连）
     setTimeout(() => { if (globalWsState.ws) globalWsState.ws.addEventListener('message', listener); }, 300);
   }
-  timeoutTimer = setTimeout(() => fail('超时 5 分钟未收到 AI 响应；可能 adapter 配置错或 LLM 卡了'), 5 * 60 * 1000);
+  timeoutTimer = setTimeout(() => fail('超时 10 分钟未收到 AI 响应；可能 adapter 配置错或 LLM 卡了'), 10 * 60 * 1000);
 }
 
 function renderReportPreview(r) {
