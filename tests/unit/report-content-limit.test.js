@@ -73,4 +73,16 @@ describe('RoomReporter 内容上限 1.5M', () => {
     expect(res.ok).toBe(true);
     expect(captured.promptLen).toBeLessThan(200_000);  // 3 × 32K + 模板 < 200K
   });
+
+  it('adapter 自报 maxPromptChars=1M (如 codex CLI) → 喂 codex 的内容被 cap 到 1M 内', async () => {
+    const room = makeRoom(10_000, 200);  // 约 2M 字符
+    const { adapter, captured } = makeCapturingAdapter();
+    adapter.maxPromptChars = 1_000_000;  // 模拟 CodexSpawnAdapter
+    const res = await generateReport({ room, adapter });
+    expect(res.ok).toBe(true);
+    expect(res.truncated).toBe(true);
+    // promptLen = system + user(含 ~1M 内容 + 模板 ~3K) < 1,048,576（codex 硬上限）
+    expect(captured.promptLen).toBeLessThan(1_048_576);
+    expect(captured.promptLen).toBeGreaterThan(900_000);
+  }, 30_000);
 });
