@@ -6287,7 +6287,13 @@ function openReportModal() {
   $('#reportModal').style.display = 'flex';
   renderReportForm();
 }
-function closeReportModal() { $('#reportModal').style.display = 'none'; reportState.lastResult = null; }
+function closeReportModal() {
+  $('#reportModal').style.display = 'none';
+  reportState.lastResult = null;
+  // 关 modal 视为放弃当前生成任务：清掉 activeJob + 超时定时器，避免事件到达时往隐藏 modal 里写
+  if (reportState.activeJob?.timer) { clearTimeout(reportState.activeJob.timer); }
+  reportState.activeJob = null;
+}
 
 function getAvailableAdapters() {
   // 从 roomState 当前房的 members 拿默认 adapter，加上常见 fallback
@@ -6431,10 +6437,9 @@ async function runReport() {
   // 2) 注册到 reportState.activeJob，ws.onmessage 按 jobId 分发（WS 重连免疫）
   let jobId = null;
   let resolved = false;
-  let timeoutTimer = null;
 
   function cleanup() {
-    if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+    if (reportState.activeJob?.timer) { clearTimeout(reportState.activeJob.timer); }
     reportState.activeJob = null;
   }
 
@@ -6490,8 +6495,8 @@ async function runReport() {
       });
     },
     onError: (msg) => { fail(msg.error || 'unknown'); },
+    timer: setTimeout(() => fail('超时 10 分钟未收到 AI 响应；可能 adapter 配置错或 LLM 卡了'), 10 * 60 * 1000),
   };
-  timeoutTimer = setTimeout(() => fail('超时 10 分钟未收到 AI 响应；可能 adapter 配置错或 LLM 卡了'), 10 * 60 * 1000);
 }
 
 function renderReportPreview(r) {
