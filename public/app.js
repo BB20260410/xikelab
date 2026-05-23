@@ -5097,6 +5097,12 @@ function ensureGlobalWs() {
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
+        // 报告生成结果分发：activeJob 在 ws.onmessage 这层路由，重连后新 ws 也能正确投递
+        const job = reportState.activeJob;
+        if (job && msg.jobId === job.jobId) {
+          if (msg.type === 'report_done') { try { job.onDone?.(msg); } catch {} }
+          else if (msg.type === 'report_error') { try { job.onError?.(msg); } catch {} }
+        }
         if (msg.type === 'metrics_update') {
           if (overviewState.shown) {
             if (overviewState._pendingRefresh) return;
@@ -6273,7 +6279,8 @@ $('#btnMcpNew')?.addEventListener('click', () => {
 // S18-3：data-close-mcp 全局绑定由 Modal event delegation 接管
 
 // ========== v0.54 Sprint 9 — 📝 生成总结报告 ==========
-const reportState = { lastResult: null };
+// activeJob 让 ws.onmessage 按 jobId 分发回调，WS 重连后旧 listener 失效的问题靠这个绕开
+const reportState = { lastResult: null, activeJob: null };
 
 function openReportModal() {
   if (!roomState.activeId) { toast('先选一个房间', 'warn'); return; }
@@ -6421,18 +6428,14 @@ async function runReport() {
 
   // v0.55 Sprint 14 F1：改异步 job 模式（修 Safari fetch 60s timeout 报 "Load failed"）
   // 1) POST 立即返 jobId
-  // 2) 监听 /ws/global 的 report_done / report_error 匹配 jobId
+  // 2) 注册到 reportState.activeJob，ws.onmessage 按 jobId 分发（WS 重连免疫）
   let jobId = null;
   let resolved = false;
   let timeoutTimer = null;
-  let listener = null;
 
   function cleanup() {
     if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
-    if (listener && globalWsState.ws) {
-      try { globalWsState.ws.removeEventListener('message', listener); } catch {}
-    }
-    listener = null;
+    reportState.activeJob = null;
   }
 
   function fail(msg) {
@@ -6471,32 +6474,23 @@ async function runReport() {
     return;
   }
 
-  // 监听 WS 等结果（超时 10 min，> 后端 RoomReporter 8 min，让后端先报错回来不是被前端先 kill）
-  listener = (ev) => {
-    try {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === 'report_done' && msg.jobId === jobId) {
-        // v0.70.2-t2: assertion warning → toast（学自 W11 promptfoo）
-        if (Array.isArray(msg.assertionFailed) && msg.assertionFailed.length > 0) {
-          const summary = msg.assertionFailed.map(f => `${f.type}: ${f.reason}`).join(' / ');
-          toast(`⚠️ 报告质量校验 ${msg.assertionFailed.length} 项未通过：${summary}`, 'warn', 8000);
-        }
-        succeed({
-          content: msg.content, path: msg.path,
-          tokensIn: msg.tokensIn, tokensOut: msg.tokensOut,
-          elapsedMs: msg.elapsedMs, truncated: msg.truncated,
-        });
-      } else if (msg.type === 'report_error' && msg.jobId === jobId) {
-        fail(msg.error || 'unknown');
+  // 注册 jobId 回调到 reportState.activeJob，ws.onmessage 按 jobId 路由
+  reportState.activeJob = {
+    jobId,
+    onDone: (msg) => {
+      // v0.70.2-t2: assertion warning → toast（学自 W11 promptfoo）
+      if (Array.isArray(msg.assertionFailed) && msg.assertionFailed.length > 0) {
+        const summary = msg.assertionFailed.map(f => `${f.type}: ${f.reason}`).join(' / ');
+        toast(`⚠️ 报告质量校验 ${msg.assertionFailed.length} 项未通过：${summary}`, 'warn', 8000);
       }
-    } catch {}
+      succeed({
+        content: msg.content, path: msg.path,
+        tokensIn: msg.tokensIn, tokensOut: msg.tokensOut,
+        elapsedMs: msg.elapsedMs, truncated: msg.truncated,
+      });
+    },
+    onError: (msg) => { fail(msg.error || 'unknown'); },
   };
-  if (globalWsState.ws) {
-    globalWsState.ws.addEventListener('message', listener);
-  } else {
-    // WS 还没连上时延迟挂载（ensureGlobalWs 创建后会重连）
-    setTimeout(() => { if (globalWsState.ws) globalWsState.ws.addEventListener('message', listener); }, 300);
-  }
   timeoutTimer = setTimeout(() => fail('超时 10 分钟未收到 AI 响应；可能 adapter 配置错或 LLM 卡了'), 10 * 60 * 1000);
 }
 
