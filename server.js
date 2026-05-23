@@ -1815,7 +1815,7 @@ const { mcpClientManager } = registerMcpRoutes(app, { mcpStore });
 // v0.54 Sprint 9 + v0.55 Sprint 14 F1：改异步 job（修 Load failed —— Safari fetch >60s 超时报"Load failed"）
 // body: { adapterId?, model?, outputPath?, autoPath?: boolean }
 // 立即返 { ok, jobId, status:'queued' }，后台跑 generateReport，完成 broadcastGlobal report_done / report_error
-app.post('/api/rooms/:id/report', (req, res) => {
+app.post('/api/rooms/:id/report', requireOwnerToken, (req, res) => {
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'room not found' });
   const { adapterId = 'claude', model = '', outputPath: rawPath, autoPath } = req.body || {};
@@ -1890,7 +1890,7 @@ app.post('/api/rooms/:id/report', (req, res) => {
 
 // v0.53 Sprint 3.5：清理老 metrics 文件
 // query: olderThan=YYYY-MM（删该月份及之前的所有 metrics-*.jsonl）
-app.delete('/api/metrics', (req, res) => {
+app.delete('/api/metrics', requireOwnerToken, (req, res) => {
   try {
     const cutoff = String(req.query.olderThan || '').trim();
     if (!/^\d{4}-\d{2}$/.test(cutoff)) {
@@ -2154,7 +2154,7 @@ registerRoomsRoutes(app, {
 
 
 // 启动 debate / squad（按 room.mode 调对应 dispatcher）
-app.post('/api/rooms/:id/debate', async (req, res) => {
+app.post('/api/rooms/:id/debate', requireOwnerToken, async (req, res) => {
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'not found' });
   const topic = (req.body || {}).topic;
@@ -2191,7 +2191,7 @@ app.post('/api/rooms/:id/debate', async (req, res) => {
 // v0.42 用户中途注入提示给某个 task（squad 模式专用）
 const INJECT_MAX_LEN = 32000;      // v0.52 极限 32000：长 prompt 也能塞
 const INJECT_MAX_COUNT = 50;       // v0.52 20→50
-app.post('/api/rooms/:id/tasks/:tid/inject', (req, res) => {
+app.post('/api/rooms/:id/tasks/:tid/inject', requireOwnerToken, (req, res) => {
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'room not found' });
   const content = String(req.body?.content || '').trim();
@@ -2230,7 +2230,7 @@ app.get('/api/rooms/:id/tasks/:tid/diff', async (req, res) => {
 });
 
 // v0.52 Sprint1-F：把当前房的 finalConsensus 作为 topic 转给新房
-app.post('/api/rooms/forward', async (req, res) => {
+app.post('/api/rooms/forward', requireOwnerToken, async (req, res) => {
   if (roomStore.list().length >= MAX_ROOMS) {
     return res.status(429).json({ error: `已达房间总数上限（${MAX_ROOMS}）。先删/归档一些旧房` });
   }
@@ -2469,7 +2469,7 @@ ${finalCapped}`;
 });
 
 // v0.52 Sprint1-D：局部重试单个 turn（仅辩论房）
-app.post('/api/rooms/:id/retry-turn', async (req, res) => {
+app.post('/api/rooms/:id/retry-turn', requireOwnerToken, async (req, res) => {
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'room not found' });
   if (r.mode !== 'debate' && r.mode !== 'arena') {
@@ -2496,7 +2496,7 @@ app.post('/api/rooms/:id/retry-turn', async (req, res) => {
 });
 
 // v0.54 Sprint 6：squad 房单 task 重试（reset 该 task + 连带下游 + 触发 resume）
-app.post('/api/rooms/:id/retry-task', (req, res) => {
+app.post('/api/rooms/:id/retry-task', requireOwnerToken, (req, res) => {
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'room not found' });
   if (r.mode !== 'squad') return res.status(400).json({ error: `${r.mode} 房不支持单 task 重试（squad 专用）` });
@@ -2516,7 +2516,7 @@ app.post('/api/rooms/:id/retry-task', (req, res) => {
 
 // v0.52 续跑：从未完成阶段继续（保留已有 R1/R2/R3 / taskList 产出）
 // 支持 debate / squad
-app.post('/api/rooms/:id/resume', async (req, res) => {
+app.post('/api/rooms/:id/resume', requireOwnerToken, async (req, res) => {
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'room not found' });
   if (r.status === 'running') return res.status(409).json({ error: '房间已在运行中' });
@@ -2539,7 +2539,7 @@ app.post('/api/rooms/:id/resume', async (req, res) => {
 });
 
 // 中断（三个 dispatcher 都尝试）
-app.post('/api/rooms/:id/abort', (req, res) => {
+app.post('/api/rooms/:id/abort', requireOwnerToken, (req, res) => {
   // v0.51 U-16 fix: room 不存在时返 404，避免 silent ok:true 误导
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'room not found' });
@@ -2551,7 +2551,7 @@ app.post('/api/rooms/:id/abort', (req, res) => {
 });
 
 // v0.48 chat 模式：用户发一条消息触发一次 AI 回应
-app.post('/api/rooms/:id/chat', async (req, res) => {
+app.post('/api/rooms/:id/chat', requireOwnerToken, async (req, res) => {
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'room not found' });
   if (r.mode !== 'chat') return res.status(400).json({ error: 'room mode != chat' });
@@ -2933,7 +2933,7 @@ app.get('/api/sessions/:id/handoff-meta', (req, res) => {
 
 // 触发逻辑接力：归档当前 snapshot + 在 panel 内新建同 cwd 的 session
 // 新 session 第一条消息预置 HANDOFF 内容，让新 claude 自动接手
-app.post('/api/sessions/:id/handoff', (req, res) => {
+app.post('/api/sessions/:id/handoff', requireOwnerToken, (req, res) => {
   // v0.51 T-23 fix: handoff 也创建新 session，需走 capacity check
   if (!checkSessionsCapacity(res)) return;
   const s = sessions.get(req.params.id);
@@ -3195,7 +3195,7 @@ app.get('/api/search', (req, res) => {
 // v0.54 Sprint 4 — CLI 一键起房：建房 + （可选）应用模板 + （可选）启动
 // body: { mode, name?, members?, topic, templateId?, debateRounds?, qaStrictness?, startNow?, cwd? }
 // 一次性完成：roomStore.create + PATCH 字段 + 启动 dispatcher
-app.post('/api/rooms/quick', async (req, res) => {
+app.post('/api/rooms/quick', requireOwnerToken, async (req, res) => {
   try {
     if (roomStore.list().length >= MAX_ROOMS) {
       return res.status(429).json({ error: `已达房间总数上限（${MAX_ROOMS}）` });
@@ -3428,7 +3428,7 @@ app.get('/api/sessions/:id/export', (req, res) => {
 });
 
 // ============ v0.50 收藏消息（F5）============
-app.post('/api/sessions/:id/star', (req, res) => {
+app.post('/api/sessions/:id/star', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   const idx = parseInt(req.body?.msgIndex, 10);
@@ -3487,7 +3487,7 @@ function savePrompts(list) {
   } catch (e) { console.warn('save prompts:', e.message); return false; }
 }
 app.get('/api/prompts', (req, res) => res.json({ ok: true, prompts: loadPrompts() }));
-app.post('/api/prompts', (req, res) => {
+app.post('/api/prompts', requireOwnerToken, (req, res) => {
   const { name, content } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'name required' });
   if (!content || typeof content !== 'string') return res.status(400).json({ error: 'content required' });
@@ -3500,7 +3500,7 @@ app.post('/api/prompts', (req, res) => {
   savePrompts(list);
   res.json({ ok: true, prompt: item });
 });
-app.delete('/api/prompts/:id', (req, res) => {
+app.delete('/api/prompts/:id', requireOwnerToken, (req, res) => {
   const list = loadPrompts();
   const idx = list.findIndex(p => p.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'not found' });
@@ -3510,7 +3510,7 @@ app.delete('/api/prompts/:id', (req, res) => {
 });
 
 // ============ v0.50 Session forking（F7）============
-app.post('/api/sessions/:id/fork', (req, res) => {
+app.post('/api/sessions/:id/fork', requireOwnerToken, (req, res) => {
   // v0.51 R-13: fork 也走 sessions 上限检查
   if (!checkSessionsCapacity(res)) return;
   const s = sessions.get(req.params.id);
@@ -3653,7 +3653,7 @@ app.get('/api/safety/status', (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-app.post('/api/safety/breakers/:key/reset', (req, res) => {
+app.post('/api/safety/breakers/:key/reset', requireOwnerToken, (req, res) => {
   try {
     const ok = breakers.reset(req.params.key);
     if (!ok) return res.status(404).json({ ok: false, error: 'breaker not found' });
@@ -3662,7 +3662,7 @@ app.post('/api/safety/breakers/:key/reset', (req, res) => {
 });
 
 // 配置某 adapter 的 rate limit
-app.put('/api/safety/rate-limit/:key', (req, res) => {
+app.put('/api/safety/rate-limit/:key', requireOwnerToken, (req, res) => {
   try {
     const { perMinute, burst } = req.body || {};
     const pm = Math.max(1, Math.min(10000, Number(perMinute) || 60));
