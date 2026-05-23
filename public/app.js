@@ -6429,7 +6429,7 @@ function renderReportPreview(r) {
   const pathLine = r.path
     ? `<div>📂 已保存到：<code>${escapeHtml(r.path)}</code></div>`
     : `<div class="muted">未保存到磁盘（仅在此处预览，可点下方"💾 下载"保存）</div>`;
-  const truncated = r.truncated ? '<div style="color:#c15f3c;">⚠️ 原内容过长，已截断到 200KB（中段被省略）</div>' : '';
+  const truncated = r.truncated ? '<div style="color:#c15f3c;">⚠️ 原内容超过 800K 字符上限，末尾已截断（后续 turn 未喂给 AI）</div>' : '';
   root.innerHTML = `
     <div class="report-preview-wrap">
       <div class="report-preview-meta">
