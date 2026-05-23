@@ -2554,7 +2554,7 @@ async function createRoom(mode = 'debate', defaultPartner) {
       await loadRooms();
       selectRoom(r.room.id);
     } else {
-      toast('创建失败', 'error');
+      toast(r.error || '创建失败', 'error');
     }
   } catch (e) {
     toast('创建失败：' + e.message, 'error');
