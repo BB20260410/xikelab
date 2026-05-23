@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, mkdtempSync, rmSync, symlinkSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { safeResolveFsPath, FORBIDDEN_HOME_SUBPATHS } from '../../../src/server/services/path-sandbox.js';
+import { safeResolveFsPath, safeResolveFsPathForWrite, FORBIDDEN_HOME_SUBPATHS } from '../../../src/server/services/path-sandbox.js';
 import { maskedConfig } from '../../../src/watcher/WatcherConfig.js';
 
 describe('safeResolveFsPath - 攻击路径必须拒绝', () => {
@@ -79,6 +79,46 @@ describe('safeResolveFsPath - 合法路径放行', () => {
       return;
     }
     expect(safeResolveFsPath(link)).toBeNull();
+  });
+});
+
+describe('safeResolveFsPathForWrite - 写入用变体', () => {
+  let TMP;
+  beforeEach(() => { TMP = mkdtempSync('/tmp/xikelab-sandbox-write-'); });
+  afterEach(() => { try { rmSync(TMP, { recursive: true, force: true }); } catch {} });
+
+  it('放行：父目录在 sandbox 内、文件尚不存在（最常见的写新报告 case）', () => {
+    const out = safeResolveFsPathForWrite(join(TMP, 'new-report.md'));
+    expect(out).toBeTruthy();
+    expect(out.endsWith('new-report.md')).toBe(true);
+  });
+
+  it('放行：文件已存在时走原 sandbox 检查', () => {
+    const f = join(TMP, 'exists.md');
+    writeFileSync(f, 'x');
+    expect(safeResolveFsPathForWrite(f)).toBeTruthy();
+  });
+
+  it('拒绝：父目录不存在', () => {
+    expect(safeResolveFsPathForWrite('/nonexistent-xyz-' + Date.now() + '/foo.md')).toBeNull();
+  });
+
+  it('拒绝：父目录在敏感子树（~/.ssh/foo.md）', () => {
+    expect(safeResolveFsPathForWrite(join(homedir(), '.ssh', 'foo.md'))).toBeNull();
+  });
+
+  it('拒绝：父目录越权（/etc/foo.md）', () => {
+    expect(safeResolveFsPathForWrite('/etc/foo.md')).toBeNull();
+  });
+
+  it('拒绝：null byte 注入', () => {
+    expect(safeResolveFsPathForWrite(join(TMP, 'evil\0.md'))).toBeNull();
+  });
+
+  it('拒绝：非字符串/空', () => {
+    expect(safeResolveFsPathForWrite(null)).toBeNull();
+    expect(safeResolveFsPathForWrite('')).toBeNull();
+    expect(safeResolveFsPathForWrite(123)).toBeNull();
   });
 });
 

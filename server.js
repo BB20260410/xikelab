@@ -107,7 +107,7 @@ import { PluginHttpAdapter } from './src/plugin/PluginHttpAdapter.js';
 import { MiniMaxChatAdapter } from './src/room/MiniMaxChatAdapter.js';
 import { CCRSpawnAdapter } from './src/room/CCRSpawnAdapter.js';
 // 路径沙箱（拆出便于 in-process 单测）
-import { safeResolveFsPath } from './src/server/services/path-sandbox.js';
+import { safeResolveFsPath, safeResolveFsPathForWrite } from './src/server/services/path-sandbox.js';
 // v0.54 Sprint 10：删除 Ruflo 集成 import
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1826,7 +1826,8 @@ app.post('/api/rooms/:id/report', (req, res) => {
   let outputPath = null;
   if (typeof rawPath === 'string' && rawPath.trim()) {
     if (rawPath.length > 1024) return res.status(400).json({ error: 'outputPath 过长' });
-    const safe = safeResolveFsPath(rawPath.trim());
+    // 报告通常写新文件 → 用 ForWrite 变体（允许文件不存在，父目录必须合法）
+    const safe = safeResolveFsPathForWrite(rawPath.trim());
     if (!safe) return res.status(403).json({ error: 'outputPath 越权或敏感目录' });
     outputPath = safe;
   } else if (autoPath === true) {
