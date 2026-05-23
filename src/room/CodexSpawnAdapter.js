@@ -118,7 +118,10 @@ export class CodexSpawnAdapter extends RoomAdapter {
         if (code === 0 && reply) {
           finishOk({ reply, tokensIn: 0, tokensOut, raw: { stdout, stderr, code } });
         } else {
-          finishErr(new Error(`Codex exit code=${code} reply 空 stderr=${stderr.slice(0, 300)}`));
+          // codex banner + prompt 回显常常占满 stderr 头部，真错误在末尾，抓 tail 而非 head
+          const stderrTail = stderr.length > 1500 ? '...(头部省略)...' + stderr.slice(-1500) : stderr;
+          const stdoutTail = stdout.length > 800 ? '...(头部省略)...' + stdout.slice(-800) : stdout;
+          finishErr(new Error(`Codex exit code=${code} reply 空 stderr_tail=${stderrTail} stdout_tail=${stdoutTail}`));
         }
       });
 
