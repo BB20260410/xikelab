@@ -14,9 +14,9 @@ import { writeFileSync, mkdirSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 
-const MAX_CONTENT_PER_TURN = 16000;    // 每条 turn 内容 cap，防超长 prompt
-const MAX_TOTAL_CONTENT = 800_000;     // 整体 prompt 上限 800K 字符（≈ 400-530K tokens，claude/gemini context 安全范围内）
-const REPORT_TIMEOUT = 300_000;        // 报告生成超时 5min（大房更慢）
+const MAX_CONTENT_PER_TURN = 32_000;   // 每条 turn 内容 cap，防超长 prompt
+const MAX_TOTAL_CONTENT = 1_500_000;   // 整体 prompt 上限 1.5M 字符（≈ 750K tokens 中文 / 375-500K tokens 混合，安全装入 claude/gemini 1M context）
+const REPORT_TIMEOUT = 480_000;        // 报告生成超时 8min（大内容 AI 处理慢）
 
 function expandHome(p) {
   if (typeof p !== 'string') return p;
