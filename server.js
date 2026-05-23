@@ -901,12 +901,12 @@ function rebuildDispatcher() {
 rebuildAdapter();
 rebuildDispatcher();
 
-app.get('/api/watcher/config', (req, res) => {
+app.get('/api/watcher/config', requireOwnerToken, (req, res) => {
   res.json({ ok: true, config: maskedConfig(watcherConfig) });
 });
 
 // v0.40 watcher providers 列表（per-session 选 watcher 用）
-app.get('/api/watcher/providers', (req, res) => {
+app.get('/api/watcher/providers', requireOwnerToken, (req, res) => {
   const providers = [];
   const labels = {
     claude:  '🟣 Claude（spawn CLI，零增量）',
@@ -1409,7 +1409,7 @@ app.get('/api/docs/:name', (req, res) => {
 });
 
 // 列最近 hook 事件（全局或按 session 过滤）
-app.get('/api/hooks', (req, res) => {
+app.get('/api/hooks', requireOwnerToken, (req, res) => {
   const sid = req.query.sessionId;
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
   let events = globalHookEvents;
@@ -1711,7 +1711,7 @@ function parseMetricsRange(req) {
   return result;
 }
 
-app.get('/api/metrics/overview', (req, res) => {
+app.get('/api/metrics/overview', requireOwnerToken, (req, res) => {
   try {
     const ov = metricsStore.overview({ roomStore });
     res.json({ ok: true, ...ov });
@@ -1720,7 +1720,7 @@ app.get('/api/metrics/overview', (req, res) => {
   }
 });
 
-app.get('/api/metrics/timeseries', (req, res) => {
+app.get('/api/metrics/timeseries', requireOwnerToken, (req, res) => {
   try {
     const { from, to, bucket = 'hour' } = parseMetricsRange(req);
     res.json({ ok: true, ...metricsStore.aggregate({ from, to, bucket }) });
@@ -1729,7 +1729,7 @@ app.get('/api/metrics/timeseries', (req, res) => {
   }
 });
 
-app.get('/api/metrics/by-adapter', (req, res) => {
+app.get('/api/metrics/by-adapter', requireOwnerToken, (req, res) => {
   try {
     const { from, to } = parseMetricsRange(req);
     res.json({ ok: true, ...metricsStore.byAdapter({ from, to }) });
@@ -1739,7 +1739,7 @@ app.get('/api/metrics/by-adapter', (req, res) => {
 });
 
 // v0.55 Sprint 13-D：trace 时间线 — 拿某房的所有 turn
-app.get('/api/metrics/by-room', (req, res) => {
+app.get('/api/metrics/by-room', requireOwnerToken, (req, res) => {
   try {
     const roomId = String(req.query.roomId || '');
     if (!/^[0-9a-f-]{36}$/.test(roomId)) return res.status(400).json({ ok: false, error: 'roomId 格式错' });
@@ -1750,7 +1750,7 @@ app.get('/api/metrics/by-room', (req, res) => {
   }
 });
 
-app.get('/api/metrics/health', (req, res) => {
+app.get('/api/metrics/health', requireOwnerToken, (req, res) => {
   try {
     const PANEL_DIR = join(homedir(), '.claude-panel');
     const fileSizeMB = (name) => {
@@ -1796,7 +1796,7 @@ app.get('/api/metrics/health', (req, res) => {
   }
 });
 
-app.get('/api/metrics/pricing', (req, res) => {
+app.get('/api/metrics/pricing', requireOwnerToken, (req, res) => {
   try {
     res.json({ ok: true, pricing: listPricing(), note: '估算可能与实际账单 ±20% 偏差' });
   } catch (e) {
@@ -1925,7 +1925,7 @@ registerWebhookRoutes(app, { webhookStore, maskWebhookUrl, testWebhook });
 registerRoomTemplatesRoutes(app, { roomTemplatesStore });
 
 // v0.53 Sprint 3 阶段 3：进程列表（pgrep -P → ps）+ PTY 终端 + 活跃 dispatcher 数
-app.get('/api/health/processes', (req, res) => {
+app.get('/api/health/processes', requireOwnerToken, (req, res) => {
   try {
     const myPid = process.pid;
     let psRows = [];
@@ -1978,7 +1978,7 @@ app.get('/api/health/processes', (req, res) => {
 });
 
 // v0.52 房间 adapter 池配置（minimax / gemini / gemini-openai / gemini-cli / customs[]）
-app.get('/api/room-adapters', (req, res) => {
+app.get('/api/room-adapters', requireOwnerToken, (req, res) => {
   res.json({
     ok: true,
     config: maskRoomAdaptersConfig(roomAdaptersConfig),
@@ -2017,7 +2017,7 @@ app.put('/api/room-adapters', requireOwnerToken, async (req, res) => {
 });
 
 // 列出当前可在房成员里选的 adapter id + displayName（前端下拉用）
-app.get('/api/room-adapters/providers', (req, res) => {
+app.get('/api/room-adapters/providers', requireOwnerToken, (req, res) => {
   const providers = [];
   for (const [id, adapter] of roomAdapterPool.entries()) {
     providers.push({ id, displayName: adapter.displayName || id });
@@ -2037,12 +2037,12 @@ const pluginRegistry = new PluginRegistry();
 }
 
 // GET /api/plugins — 列已加载 plugin manifest（摘要）
-app.get('/api/plugins', (req, res) => {
+app.get('/api/plugins', requireOwnerToken, (req, res) => {
   res.json({ ok: true, plugins: pluginRegistry.list() });
 });
 
 // GET /api/plugins/:id — 返完整 manifest JSON（含 bin/input/output/events/dashboard）
-app.get('/api/plugins/:id', (req, res) => {
+app.get('/api/plugins/:id', requireOwnerToken, (req, res) => {
   const id = req.params.id;
   if (!/^[a-z][a-z0-9_-]{0,39}$/.test(id)) return res.status(400).json({ error: 'plugin id 非法' });
   const entry = pluginRegistry.get(id);
@@ -2698,7 +2698,7 @@ function scanProject(projDir) {
 }
 
 // 端点：列所有方案 B 项目
-app.get('/api/projects', (req, res) => {
+app.get('/api/projects', requireOwnerToken, (req, res) => {
   if (!existsSync(PROJECTS_ROOT)) return res.json({ ok: false, reason: 'no-projects-root', root: PROJECTS_ROOT, items: [] });
   try {
     const dirs = readdirSync(PROJECTS_ROOT)
@@ -2713,7 +2713,7 @@ app.get('/api/projects', (req, res) => {
 
 // 端点：单项目详情（含 STATUS/BLOCKED/最近 PROGRESS）
 // v0.49 N-19 fix: name 严格校验，禁 path traversal
-app.get('/api/projects/:name', (req, res) => {
+app.get('/api/projects/:name', requireOwnerToken, (req, res) => {
   const name = req.params.name;
   if (!name || name.includes('/') || name.includes('\\') || name.includes('..') || name.length > 200) {
     return res.status(400).json({ error: 'invalid project name' });
@@ -3486,7 +3486,7 @@ function savePrompts(list) {
     return true;
   } catch (e) { console.warn('save prompts:', e.message); return false; }
 }
-app.get('/api/prompts', (req, res) => res.json({ ok: true, prompts: loadPrompts() }));
+app.get('/api/prompts', requireOwnerToken, (req, res) => res.json({ ok: true, prompts: loadPrompts() }));
 app.post('/api/prompts', requireOwnerToken, (req, res) => {
   const { name, content } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'name required' });
@@ -3633,7 +3633,7 @@ app.delete('/api/term/:id', requireOwnerToken, (req, res) => {
 registerAutopilotRoutes(app, { autopilotStore });
 
 // ============ v0.56 Sprint 15：Resilience（CircuitBreaker / Bulkhead / RateLimiter）状态 ============
-app.get('/api/safety/status', (req, res) => {
+app.get('/api/safety/status', requireOwnerToken, (req, res) => {
   try {
     // S21 P1：加 process.memoryUsage() 内存监控（前端可拉来画 RSS 趋势）
     const mu = process.memoryUsage();
