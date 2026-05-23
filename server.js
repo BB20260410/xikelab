@@ -1093,7 +1093,7 @@ app.post('/api/sessions', requireOwnerToken, (req, res) => {
 });
 
 // 列 sessions（query: ?archived=1 只列归档；不传则只列活跃）
-app.get('/api/sessions', (req, res) => {
+app.get('/api/sessions', requireOwnerToken, (req, res) => {
   const wantArchived = req.query.archived === '1' || req.query.archived === 'true';
   const list = [...sessions.values()]
     .filter(s => !!s.archived === wantArchived)
@@ -1162,7 +1162,7 @@ app.patch('/api/sessions/:id', requireOwnerToken, (req, res) => {
 });
 
 // 拿 session 详情（含历史）
-app.get('/api/sessions/:id', (req, res) => {
+app.get('/api/sessions/:id', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   res.json({
@@ -1228,7 +1228,7 @@ app.delete('/api/sessions/:id', requireOwnerToken, (req, res) => {
 });
 
 // 列 cwd 下文件（文件浏览器用）— v0.49 B-02 fix: 路径沙箱
-app.get('/api/files', (req, res) => {
+app.get('/api/files', requireOwnerToken, (req, res) => {
   const reqPath = req.query.path || '~';
   const path = safeResolveFsPath(reqPath);
   if (!path) return res.status(403).json({ error: 'forbidden: 路径越权或敏感目录' });
@@ -1258,7 +1258,7 @@ app.get('/api/files', (req, res) => {
 });
 
 // 读文件预览 — v0.49 B-02/B-05 fix: 沙箱 + 真实前 1MB 截断
-app.get('/api/file', (req, res) => {
+app.get('/api/file', requireOwnerToken, (req, res) => {
   if (!req.query.path) return res.status(400).json({ error: 'no path' });
   const path = safeResolveFsPath(req.query.path);
   if (!path) return res.status(403).json({ error: 'forbidden: 路径越权或敏感目录' });
@@ -2210,7 +2210,7 @@ app.post('/api/rooms/:id/tasks/:tid/inject', requireOwnerToken, (req, res) => {
 
 // v0.70 W8 集成：squad task 多次 attempt 之间的 diff（学自 aider/Cline）
 // GET /api/rooms/:id/tasks/:tid/diff?from=N&to=M  → unified diff + added/removed 行数
-app.get('/api/rooms/:id/tasks/:tid/diff', async (req, res) => {
+app.get('/api/rooms/:id/tasks/:tid/diff', requireOwnerToken, async (req, res) => {
   try {
     const r = roomStore.get(req.params.id);
     if (!r) return res.status(404).json({ error: 'room not found' });
@@ -2830,7 +2830,7 @@ function estimateCtx(transcriptPath) {
 }
 
 // 端点：返回该 session 的 ctx 估算
-app.get('/api/sessions/:id/ctx', (req, res) => {
+app.get('/api/sessions/:id/ctx', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   if (!s.claudeSessionId) {
@@ -2845,7 +2845,7 @@ app.get('/api/sessions/:id/ctx', (req, res) => {
 // ============ 07 Continuum 集成：snapshot / meta / handoff ============
 
 // 读该 session cwd 对应的事实快照
-app.get('/api/sessions/:id/snapshot', (req, res) => {
+app.get('/api/sessions/:id/snapshot', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   const dir = continuumDir(s.cwd);
@@ -2876,7 +2876,7 @@ app.get('/api/sessions/:id/snapshot', (req, res) => {
 });
 
 // 读 chain history 归档列表（用 ?file=<name> 取具体某次归档全文）
-app.get('/api/sessions/:id/handoff-history', (req, res) => {
+app.get('/api/sessions/:id/handoff-history', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   const histDir = join(continuumDir(s.cwd), 'history');
@@ -2916,7 +2916,7 @@ app.get('/api/sessions/:id/handoff-history', (req, res) => {
 });
 
 // 读 meta（chain_depth / handoff_count / project_mode / origin）
-app.get('/api/sessions/:id/handoff-meta', (req, res) => {
+app.get('/api/sessions/:id/handoff-meta', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   const metaPath = join(continuumDir(s.cwd), 'meta.json');
@@ -3120,7 +3120,7 @@ app.post('/api/spawn-batch', requireOwnerToken, (req, res) => {
 });
 
 // 浏览目录 — v0.49 N-03 fix: 加沙箱（与 /api/files 同沙箱）
-app.get('/api/browse', (req, res) => {
+app.get('/api/browse', requireOwnerToken, (req, res) => {
   const path = safeResolveFsPath(req.query.path || '~');
   if (!path) return res.status(403).json({ error: 'forbidden: 路径越权或敏感目录' });
   // v0.51 T-18 fix: 检查是否目录
@@ -3149,7 +3149,7 @@ app.get('/api/browse', (req, res) => {
 });
 
 // ============ v0.50 全局搜索（F1）：跨 session 搜 messages ============
-app.get('/api/search', (req, res) => {
+app.get('/api/search', requireOwnerToken, (req, res) => {
   const q = req.query.q;
   if (!q || typeof q !== 'string' || !q.trim()) return res.status(400).json({ error: 'q required' });
   if (q.length > 200) return res.status(400).json({ error: 'q 过长（>200）' });
@@ -3311,7 +3311,7 @@ app.post('/api/rooms/quick', requireOwnerToken, async (req, res) => {
 });
 
 // v0.53 Sprint 3.5：跨房搜索（搜 name/topic/finalConsensus/turn.content/conversation/task.attempts.content）
-app.get('/api/rooms/search', (req, res) => {
+app.get('/api/rooms/search', requireOwnerToken, (req, res) => {
   const q = req.query.q;
   if (!q || typeof q !== 'string' || !q.trim()) return res.status(400).json({ error: 'q required' });
   if (q.length > 200) return res.status(400).json({ error: 'q 过长（>200）' });
@@ -3396,7 +3396,7 @@ app.get('/api/rooms/search', (req, res) => {
 });
 
 // ============ v0.50 导出 session 为 markdown（F2）============
-app.get('/api/sessions/:id/export', (req, res) => {
+app.get('/api/sessions/:id/export', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   const lines = [];
@@ -3443,7 +3443,7 @@ app.post('/api/sessions/:id/star', requireOwnerToken, (req, res) => {
   debouncedSave();
   res.json({ ok: true, starredIndices: s.starredIndices });
 });
-app.get('/api/sessions/:id/stars', (req, res) => {
+app.get('/api/sessions/:id/stars', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   const starred = (s.starredIndices || []).map(i => ({
