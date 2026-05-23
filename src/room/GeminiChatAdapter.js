@@ -4,7 +4,8 @@
 import { RoomAdapter } from './RoomAdapter.js';
 
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
-const DEFAULT_MODEL = 'gemini-3.5-flash';  // v0.56 U11 2026-05-20 最新 stable；可在 UI 切到 gemini-3.1-pro-preview（更强 preview）或 gemini-3.1-flash-lite（性价比）
+// 2026-05：Google 尚未发布 gemini-3.x；gemini-2.5-flash 是 free quota 下唯一稳定可用的 model（gemini-2.5-pro / 1.5-* / 2.0-flash-exp 在 CLI 0.42 + free tier 下都报 ModelNotFoundError）
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 
 export class GeminiChatAdapter extends RoomAdapter {
   constructor(opts = {}) {

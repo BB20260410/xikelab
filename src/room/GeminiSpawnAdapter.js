@@ -37,7 +37,9 @@ export class GeminiSpawnAdapter extends RoomAdapter {
     super({
       id: 'gemini-cli',
       displayName: opts.displayName || '🔷 Gemini CLI',
-      model: opts.model || null,
+      // 2026-05：gemini-cli 0.42 内置默认 model（gemini-2.5-pro）在 free quota 下返 ModelNotFoundError；
+      //   gemini-2.5-flash 在所有 plan 下稳定可用，且联网/速度都够 arena/debate
+      model: opts.model || 'gemini-2.5-flash',
       timeout: opts.timeout || 1800000,  // v0.52 默认 30 分钟
     });
     this.bin = opts.bin || DEFAULT_GEMINI_BIN;

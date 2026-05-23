@@ -2,6 +2,15 @@
 // 不用 pty（macOS arm64 binding 问题），用 claude stream-json API 模式
 // 每条用户消息 = spawn 一次 claude --resume <sid> --input-format stream-json，pipe stdin/stdout
 
+// 2026-05：让 panel 内 fetch（minimax/lemon/polar 等外网 API）自动走系统代理。
+//   背景：很多用户开 Clash/Mihomo TUN 模式，DNS 被劫持到 fake IP 段 198.18.0.x；curl 走 TUN 透明代理能连，
+//   但 Node undici 不自动读 HTTPS_PROXY，会直连 fake IP → fetch failed。
+//   EnvHttpProxyAgent 自动读 HTTP_PROXY/HTTPS_PROXY/NO_PROXY env，没设这些时行为不变（无副作用）。
+import { setGlobalDispatcher, EnvHttpProxyAgent } from 'undici';
+if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy) {
+  setGlobalDispatcher(new EnvHttpProxyAgent());
+}
+
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
@@ -3689,8 +3698,9 @@ app.get('/v1/models', (req, res) => {
     const ADAPTER_MODELS = {
       claude: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'sonnet', 'opus', 'haiku'],
       codex: ['gpt-5', 'gpt-5-mini', 'gpt-5-codex', 'o3', 'o3-mini'],
-      'gemini-cli': ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
-      gemini: ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3.1-flash-image-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+      // 2026-05：gemini-3.x 在 free quota 下全部 ModelNotFoundError；gemini-2.5-flash 是唯一稳定可用项（gemini-2.5-pro 也报错），所以提到第一位作默认
+      'gemini-cli': ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview'],
+      gemini: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3.1-flash-image-preview'],
       'gemini-openai': [''],
       minimax: ['MiniMax-M2.7', 'MiniMax-M2.6', 'abab7-chat'],
       ollama: ['gemma3:4b', 'qwen2.5:7b', 'llama3.2:3b'],
@@ -3997,6 +4007,16 @@ server.listen(PORT, HOST, () => {
   console.log(`   Using claude bin: ${CLAUDE_BIN}`);
   if (HOST !== '127.0.0.1') {
     console.log(`   ⚠️  监听 ${HOST}（非本地），PTY 终端将暴露给该接口，请确认网络安全`);
+  }
+  // 2026-05：interactive 启动时自动用默认浏览器打开带 token 的入口 URL，
+  //   避免用户直接访问 `/` 拿不到 token → sessionStorage 空 → 全部 401 → 按钮点不动。
+  //   仅在 TTY 启动（npm start）+ darwin + 有 token + 未禁用 时打开；守护进程/CI/PANEL_NO_OPEN=1 跳过。
+  if (ownerToken && process.platform === 'darwin' && process.stdin.isTTY && !process.env.PANEL_NO_OPEN) {
+    import('node:child_process').then(({ spawn: _spawnOpen }) => {
+      const child = _spawnOpen('open', [entryUrl], { stdio: 'ignore', detached: true });
+      child.on('error', () => {});
+      child.unref();
+    }).catch(() => {});
   }
   // v0.53 Sprint 3 阶段 3：启动后异步跑一次健康巡检
   setTimeout(() => runHealthSweep().catch(() => {}), 5000);
