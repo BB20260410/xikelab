@@ -10,7 +10,7 @@
 //   3) 调 adapter.chat（默认 claude） → 拿 reply（markdown 报告）
 //   4) 可选：写盘到用户指定路径（沙箱）+ 返回内容
 
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 
@@ -336,9 +336,18 @@ contentTruncated: ${truncated}
       return { ok: false, error: `outputPath 越权或敏感目录: ${abs}`, content: reply, elapsedMs: Date.now() - startedAt };
     }
     try {
-      mkdirSync(dirname(abs), { recursive: true });
-      writeFileSync(abs, reply, 'utf-8');
-      savedPath = abs;
+      // 防 EISDIR：用户传的是目录路径（如 ~/Desktop）时，把它当作 rootDir，
+      // 用 defaultReportPath 拼出 <abs>/<roomName>-report-<ts>.md。
+      // statSync 抛 ENOENT 当作"用户传的是不存在的文件路径"继续。
+      let target = abs;
+      try {
+        if (statSync(abs).isDirectory()) {
+          target = defaultReportPath(room, abs);
+        }
+      } catch { /* 路径不存在 → 当作文件路径继续 */ }
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, reply, 'utf-8');
+      savedPath = target;
     } catch (e) {
       return { ok: false, error: '写盘失败: ' + e.message, content: reply, elapsedMs: Date.now() - startedAt };
     }
