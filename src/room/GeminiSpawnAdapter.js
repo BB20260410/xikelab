@@ -32,23 +32,60 @@ export function isGeminiCliAvailable() {
   return existsSync(join(homedir(), '.npm-global', 'bin', 'gemini'));
 }
 
+// 2026-05：Gemini 自动降级链——一个 model 配额满了自动试下一个
+//   pro 能力最强但 free tier 仅 25 RPD/天 → flash 50 RPD/天 → flash-lite（次稳定后备）
+//   顺序按"从高到低"；用户在 UI 指定 model 时把它放链首，其他作 fallback
+export const GEMINI_FALLBACK_CHAIN = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+
+export function buildGeminiFallbackChain(preferred) {
+  if (!preferred) return [...GEMINI_FALLBACK_CHAIN];
+  const rest = GEMINI_FALLBACK_CHAIN.filter(m => m !== preferred);
+  return [preferred, ...rest];
+}
+
 export class GeminiSpawnAdapter extends RoomAdapter {
   constructor(opts = {}) {
     super({
       id: 'gemini-cli',
       displayName: opts.displayName || '🔷 Gemini CLI',
-      // 2026-05：gemini-cli 0.42 内置默认 model（gemini-2.5-pro）在 free quota 下返 ModelNotFoundError；
-      //   gemini-2.5-flash 在所有 plan 下稳定可用，且联网/速度都够 arena/debate
-      model: opts.model || 'gemini-2.5-flash',
+      // 2026-05：默认链首 pro（能力强）；配额满时自动降级到 flash（更稳）
+      //   旧版默认 flash 是因 gemini-cli 0.42 自身 default model 在 free quota 下 NotFound——
+      //   现在通过 fallback chain 主动管理，pro/flash 都试，能力优先
+      model: opts.model || 'gemini-2.5-pro',
       timeout: opts.timeout || 1800000,  // v0.52 默认 30 分钟
     });
     this.bin = opts.bin || DEFAULT_GEMINI_BIN;
   }
 
+  /** 主入口：试 fallback chain 里每个 model，配额耗尽错误才往下试，其他错误直抛 */
   async _doChat(messages, opts = {}) {
     const prompt = this.flattenMessages(messages);
-    const model = opts.model || this.model;
+    const chain = buildGeminiFallbackChain(opts.model || this.model);
+    let lastErr = null;
+    for (let i = 0; i < chain.length; i++) {
+      const m = chain[i];
+      // 用户/协调器中途 abort 立即停
+      if (opts.abortSignal?.aborted) throw new Error('Gemini CLI 被中断');
+      try {
+        const result = await this._doChatOnce(prompt, m, opts);
+        if (i > 0) {
+          // 通知 UI：本次实际用的是 fallback model
+          opts.onProgress?.(`\n[Gemini 自动降级] ${chain[i - 1]} 配额耗尽 → 改用 ${m}\n`);
+        }
+        return { ...result, raw: { ...(result.raw || {}), modelUsed: m, fallbackFrom: i > 0 ? chain.slice(0, i) : null } };
+      } catch (e) {
+        lastErr = e;
+        // 仅"配额耗尽 / ModelNotFound" 触发 fallback；OAuth/abort/timeout/其他错误直接抛
+        if (e?.code !== 'GEMINI_QUOTA_EXHAUSTED') throw e;
+        // 配额错误 → 继续 fallback chain 下一个
+      }
+    }
+    // chain 全打光
+    throw lastErr || new Error('Gemini CLI: fallback chain 全部失败');
+  }
 
+  /** 单次调用：单 model 一次 spawn；配额类错误抛 err.code='GEMINI_QUOTA_EXHAUSTED' 给外层判断 */
+  async _doChatOnce(prompt, model, opts = {}) {
     // v0.52 fix: gemini CLI 0.42 在非 TTY 上下文（pipe stdin）下**不复用** ~/.gemini/oauth_creds.json，
     //   会重跑 OAuth 流（弹"Opening authentication page... [Y/n]"）→ 无 TTY 无人选 Y → cancel。
     // 解决：用 node-pty 真分配一个 PTY → gemini 觉得有 TTY → 走"已登录"路径。
@@ -120,7 +157,16 @@ export class GeminiSpawnAdapter extends RoomAdapter {
         if (exitCode === 0 && reply) {
           finishOk({ reply, tokensIn: 0, tokensOut: 0, raw: { stdout, exitCode } });
         } else {
-          finishErr(new Error(`Gemini CLI exit code=${exitCode} reply=${reply ? '有' : '空'} out=${stdout.slice(0, 300)}`));
+          // 2026-05：gemini-cli 0.42 把 Google API 配额耗尽（RESOURCE_EXHAUSTED）误分类成 ModelNotFoundError
+          //   关键字命中 → 打 code='GEMINI_QUOTA_EXHAUSTED' 让外层 _doChat 触发 fallback
+          if (/ModelNotFoundError|Requested entity was not found|RESOURCE_EXHAUSTED|quota|429/i.test(stdout)) {
+            const err = new Error(`Gemini CLI 调用 ${model} 失败：配额耗尽（free tier 当天 RPD 用完）`);
+            err.code = 'GEMINI_QUOTA_EXHAUSTED';
+            err.model = model;
+            finishErr(err);
+          } else {
+            finishErr(new Error(`Gemini CLI exit code=${exitCode} reply=${reply ? '有' : '空'} out=${stdout.slice(0, 300)}`));
+          }
         }
       });
     });

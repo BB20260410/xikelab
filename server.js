@@ -3709,9 +3709,11 @@ app.get('/v1/models', (req, res) => {
     const ADAPTER_MODELS = {
       claude: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'sonnet', 'opus', 'haiku'],
       codex: ['gpt-5', 'gpt-5-mini', 'gpt-5-codex', 'o3', 'o3-mini'],
-      // 2026-05：gemini-3.x 在 free quota 下全部 ModelNotFoundError；gemini-2.5-flash 是唯一稳定可用项（gemini-2.5-pro 也报错），所以提到第一位作默认
-      'gemini-cli': ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview'],
-      gemini: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3.1-flash-image-preview'],
+      // 2026-05：gemini-3.x 在 free quota 下全部 ModelNotFoundError；2.5 系列稳定可用。
+      //   首位 = 链首默认（能力优先 pro）；GeminiSpawnAdapter 内置 fallback chain：pro → flash → flash-lite，
+      //   配额耗尽自动降级，所以 pro 即使 25 RPD 紧也能无痛兜到 flash
+      'gemini-cli': ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview'],
+      gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3.1-flash-image-preview'],
       'gemini-openai': [''],
       minimax: ['MiniMax-M2.7', 'MiniMax-M2.6', 'abab7-chat'],
       ollama: ['gemma3:4b', 'qwen2.5:7b', 'llama3.2:3b'],

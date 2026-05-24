@@ -45,7 +45,13 @@ export class RoomAdapter {
       breaker.onSuccess();
       return result;
     } catch (e) {
-      breaker.onFailure(e);
+      // 2026-05：用户/协调器主动 abort 不算 adapter 失败——
+      //   否则 debate 整轮被 Gemini 配额拖挂时，连带把 claude/codex 的"被中断"也计入
+      //   断路器 failure，几轮后 5 次累计 → claude/codex 整体 OPEN 30s，用户看不懂
+      const aborted = opts.abortSignal?.aborted
+        || e?.name === 'AbortError'
+        || /被中断|aborted|cancelled|canceled/i.test(e?.message || '');
+      if (!aborted) breaker.onFailure(e);
       throw e;
     } finally {
       try { release(); } catch {}
