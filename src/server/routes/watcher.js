@@ -1,4 +1,5 @@
 import { requireOwnerToken } from '../auth/owner-token.js';
+import { permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
 
 const ALLOWED_PROVIDERS = new Set(['minimax', 'gemini', 'openai', 'ollama', 'custom']);
 
@@ -12,6 +13,7 @@ export function registerWatcherRoutes(app, deps) {
     maskedConfig,
     rebuildAdapter,
     rebuildDispatcher,
+    permissionGovernance,
     send500,
   } = deps;
 
@@ -80,6 +82,49 @@ export function registerWatcherRoutes(app, deps) {
       if (Number.isFinite(incoming.safety.maxAutoPromptsPerSession)) clean.safety.maxAutoPromptsPerSession = Math.max(0, Math.min(1000, incoming.safety.maxAutoPromptsPerSession | 0));
     }
 
+    const touchesProviderConfig = ['provider', 'apiKey', 'model', 'baseUrl'].some(key => Object.prototype.hasOwnProperty.call(clean, key));
+    if (touchesProviderConfig) {
+      const permission = permissionGovernance?.evaluatePermission?.({
+        actorType: 'owner',
+        actorId: 'local-owner',
+        action: 'provider.model_config.write',
+        cwd: process.cwd(),
+        risk: 'high',
+        target: {
+          section: 'watcher',
+          provider: clean.provider || current.provider || null,
+          hasApiKey: typeof clean.apiKey === 'string' && clean.apiKey.trim().length > 0,
+          model: clean.model || current.model || null,
+          baseUrl: clean.baseUrl || current.baseUrl || null,
+        },
+      });
+      if (permission && permission.decision !== 'allow') {
+        return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
+      }
+    }
+
+    const touchesAutoAccept = Object.prototype.hasOwnProperty.call(clean, 'autoMode') ||
+      Object.prototype.hasOwnProperty.call(clean, 'perSessionDefault') ||
+      Object.prototype.hasOwnProperty.call(clean, 'safety');
+    if (touchesAutoAccept) {
+      const permission = permissionGovernance?.evaluatePermission?.({
+        actorType: 'owner',
+        actorId: 'local-owner',
+        action: 'auto_accept.scope',
+        cwd: process.cwd(),
+        risk: clean.autoMode === true || clean.perSessionDefault === true ? 'high' : 'medium',
+        target: {
+          section: 'watcher',
+          autoMode: clean.autoMode,
+          perSessionDefault: clean.perSessionDefault,
+          safety: clean.safety,
+        },
+      });
+      if (permission && permission.decision !== 'allow') {
+        return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
+      }
+    }
+
     const nextConfig = { ...current, ...clean };
     const r = saveWatcherConfig(nextConfig);
     if (!r.ok) return send500(res, new Error(r.error));
@@ -92,6 +137,22 @@ export function registerWatcherRoutes(app, deps) {
   app.post('/api/watcher/test', requireOwnerToken, async (req, res) => {
     const adapter = getWatcherAdapter();
     if (!adapter) return res.json({ ok: false, error: '监视者未启用或未配置 API key' });
+    const permission = permissionGovernance?.evaluatePermission?.({
+      actorType: 'owner',
+      actorId: 'local-owner',
+      action: 'provider.model_config.access',
+      cwd: process.cwd(),
+      risk: 'high',
+      target: {
+        section: 'watcher',
+        operation: 'test',
+        provider: getWatcherConfig().provider || null,
+        model: getWatcherConfig().model || null,
+      },
+    });
+    if (permission && permission.decision !== 'allow') {
+      return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
+    }
     try {
       const verdict = await adapter.judge({
         id: 'test',

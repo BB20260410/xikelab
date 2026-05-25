@@ -14,9 +14,10 @@
 
 import { requireOwnerToken } from '../auth/owner-token.js';
 import { assertPublicUrl } from './img-cache.js';
+import { permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
 
 export function registerWebhookRoutes(app, deps) {
-  const { webhookStore, maskWebhookUrl, testWebhook } = deps;
+  const { webhookStore, maskWebhookUrl, testWebhook, permissionGovernance } = deps;
 
   app.get('/api/webhooks', (req, res) => {
     try {
@@ -34,6 +35,17 @@ export function registerWebhookRoutes(app, deps) {
       if (typeof body.url === 'string' && body.url.trim()) {
         try { await assertPublicUrl(body.url.trim()); }
         catch (e) { return res.status(400).json({ ok: false, error: `url blocked: ${e.message}` }); }
+        const permission = permissionGovernance?.evaluatePermission?.({
+          actorType: 'owner',
+          actorId: 'local-owner',
+          action: 'network.upload',
+          cwd: process.cwd(),
+          risk: 'high',
+          target: { section: 'webhooks', operation: 'create', url: body.url.trim() },
+        });
+        if (permission && permission.decision !== 'allow') {
+          return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
+        }
       }
       const w = webhookStore.create(body);
       res.json({ ok: true, webhook: { ...w, url: maskWebhookUrl(w.url) } });
@@ -49,6 +61,17 @@ export function registerWebhookRoutes(app, deps) {
       if (typeof body.url === 'string' && body.url.trim()) {
         try { await assertPublicUrl(body.url.trim()); }
         catch (e) { return res.status(400).json({ ok: false, error: `url blocked: ${e.message}` }); }
+        const permission = permissionGovernance?.evaluatePermission?.({
+          actorType: 'owner',
+          actorId: 'local-owner',
+          action: 'network.upload',
+          cwd: process.cwd(),
+          risk: 'high',
+          target: { section: 'webhooks', operation: 'update', webhookId: req.params.id, url: body.url.trim() },
+        });
+        if (permission && permission.decision !== 'allow') {
+          return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
+        }
       }
       const w = webhookStore.update(req.params.id, body);
       if (!w) return res.status(404).json({ ok: false, error: 'not found' });
@@ -75,6 +98,17 @@ export function registerWebhookRoutes(app, deps) {
       // test 触发实际出站 fetch — 再校验一遍 URL（防 store 里有历史脏数据）
       try { await assertPublicUrl(w.url); }
       catch (e) { return res.status(400).json({ ok: false, error: `url blocked: ${e.message}` }); }
+      const permission = permissionGovernance?.evaluatePermission?.({
+        actorType: 'owner',
+        actorId: 'local-owner',
+        action: 'network.upload',
+        cwd: process.cwd(),
+        risk: 'high',
+        target: { section: 'webhooks', operation: 'test', webhookId: w.id, url: w.url },
+      });
+      if (permission && permission.decision !== 'allow') {
+        return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
+      }
       await testWebhook(w);
       webhookStore.bumpStats(w.id, true);
       res.json({ ok: true });

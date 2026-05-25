@@ -1,5 +1,6 @@
 import { requireOwnerToken } from '../auth/owner-token.js';
 import { getCurrentTier, hasFeature } from '../../license/LicenseManager.js';
+import { permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
 
 export function registerRoomAdaptersRoutes(app, deps) {
   const {
@@ -11,6 +12,7 @@ export function registerRoomAdaptersRoutes(app, deps) {
     rebuildRoomAdapters,
     roomAdapterPool,
     hasGeminiCli,
+    permissionGovernance,
     send500,
   } = deps;
 
@@ -36,6 +38,24 @@ export function registerRoomAdaptersRoutes(app, deps) {
           upgradeUrl: 'https://panel.app/pricing',
         });
       }
+    }
+
+    const permission = permissionGovernance?.evaluatePermission?.({
+      actorType: 'owner',
+      actorId: 'local-owner',
+      action: 'provider.model_config.write',
+      cwd: process.cwd(),
+      risk: 'high',
+      target: {
+        section: 'room-adapters',
+        providerIds: Object.keys(r.config || {}),
+        enabledProviders: Object.entries(r.config || {}).filter(([, c]) => c?.apiKey?.trim()).map(([id]) => id),
+        hasApiKeys: Object.values(r.config || {}).some(c => typeof c?.apiKey === 'string' && c.apiKey.trim()),
+        hasCustomBaseUrls: Object.values(r.config || {}).some(c => typeof c?.baseUrl === 'string' && c.baseUrl.trim()),
+      },
+    });
+    if (permission && permission.decision !== 'allow') {
+      return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
     }
 
     const save = saveRoomAdaptersConfig(r.config);

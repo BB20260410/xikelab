@@ -111,6 +111,7 @@ import { delegationStore } from './src/delegation/DelegationStore.js';
 import { activityLog } from './src/audit/ActivityLog.js';
 import { approvalStore } from './src/approval/ApprovalStore.js';
 import { createDangerousCommandApproval, TerminalApprovalGate } from './src/approval/CommandApprovalGate.js';
+import { permissionGovernance, permissionHttpBody, permissionHttpStatus } from './src/permissions/PermissionGovernance.js';
 import { buildProjectContextBundle, formatProjectContextBundle, summarizeProjectContextBundle } from './src/context/ProjectContextBundle.js';
 import { ArenaDispatcher } from './src/room/ArenaDispatcher.js';
 import { SoloChatDispatcher } from './src/room/SoloChatDispatcher.js';
@@ -509,6 +510,84 @@ function broadcastSession(session, msg) {
   }
 }
 
+function evaluateClaudeToolPermission(session, toolUse) {
+  const name = toolUse?.name;
+  const input = toolUse?.input || {};
+  const base = {
+    actorType: 'session',
+    actorId: session.id,
+    sessionId: session.id,
+    roomId: session.roomId || null,
+    agentRunId: session.agentRunId || null,
+    cwd: session.cwd,
+    details: { source: 'claude_tool_use', claudeSessionId: session.claudeSessionId || null },
+  };
+
+  if (name === 'Bash' && input.command) {
+    return permissionGovernance.evaluatePermission({
+      ...base,
+      action: 'shell.exec',
+      risk: 'high',
+      target: { toolName: name, command: input.command, guardLevel: session.guardLevel || 'standard' },
+    });
+  }
+
+  if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name) && input.file_path) {
+    return permissionGovernance.evaluatePermission({
+      ...base,
+      action: 'file.write',
+      risk: 'high',
+      target: { toolName: name, path: input.file_path },
+    });
+  }
+
+  if (['Read', 'LS', 'Glob', 'Grep'].includes(name)) {
+    const path = input.file_path || input.path;
+    if (path) {
+      return permissionGovernance.evaluatePermission({
+        ...base,
+        action: 'external_directory.access',
+        risk: 'medium',
+        target: { toolName: name, path },
+      });
+    }
+  }
+
+  return null;
+}
+
+function blockClaudeToolUseByPermission(session, child, toolUse, permission) {
+  try { child.kill('SIGTERM'); } catch {}
+  const approval = permission.approval || null;
+  const entry = {
+    blocked: true,
+    approvalId: approval?.id || null,
+    severity: permission.risk || 'high',
+    action: permission.action,
+    toolName: toolUse.name,
+    reason: permission.reason,
+    target: permission.target,
+    permissionDecisionId: permission.id,
+  };
+  recordDanger(session, entry);
+  if (permission.decision === 'ask') {
+    broadcastSession(session, { type: 'approval_required', approval, permissionDecision: permission, ...entry });
+  }
+  broadcastSession(session, { type: 'permission_blocked', permissionDecision: permission, ...entry });
+  if (toolUse.name === 'Bash') broadcastSession(session, { type: 'danger_blocked', approval, ...entry });
+  const approvalLine = approval?.id ? `\n审批 ID：${approval.id}` : '';
+  const m = {
+    role: 'tool_use',
+    content: `🛑 权限治理已暂停工具执行（${permission.decision}）：${toolUse.name}\n原因：${permission.reason}${approvalLine}`,
+    ts: new Date().toISOString(),
+  };
+  pushMessage(session, m);
+  broadcastSession(session, { type: 'message', message: m });
+  debouncedSave();
+  session.busy = false;
+  return true;
+}
+
 // v0.49 B-02 fix: 文件 API 路径沙箱
 // 实现拆到 src/server/services/path-sandbox.js（in-process 单测友好）
 // safeResolveFsPath 由文件顶部 import 进来
@@ -757,6 +836,11 @@ function sendMessageToClaude(session, userText) {
                 broadcastSession(session, { type: 'message', message: m });
                 debouncedSave();
               } else if (c.type === 'tool_use') {
+                const permission = evaluateClaudeToolPermission(session, c);
+                if (permission && permission.decision !== 'allow') {
+                  blockClaudeToolUseByPermission(session, child, c, permission);
+                  return;
+                }
                 // ===== DangerousPatternDetector 扫描 Bash =====
                 if (c.name === 'Bash' && c.input?.command) {
                   const hits = sharedDetector.scan(c.input.command);
@@ -977,6 +1061,7 @@ registerWatcherRoutes(app, {
   maskedConfig,
   rebuildAdapter,
   rebuildDispatcher,
+  permissionGovernance,
   send500,
 });
 registerVersionRoutes(app, { rootDir: __dirname });
@@ -1892,7 +1977,7 @@ registerArchiveRoutes(app, { archiveStore, safeResolveFsPath, roomStore });
 
 // v0.55 Sprint 12 — MCP（Model Context Protocol）服务器配置 + 客户端管理
 // S18-2c：6 个 routes + McpClientManager 实例化提取到 src/server/routes/mcp.js
-const { mcpClientManager } = registerMcpRoutes(app, { mcpStore });
+const { mcpClientManager } = registerMcpRoutes(app, { mcpStore, permissionGovernance });
 
 // v0.54 Sprint 9 + v0.55 Sprint 14 F1：改异步 job（修 Load failed —— Safari fetch >60s 超时报"Load failed"）
 // body: { adapterId?, model?, outputPath?, autoPath?: boolean }
@@ -1917,6 +2002,20 @@ app.post('/api/rooms/:id/report', requireOwnerToken, (req, res) => {
   } else if (autoPath === true) {
     const archiveCfg = archiveStore.getConfig();
     outputPath = defaultReportPath(r, archiveCfg.rootPath);
+  }
+  if (outputPath) {
+    const permission = permissionGovernance.evaluatePermission({
+      actorType: 'owner',
+      actorId: 'local-owner',
+      roomId: r.id,
+      action: 'file.write',
+      cwd: r.cwd || process.cwd(),
+      risk: 'high',
+      target: { section: 'reports', operation: 'write_report', path: outputPath },
+    });
+    if (permission && permission.decision !== 'allow') {
+      return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
+    }
   }
 
   // 立返 jobId（202 Accepted），后台跑
@@ -2111,7 +2210,7 @@ app.delete('/api/metrics', requireOwnerToken, (req, res) => {
 
 // v0.54 Sprint 4 — Webhooks API
 // S18-2a：5 个 routes 提取到 src/server/routes/webhook.js
-registerWebhookRoutes(app, { webhookStore, maskWebhookUrl, testWebhook });
+registerWebhookRoutes(app, { webhookStore, maskWebhookUrl, testWebhook, permissionGovernance });
 
 // v0.53 Sprint 3 阶段 4：房间模板（builtin + user）
 // S18-2e1：3 个 routes 提取（rooms 子集；主 rooms CRUD 因依赖过多继续留 server.js）
@@ -2179,6 +2278,7 @@ registerRoomAdaptersRoutes(app, {
   rebuildRoomAdapters,
   roomAdapterPool,
   hasGeminiCli: HAS_GEMINI_CLI,
+  permissionGovernance,
   send500,
 });
 
@@ -2191,6 +2291,19 @@ const pluginRegistry = new PluginRegistry();
     const tag = p.valid ? '✓' : '✗';
     console.log(`  ${tag} [${p.source}] ${p.id} → ${p.displayName}${p.error ? ' (' + p.error + ')' : ''}`);
   }
+}
+
+function requirePluginPermission(res, input) {
+  const permission = permissionGovernance.evaluatePermission({
+    actorType: 'owner',
+    actorId: 'local-owner',
+    cwd: process.cwd(),
+    risk: 'high',
+    ...input,
+  });
+  if (!permission || permission.decision === 'allow') return true;
+  res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
+  return false;
 }
 
 // GET /api/plugins — 列已加载 plugin manifest（摘要）
@@ -2222,6 +2335,17 @@ app.post('/api/plugins/install', requireOwnerToken, (req, res) => {
   if (!manifest || typeof manifest !== 'object') return res.status(400).json({ error: 'manifest 必须是 JSON 对象' });
   // 大小上限
   try { if (JSON.stringify(manifest).length > 32 * 1024) return res.status(413).json({ error: 'manifest 过大（>32KB）' }); } catch {}
+  if (!requirePluginPermission(res, {
+    action: 'skill.plugin.configure',
+    target: {
+      section: 'plugins',
+      operation: 'install',
+      pluginId: manifest.id || null,
+      type: manifest.type || null,
+      hasBin: !!manifest.bin,
+      commandCount: Array.isArray(manifest.commands) ? manifest.commands.length : 0,
+    },
+  })) return;
   const r = pluginRegistry.install(manifest);
   if (!r.ok) return res.status(422).json({ error: r.error });
   res.json({ ok: true, entry: { id: manifest.id, displayName: manifest.displayName, valid: r.entry?.valid, error: r.entry?.error } });
@@ -2231,6 +2355,10 @@ app.post('/api/plugins/install', requireOwnerToken, (req, res) => {
 app.delete('/api/plugins/:id', requireOwnerToken, (req, res) => {
   const id = req.params.id;
   if (!/^[a-z][a-z0-9_-]{0,39}$/.test(id)) return res.status(400).json({ error: 'plugin id 非法' });
+  if (!requirePluginPermission(res, {
+    action: 'skill.plugin.configure',
+    target: { section: 'plugins', operation: 'delete', pluginId: id },
+  })) return;
   const r = pluginRegistry.uninstall(id);
   if (!r.ok) return res.status(r.error?.includes('内置') ? 403 : 404).json({ error: r.error });
   res.json({ ok: true });
@@ -2238,6 +2366,10 @@ app.delete('/api/plugins/:id', requireOwnerToken, (req, res) => {
 
 // POST /api/plugins/reload — 重扫两个目录
 app.post('/api/plugins/reload', requireOwnerToken, (req, res) => {
+  if (!requirePluginPermission(res, {
+    action: 'skill.plugin.configure',
+    target: { section: 'plugins', operation: 'reload' },
+  })) return;
   const loaded = pluginRegistry.reload();
   res.json({ ok: true, plugins: pluginRegistry.list(), count: loaded.length });
 });
@@ -2264,6 +2396,23 @@ app.post('/api/plugins/:id/exec', requireOwnerToken, async (req, res) => {
     if (!safe) return res.status(403).json({ error: 'cwd 越权或敏感目录' });
     safeCwd = safe;
   }
+
+  if (!requirePluginPermission(res, {
+    action: 'skill.plugin.execute',
+    cwd: safeCwd || process.cwd(),
+    target: {
+      section: 'plugins',
+      operation: 'exec',
+      pluginId: id,
+      commandId,
+      source: entry.source,
+      type: entry.manifest.type || 'spawn',
+      resolvedBin: entry.resolvedBin || null,
+      cwd: safeCwd || null,
+      model: model || null,
+      promptLength: prompt.length,
+    },
+  })) return;
 
   // v0.53 Sprint 3.5：plugin exec 也 record metrics
   // v0.54 Sprint 4：按 manifest.type 分派 Spawn / Http adapter
