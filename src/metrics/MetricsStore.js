@@ -12,6 +12,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { estimateCost } from './pricing.js';
 import { activityLog } from '../audit/ActivityLog.js';
+import { agentRunStore } from '../agents/AgentRunStore.js';
 import { budgetPolicyStore } from '../budget/BudgetPolicyStore.js';
 
 const DIR = join(homedir(), '.claude-panel');
@@ -23,13 +24,17 @@ function monthKey(ts) {
   return ts.slice(0, 7);  // "2026-05"
 }
 
-function fileFor(ts) {
-  return join(DIR, `metrics-${monthKey(ts)}.jsonl`);
+function fileFor(ts, dir = DIR) {
+  return join(dir, `metrics-${monthKey(ts)}.jsonl`);
 }
 
 export class MetricsStore {
-  constructor({ logger = null } = {}) {
+  constructor({ logger = null, dir = DIR, audit = activityLog, budgetStore = budgetPolicyStore, agentRuns = null } = {}) {
     this.logger = logger;
+    this.dir = dir;
+    this.audit = audit;
+    this.budgetStore = budgetStore;
+    this.agentRuns = agentRuns;
     this.cache = [];     // 最近 N 条（含本月已读入的）
     this.cacheMonth = null;
     this.broadcast = null;  // 由 server 注入：(payload) => void
@@ -38,20 +43,20 @@ export class MetricsStore {
   }
 
   _ensureDir() {
-    if (!existsSync(DIR)) mkdirSync(DIR, { recursive: true, mode: 0o700 });
+    if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     // S26 B1：早期版本 appendFileSync 未传 mode 时创建的 metrics-*.jsonl 默认 0o644
     // 启动期一次性 chmod 0o600 强制收敛（含 cost/token/model 财务敏感数据）
     try {
-      const files = readdirSync(DIR).filter((f) => /^metrics-\d{4}-\d{2}\.jsonl(\.\d+)?$/.test(f));
+      const files = readdirSync(this.dir).filter((f) => /^metrics-\d{4}-\d{2}\.jsonl(\.\d+)?$/.test(f));
       for (const f of files) {
-        try { chmodSync(join(DIR, f), 0o600); } catch {}
+        try { chmodSync(join(this.dir, f), 0o600); } catch {}
       }
     } catch {}
   }
 
   _warmCache() {
     const month = monthKey(new Date().toISOString());
-    const file = join(DIR, `metrics-${month}.jsonl`);
+    const file = join(this.dir, `metrics-${month}.jsonl`);
     if (!existsSync(file)) return;
     try {
       const lines = readFileSync(file, 'utf-8').split('\n').filter(Boolean);
@@ -89,12 +94,22 @@ export class MetricsStore {
       tokensOut: Math.max(0, Number(turnSummary.tokensOut) || 0),
       success: turnSummary.success !== false,
       errorKind: turnSummary.errorKind || null,
+      agentRunId: turnSummary.agentRunId || '',
+      agentProfileId: turnSummary.agentProfileId || '',
+      agentProfileTitle: turnSummary.agentProfileTitle || '',
+      agentDispatchTags: Array.isArray(turnSummary.agentDispatchTags) ? turnSummary.agentDispatchTags : [],
+      agentSkillNames: Array.isArray(turnSummary.agentSkillNames) ? turnSummary.agentSkillNames : [],
+      agentSkillBindings: Array.isArray(turnSummary.agentSkillBindings) ? turnSummary.agentSkillBindings : [],
+      agentSkillDiagnostics: Array.isArray(turnSummary.agentSkillDiagnostics) ? turnSummary.agentSkillDiagnostics : [],
+      agentCodeContextSignals: turnSummary.agentCodeContextSignals && typeof turnSummary.agentCodeContextSignals === 'object' ? turnSummary.agentCodeContextSignals : null,
+      agentCodeContextEvidence: Array.isArray(turnSummary.agentCodeContextEvidence) ? turnSummary.agentCodeContextEvidence : [],
+      agentGovernance: turnSummary.agentGovernance && typeof turnSummary.agentGovernance === 'object' ? turnSummary.agentGovernance : null,
     };
     enriched.estCostUSD = estimateCost(enriched.adapter, enriched.model, enriched.tokensIn, enriched.tokensOut);
 
     // 落盘（同步 append，jsonl）
     try {
-      const file = fileFor(ts);
+      const file = fileFor(ts, this.dir);
       // 滚动：超过 50MB 改名为 .1，避免单文件无限增长
       if (existsSync(file) && statSync(file).size > MAX_BYTES_PER_FILE) {
         try { renameSync(file, file + '.' + Date.now()); } catch {}
@@ -119,15 +134,19 @@ export class MetricsStore {
     if (this.broadcast) {
       try { this.broadcast({ type: 'metrics_update', delta: enriched }); } catch {}
     }
-    activityLog.recordSafe({
+    this.audit?.recordSafe?.({
       action: 'metrics.recorded',
       actorType: 'system',
       roomId: enriched.roomId || null,
+      sessionId: enriched.sessionId || null,
+      taskId: enriched.taskId || null,
       entityType: 'metric_turn',
       entityId: `${enriched.ts}:${enriched.adapter}:${enriched.turn}`,
       status: enriched.success ? 'success' : 'error',
       severity: enriched.success ? 'info' : 'error',
       details: {
+        sessionId: enriched.sessionId || null,
+        taskId: enriched.taskId || null,
         roomMode: enriched.roomMode,
         roomName: enriched.roomName,
         turn: enriched.turn,
@@ -139,10 +158,56 @@ export class MetricsStore {
         estCostUSD: enriched.estCostUSD,
         success: enriched.success,
         errorKind: enriched.errorKind,
+        agentRunId: enriched.agentRunId || null,
+        agentProfileId: enriched.agentProfileId || null,
+        agentProfileTitle: enriched.agentProfileTitle || null,
+        agentDispatchTags: enriched.agentDispatchTags,
+        agentSkillNames: enriched.agentSkillNames,
+        agentSkillBindings: enriched.agentSkillBindings,
+        agentSkillDiagnostics: enriched.agentSkillDiagnostics,
+        agentCodeContextSignals: enriched.agentCodeContextSignals,
+        agentCodeContextEvidence: enriched.agentCodeContextEvidence,
+        agentGovernance: enriched.agentGovernance,
       },
     });
-    try { budgetPolicyStore.recordMetric(enriched); }
+    if (enriched.agentSkillDiagnostics.length > 0) {
+      this.audit?.recordSafe?.({
+        action: 'agent.skill_diagnostics',
+        actorType: 'system',
+        roomId: enriched.roomId || null,
+        sessionId: enriched.sessionId || null,
+        taskId: enriched.taskId || null,
+        entityType: 'agent_profile',
+        entityId: enriched.agentProfileId || enriched.adapter,
+        status: 'warn',
+        severity: enriched.agentSkillDiagnostics.some((item) => item?.severity === 'error') ? 'error' : 'warn',
+        details: {
+          roomMode: enriched.roomMode,
+          roomName: enriched.roomName,
+          turn: enriched.turn,
+          adapter: enriched.adapter,
+          model: enriched.model,
+          agentProfileId: enriched.agentProfileId || null,
+          agentProfileTitle: enriched.agentProfileTitle || null,
+          agentDispatchTags: enriched.agentDispatchTags,
+          agentSkillNames: enriched.agentSkillNames,
+          agentSkillBindings: enriched.agentSkillBindings,
+          diagnostics: enriched.agentSkillDiagnostics,
+        },
+      });
+    }
+    try {
+      const budgetResult = this.budgetStore?.recordMetric?.(enriched);
+      const incidents = Array.isArray(budgetResult?.incidents) ? budgetResult.incidents : [];
+      if (incidents.length > 0) {
+        enriched.budgetIncidentId = incidents[0]?.id || '';
+        enriched.budgetIncidentIds = incidents.map((incident) => incident.id).filter(Boolean);
+        enriched.budgetActivityIds = incidents.map((incident) => incident.activityId).filter(Boolean);
+      }
+    }
     catch (e) { this.logger?.warn?.('[budget] metric observe failed:', e.message); }
+    try { this.agentRuns?.recordMetricTurn?.(enriched); }
+    catch (e) { this.logger?.warn?.('[agent-runs] metric observe failed:', e.message); }
     return enriched;
   }
 
@@ -175,7 +240,7 @@ export class MetricsStore {
     const all = [];
     let files;
     try {
-      files = readdirSync(DIR).filter((f) => /^metrics-\d{4}-\d{2}\.jsonl$/.test(f));
+      files = readdirSync(this.dir).filter((f) => /^metrics-\d{4}-\d{2}\.jsonl$/.test(f));
     } catch {
       return [];
     }
@@ -186,7 +251,7 @@ export class MetricsStore {
       const month = m[1];
       if (month < fromMonth || month > toMonth) continue;
       try {
-        const lines = readFileSync(join(DIR, f), 'utf-8').split('\n').filter(Boolean);
+        const lines = readFileSync(join(this.dir, f), 'utf-8').split('\n').filter(Boolean);
         for (const l of lines) {
           try {
             const r = JSON.parse(l);
@@ -322,4 +387,4 @@ export class MetricsStore {
   }
 }
 
-export const metricsStore = new MetricsStore({ logger: console });
+export const metricsStore = new MetricsStore({ logger: console, agentRuns: agentRunStore });

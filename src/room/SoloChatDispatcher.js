@@ -9,7 +9,8 @@
 
 import { ROOM_LIMITS, CONTENT_LIMITS } from './squad-limits.js';
 import { metricsStore as defaultMetricsStore } from '../metrics/MetricsStore.js';
-import { injectSkillsToMessages } from './skillInjector.js';
+import { buildRoomAgentContext, injectSkillsToMessages } from './skillInjector.js';
+import { summarizeAgentRuntimeContext } from '../agents/AgentSkillRegistry.js';
 
 const AUTO_PAUSE_THRESHOLD = 5;  // v0.53 Sprint 3.5
 
@@ -92,12 +93,14 @@ export class SoloChatDispatcher {
     const aborter = new AbortController();
     this.activeAborts.set(roomId, aborter);
     const startedAt = Date.now();
+    const agentContext = buildRoomAgentContext(room, { member, objective: userText });
+    const agentMetrics = summarizeAgentRuntimeContext(agentContext);
     try {
-      const result = await adapter.chat(injectSkillsToMessages(messages, room), {
+      const result = await adapter.chat(injectSkillsToMessages(messages, room, { agentContext }), {
         cwd: room.cwd,
         abortSignal: aborter.signal,
         model: member.model,
-        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId },
+        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId, agentProfileId: agentMetrics.agentProfileId },
       });
       // v0.51 ZZZZ-02 fix: AI reply 长度 cap，防极长输出撑爆 rooms.json
       const MAX_REPLY = CONTENT_LIMITS.maxReplyChars;  // v0.52 256KB
@@ -122,6 +125,8 @@ export class SoloChatDispatcher {
           latencyMs: Date.now() - startedAt,
           tokensIn: result.tokensIn || 0, tokensOut: result.tokensOut || 0,
           success: true, errorKind: null,
+          agentRunId: result.agentRunId || '',
+          ...agentMetrics,
         });
       } catch {}
       this._resetFailure(roomId);
@@ -145,6 +150,8 @@ export class SoloChatDispatcher {
           latencyMs: Date.now() - startedAt,
           tokensIn: 0, tokensOut: 0,
           success: false, errorKind: e?.name || 'error',
+          agentRunId: e.agentRunId || '',
+          ...agentMetrics,
         });
       } catch {}
       this._bumpFailure(roomId, aborter.signal.aborted);

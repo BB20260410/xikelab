@@ -9,6 +9,7 @@ import { breakers } from '../safety/CircuitBreaker.js';
 import { bulkheads } from '../safety/Bulkhead.js';
 import { rateLimiters } from '../safety/RateLimiter.js';
 import { budgetPolicyStore } from '../budget/BudgetPolicyStore.js';
+import { agentRunLifecycle as defaultAgentRunLifecycle } from '../agents/AgentRunLifecycle.js';
 
 export class RoomAdapter {
   constructor({ id, displayName, model, timeout = 180000 } = {}) {
@@ -26,18 +27,68 @@ export class RoomAdapter {
    * v0.56：opts.skipResilience = true 时跳过（report 等内部任务可用）
    */
   async chat(messages, opts = {}) {
-    if (!opts.skipBudget) {
-      budgetPolicyStore.preflight({
-        adapterId: this.id,
-        projectId: opts.budgetContext?.projectId || opts.cwd || null,
-        roomId: opts.budgetContext?.roomId || null,
-        sessionId: opts.budgetContext?.sessionId || null,
-        taskId: opts.budgetContext?.taskId || null,
-        estimateTokens: this._countTokens(messages),
-        estimateCalls: 1,
-      });
+    const lifecycle = opts.agentRunLifecycle === false
+      ? null
+      : (opts.agentRunLifecycle || defaultAgentRunLifecycle);
+    let agentRun = null;
+    try {
+      agentRun = lifecycle?.startRun?.({ adapter: this, messages, opts }) || null;
+    } catch (e) {
+      console.warn?.('[agent-runs] start failed:', e?.message || e);
     }
-    if (opts.skipResilience) return this._doChat(messages, opts);
+
+    if (!opts.skipBudget) {
+      try {
+        budgetPolicyStore.preflight({
+          adapterId: this.id,
+          projectId: opts.budgetContext?.projectId || opts.cwd || null,
+          roomId: opts.budgetContext?.roomId || null,
+          sessionId: opts.budgetContext?.sessionId || null,
+          taskId: opts.budgetContext?.taskId || null,
+          agentProfileId: opts.budgetContext?.agentProfileId || null,
+          agentRunId: opts.agentRunId || agentRun?.id || null,
+          estimateTokens: this._countTokens(messages),
+          estimateCalls: 1,
+        });
+      } catch (e) {
+        if (agentRun?.id) {
+          const blocked = Array.isArray(e.blocked) ? e.blocked : [];
+          const incidents = blocked.map((item) => item?.incident).filter(Boolean);
+          try {
+            lifecycle?.deferRun?.(agentRun.id, 'budget_blocked', {
+              error: e?.message || String(e),
+              budgetIncidentId: incidents[0]?.id || null,
+              budgetIncidentIds: incidents.map((incident) => incident.id).filter(Boolean),
+              relatedActivityIds: incidents.map((incident) => incident.activityId).filter(Boolean),
+            });
+          } catch {}
+          e.agentRunId = agentRun.id;
+        }
+        throw e;
+      }
+    }
+    if (opts.skipResilience) {
+      try {
+        const result = await this._doChat(messages, opts);
+        if (agentRun?.id) {
+          try { lifecycle?.finishRun?.(agentRun.id, result); } catch {}
+          if (result && typeof result === 'object') result.agentRunId = agentRun.id;
+        }
+        return result;
+      } catch (e) {
+        if (agentRun?.id) {
+          const aborted = opts.abortSignal?.aborted
+            || e?.name === 'AbortError'
+            || /被中断|aborted|cancelled|canceled/i.test(e?.message || '');
+          try {
+            if (aborted) lifecycle?.cancelRun?.(agentRun.id, e);
+            else lifecycle?.failRun?.(agentRun.id, e);
+          } catch {}
+          e.agentRunId = agentRun.id;
+        }
+        throw e;
+      }
+    }
     const breaker = breakers.get(this.id);
     const bulkhead = bulkheads.get(this.id);
     const rl = rateLimiters.get(this.id);
@@ -54,6 +105,10 @@ export class RoomAdapter {
 
     try {
       const result = await this._doChat(messages, opts);
+      if (agentRun?.id) {
+        try { lifecycle?.finishRun?.(agentRun.id, result); } catch {}
+        if (result && typeof result === 'object') result.agentRunId = agentRun.id;
+      }
       breaker.onSuccess();
       return result;
     } catch (e) {
@@ -64,6 +119,13 @@ export class RoomAdapter {
         || e?.name === 'AbortError'
         || /被中断|aborted|cancelled|canceled/i.test(e?.message || '');
       if (!aborted) breaker.onFailure(e);
+      if (agentRun?.id) {
+        try {
+          if (aborted) lifecycle?.cancelRun?.(agentRun.id, e);
+          else lifecycle?.failRun?.(agentRun.id, e);
+        } catch {}
+        e.agentRunId = agentRun.id;
+      }
       throw e;
     } finally {
       try { release(); } catch {}

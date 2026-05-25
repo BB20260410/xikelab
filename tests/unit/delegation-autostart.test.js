@@ -28,6 +28,18 @@ describe('Delegation Autostart handler', () => {
       roomAdapterPool: { has: () => true },
       safeResolveFsPath: (p) => p,
       startRoom: async () => ({ started: true }),
+      agentRunStore: {
+        transition(id, status, details) {
+          expect(id).toBe('agent-run-1');
+          expect(status).toBe('deferred');
+          expect(details).toMatchObject({
+            deferReason: 'approval_pending',
+            approvalId: 'approval-1',
+            delegationId: 'delegation-1',
+            jobId: 'job-1',
+          });
+        },
+      },
       now: () => 1_000,
       gatePollMs: 5_000,
     });
@@ -35,7 +47,7 @@ describe('Delegation Autostart handler', () => {
     const result = await handler({
       id: 'job-1',
       targetId: 'delegation-1',
-      payload: { approvalId: 'approval-1' },
+      payload: { approvalId: 'approval-1', agentRunId: 'agent-run-1' },
     });
 
     expect(result).toMatchObject({
@@ -53,6 +65,7 @@ describe('Delegation Autostart handler', () => {
     ]);
     const delegations = new Map([[delegation.id, delegation]]);
     const started = [];
+    const runTransitions = [];
     const handler = makeDelegationAutostartHandler({
       delegationStore: {
         get: (id) => delegations.get(id),
@@ -85,17 +98,23 @@ describe('Delegation Autostart handler', () => {
         started.push({ roomId: room.id, jobId: job.id });
         return { started: true, roomId: room.id };
       },
+      agentRunStore: {
+        transition(id, status, details) {
+          runTransitions.push({ id, status, details });
+        },
+      },
     });
 
     const result = await handler({
       id: 'job-1',
       targetId: 'delegation-1',
       taskId: 'task-source',
-      payload: { approvalId: 'approval-1', autoStart: true, budgetEstimate: { estimateCalls: 1 } },
+      payload: { approvalId: 'approval-1', agentRunId: 'agent-run-1', autoStart: true, budgetEstimate: { estimateCalls: 1 } },
     });
 
     expect(result.ok).toBe(true);
     expect(result.started).toBe(true);
+    expect(result.agentRunId).toBe('agent-run-1');
     expect(result.delegation).toMatchObject({ status: 'created', targetRoomId: 'room-target' });
     expect(rooms.get('room-target').lineage).toMatchObject({
       parentRoomId: 'room-source',
@@ -103,5 +122,16 @@ describe('Delegation Autostart handler', () => {
       source: 'delegation',
     });
     expect(started).toEqual([{ roomId: 'room-target', jobId: 'job-1' }]);
+    expect(runTransitions).toEqual([expect.objectContaining({
+      id: 'agent-run-1',
+      status: 'succeeded',
+      details: expect.objectContaining({
+        approvalId: 'approval-1',
+        delegationId: 'delegation-1',
+        jobId: 'job-1',
+        targetRoomId: 'room-target',
+        started: true,
+      }),
+    })]);
   });
 });

@@ -16,7 +16,8 @@
 
 import { DEBATE_LIMITS, CONTENT_LIMITS } from './squad-limits.js';
 import { metricsStore as defaultMetricsStore } from '../metrics/MetricsStore.js';
-import { injectSkillsToMessages } from './skillInjector.js';
+import { buildRoomAgentContext, injectSkillsToMessages } from './skillInjector.js';
+import { summarizeAgentRuntimeContext } from '../agents/AgentSkillRegistry.js';
 
 const ROLE_PROMPT = (memberDisplay, topic, others, macroRound, totalMacroRounds) => `# 你的角色：debate 参与者 ${memberDisplay}
 
@@ -148,8 +149,14 @@ export class DebateDispatcher {
   _resetFailure(roomId) { this._fails.delete(roomId); }
 
   /** v0.53: 内部统一上报指标，dispatcher 失败不影响主流程 */
-  _recordMetric(room, kind, speaker, model, latencyMs, result, errorKind = null) {
+  _recordMetric(room, kind, speakerOrMember, model, latencyMs, result, errorKind = null, objective = '') {
     try {
+      const member = typeof speakerOrMember === 'object'
+        ? speakerOrMember
+        : (room.members || []).find((m) => m.adapterId === speakerOrMember) || { adapterId: speakerOrMember };
+      const speaker = member.adapterId || String(speakerOrMember || 'unknown');
+      const agentContext = buildRoomAgentContext(room, { member, objective: objective || room.topic || String(kind || '') });
+      const agentMetrics = summarizeAgentRuntimeContext(agentContext);
       this.metrics?.record?.({
         roomId: room.id,
         roomMode: 'debate',
@@ -163,6 +170,8 @@ export class DebateDispatcher {
         tokensOut: result?.tokensOut || 0,
         success: !errorKind,
         errorKind,
+        agentRunId: result?.agentRunId || '',
+        ...agentMetrics,
       });
     } catch {}
   }
@@ -335,12 +344,14 @@ export class DebateDispatcher {
       const judgeStartedAt = Date.now();
       try {
         const judgePrompt = R4_JUDGE_PROMPT(topic, allTurnsText);
+        const judgeAgentContext = buildRoomAgentContext(room, { member: judgeMember, objective: topic });
+        const judgeAgentMetrics = summarizeAgentRuntimeContext(judgeAgentContext);
         const judgeResult = await judge.chat(
           injectSkillsToMessages([
           { role: 'system', content: '你是中立主持人，负责合成最终方案。' },
           { role: 'user', content: judgePrompt },
-        ], room),
-          { cwd: room.cwd, abortSignal: aborter.signal, model: judgeModel, budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: judge.id } },
+        ], room, { agentContext: judgeAgentContext }),
+          { cwd: room.cwd, abortSignal: aborter.signal, model: judgeModel, budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: judge.id, agentProfileId: judgeAgentMetrics.agentProfileId } },
         );
         this.store.appendTurn(roomId, 'r4_judge', {
           speaker: judge.id,
@@ -349,7 +360,7 @@ export class DebateDispatcher {
           tokensIn: judgeResult.tokensIn,
           tokensOut: judgeResult.tokensOut,
         });
-        this._recordMetric(room, 'r4_judge', judge.id, judgeModel, Date.now() - judgeStartedAt, judgeResult);
+        this._recordMetric(room, 'r4_judge', judgeMember, judgeModel, Date.now() - judgeStartedAt, judgeResult, null, topic);
         this._resetFailure(roomId);
         // v0.51 ZZZZ-05 fix: finalConsensus cap 防极长 reply 撑爆 rooms.json
         const MAX = CONTENT_LIMITS.maxReplyChars;  // v0.52 256KB
@@ -365,7 +376,7 @@ export class DebateDispatcher {
           content: '[judge 失败] ' + e.message,
           error: true,
         });
-        this._recordMetric(room, 'r4_judge', judge.id, judgeModel, Date.now() - judgeStartedAt, null, e?.name || 'error');
+        this._recordMetric(room, 'r4_judge', judgeMember, judgeModel, Date.now() - judgeStartedAt, { agentRunId: e.agentRunId }, e?.name || 'error', topic);
         this._bumpFailure(roomId, aborter.signal.aborted);
         // v0.44 P2 #18: 降级到最后一大轮 R3 终稿作为 finalConsensus，前端有 fallback 视图
         // v0.52 fix: 多大轮时取最后一大轮 R3，不再硬编码 rounds[2]
@@ -421,12 +432,14 @@ export class DebateDispatcher {
       }, 20000);
       const startedAt = Date.now();
       try {
-        const result = await adapter.chat(injectSkillsToMessages(messages, room), {
+        const agentContext = buildRoomAgentContext(room, { member, objective: room.topic || '' });
+        const agentMetrics = summarizeAgentRuntimeContext(agentContext);
+        const result = await adapter.chat(injectSkillsToMessages(messages, room, { agentContext }), {
           cwd: room.cwd,
           abortSignal,
           model: member.model,
           onProgress,
-          budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId },
+          budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId, agentProfileId: agentMetrics.agentProfileId },
         });
         clearInterval(keepAliveTimer);
         const turn = {
@@ -437,7 +450,7 @@ export class DebateDispatcher {
           tokensOut: result.tokensOut,
         };
         this.store.appendTurn(roomId, kind, turn);
-        this._recordMetric(room, `${kind}#mr${macroRound}`, member.adapterId, member.model, Date.now() - startedAt, result);
+        this._recordMetric(room, `${kind}#mr${macroRound}`, member, member.model, Date.now() - startedAt, result, null, room.topic || '');
         this._resetFailure(roomId);
         this.broadcast(roomId, { type: 'turn_done', kind, macroRound, ...turn });
         return turn;
@@ -450,7 +463,7 @@ export class DebateDispatcher {
           error: true,
         };
         this.store.appendTurn(roomId, kind, turn);
-        this._recordMetric(room, `${kind}#mr${macroRound}`, member.adapterId, member.model, Date.now() - startedAt, null, e?.name || 'error');
+        this._recordMetric(room, `${kind}#mr${macroRound}`, member, member.model, Date.now() - startedAt, { agentRunId: e.agentRunId }, e?.name || 'error', room.topic || '');
         this._bumpFailure(roomId, abortSignal?.aborted);
         this.broadcast(roomId, { type: 'turn_error', kind, macroRound, speaker: member.adapterId, error: e.message });
         return turn;
@@ -583,11 +596,13 @@ export class DebateDispatcher {
     }, 20000);
     const retryStartedAt = Date.now();
     try {
-      const result = await adapter.chat(injectSkillsToMessages(messages, room), {
+      const agentContext = buildRoomAgentContext(room, { member, objective: room.topic || '' });
+      const agentMetrics = summarizeAgentRuntimeContext(agentContext);
+      const result = await adapter.chat(injectSkillsToMessages(messages, room, { agentContext }), {
         cwd: room.cwd,
         model: member.model,
         onProgress,
-        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: speakerAdapterId },
+        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: speakerAdapterId, agentProfileId: agentMetrics.agentProfileId },
       });
       clearInterval(keepAlive);
       const newTurn = {
@@ -601,7 +616,7 @@ export class DebateDispatcher {
       };
       round.turns[turnIdx] = newTurn;
       this.store.save();
-      this._recordMetric(room, `${kind}#retry`, speakerAdapterId, member.model, Date.now() - retryStartedAt, result);
+      this._recordMetric(room, `${kind}#retry`, member, member.model, Date.now() - retryStartedAt, result, null, room.topic || '');
       this.broadcast(roomId, { type: 'turn_done', kind, macroRound: macroN, ...newTurn, retry: true });
       return { ok: true, turn: newTurn };
     } catch (e) {
@@ -612,7 +627,7 @@ export class DebateDispatcher {
         retriedAt: new Date().toISOString(),
       };
       this.store.save();
-      this._recordMetric(room, `${kind}#retry`, speakerAdapterId, member.model, Date.now() - retryStartedAt, null, e?.name || 'error');
+      this._recordMetric(room, `${kind}#retry`, member, member.model, Date.now() - retryStartedAt, { agentRunId: e.agentRunId }, e?.name || 'error', room.topic || '');
       this.broadcast(roomId, { type: 'turn_error', kind, macroRound: macroN, speaker: speakerAdapterId, error: e.message, retry: true });
       throw e;
     } finally {

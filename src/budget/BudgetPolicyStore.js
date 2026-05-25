@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from '../storage/SqliteStore.js';
 import { activityLog } from '../audit/ActivityLog.js';
 
-export const BUDGET_SCOPE_TYPES = new Set(['project', 'room', 'session', 'adapter', 'task']);
+export const BUDGET_SCOPE_TYPES = new Set(['project', 'room', 'session', 'adapter', 'task', 'agent_profile']);
 export const BUDGET_METRICS = new Set(['usd', 'tokens', 'calls']);
 export const BUDGET_WINDOW_KINDS = new Set(['monthly', 'daily', 'all_time']);
 
@@ -136,11 +136,13 @@ function usageScopesFromMetric(summary = {}) {
   const sessionId = str(summary.sessionId);
   const adapterId = str(summary.adapter || summary.adapterId);
   const taskId = str(summary.taskId);
+  const agentProfileId = str(summary.agentProfileId);
   if (projectId) scopes.push({ scopeType: 'project', scopeId: projectId });
   if (roomId) scopes.push({ scopeType: 'room', scopeId: roomId });
   if (sessionId) scopes.push({ scopeType: 'session', scopeId: sessionId });
   if (adapterId) scopes.push({ scopeType: 'adapter', scopeId: adapterId });
   if (taskId) scopes.push({ scopeType: 'task', scopeId: taskId });
+  if (agentProfileId) scopes.push({ scopeType: 'agent_profile', scopeId: agentProfileId });
   return scopes;
 }
 
@@ -305,6 +307,12 @@ export class BudgetPolicyStore {
       model: summary.model || null,
       success: summary.success !== false,
       errorKind: summary.errorKind || null,
+      agentRunId: summary.agentRunId || null,
+      agentProfileId: summary.agentProfileId || null,
+      agentProfileTitle: summary.agentProfileTitle || null,
+      agentDispatchTags: Array.isArray(summary.agentDispatchTags) ? summary.agentDispatchTags : [],
+      agentSkillNames: Array.isArray(summary.agentSkillNames) ? summary.agentSkillNames : [],
+      agentGovernance: summary.agentGovernance || null,
     };
     for (const scope of scopes) {
       for (const metric of amounts) {
@@ -369,6 +377,8 @@ export class BudgetPolicyStore {
       sessionId: context.sessionId,
       adapter: context.adapterId || context.adapter,
       taskId: context.taskId,
+      agentProfileId: context.agentProfileId,
+      agentRunId: context.agentRunId,
       estCostUSD: Math.max(0, Number(context.estimateUSD) || 0),
       tokensIn: Math.max(0, Number(context.estimateTokens) || 0),
       tokensOut: 0,
@@ -390,7 +400,13 @@ export class BudgetPolicyStore {
           estimateAmount: estimate.amount,
           ts,
           source: 'preflight',
-          details: { adapterId: summary.adapter, roomId: summary.roomId, taskId: summary.taskId },
+          details: {
+            adapterId: summary.adapter,
+            roomId: summary.roomId,
+            taskId: summary.taskId,
+            agentProfileId: summary.agentProfileId,
+            agentRunId: summary.agentRunId,
+          },
         }));
       }
     }
@@ -508,6 +524,7 @@ export class BudgetPolicyStore {
         metric: policy.metric,
         windowKind: policy.windowKind,
         thresholdType,
+        budgetIncidentId: id,
         observedAmount,
         limitAmount: policy.amount,
         source,

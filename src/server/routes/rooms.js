@@ -9,6 +9,7 @@
 import { statSync } from 'fs';
 import { homedir } from 'os';
 import { hasFeature, getCurrentTier } from '../../license/LicenseManager.js';
+import { DEFAULT_AGENT_SKILL_REGISTRY } from '../../agents/AgentSkillRegistry.js';
 import { objectiveSummary, sanitizeLineage, sanitizeObjective } from '../../room/RoomLineage.js';
 import { buildRoleCardsForMembers, summarizeRoleCards } from '../../room/roleCards.js';
 // Round 5 H#6：rooms 写端点会拉起 LLM dispatcher 烧配额、注入 adapter、毁聊天 → 全部 owner-token
@@ -26,13 +27,47 @@ function countTurns(rounds) {
 }
 
 function memberSummary(member = {}) {
-  return {
+  const agentProfileId = typeof member.agentProfileId === 'string'
+    ? member.agentProfileId
+    : (typeof member.profileId === 'string' ? member.profileId : undefined);
+  const summary = {
     adapterId: typeof member.adapterId === 'string' ? member.adapterId : '',
     displayName: typeof member.displayName === 'string' ? member.displayName : '',
     model: typeof member.model === 'string' ? member.model : '',
     role: typeof member.role === 'string' ? member.role : undefined,
     enabled: member.enabled !== false,
   };
+  if (agentProfileId) summary.agentProfileId = agentProfileId;
+  return summary;
+}
+
+function normalizeAgentProfileId(value) {
+  const id = String(value || '').trim().toLowerCase();
+  if (!id) return undefined;
+  if (!DEFAULT_AGENT_SKILL_REGISTRY.profileById.has(id)) return null;
+  return id;
+}
+
+function normalizeRoomSkillNames(values = [], skillStore = null) {
+  const out = [];
+  const seen = new Set();
+  const installed = typeof skillStore?.list === 'function'
+    ? new Map(skillStore.list().map((skill) => [skill.name, skill]))
+    : null;
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const name = value.trim();
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(name)) continue;
+    if (seen.has(name)) continue;
+    if (installed) {
+      const skill = installed.get(name);
+      if (!skill || skill.enabled === false) return null;
+    }
+    seen.add(name);
+    out.push(name);
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 export function summarizeRoom(room = {}) {
@@ -181,6 +216,7 @@ export function registerRoomsRoutes(app, deps) {
     roomStore, safeResolveFsPath, safeSlice, roomAdapterPool,
     debateDispatcher, squadDispatcher, arenaDispatcher, soloChatDispatcher,
     roomWsClients,
+    skillStore = null,
     MAX_ROOMS = 500,
   } = deps;
 
@@ -338,6 +374,12 @@ export function registerRoomsRoutes(app, deps) {
           }
         }
       }
+      for (const [i, m] of req.body.members.entries()) {
+        const agentProfileId = normalizeAgentProfileId(m?.agentProfileId ?? m?.profileId ?? m?.agentId);
+        if (agentProfileId === null) {
+          return res.status(422).json({ error: `members[${i}].agentProfileId 不合法或不存在` });
+        }
+      }
       const members = req.body.members.slice(0, 30).map(m => ({
         adapterId: roomAdapterPool.has(m?.adapterId) ? m.adapterId : 'claude',
         displayName: safeSlice(String(m?.displayName || m?.adapterId || '成员'), 80),
@@ -345,6 +387,7 @@ export function registerRoomsRoutes(app, deps) {
         role: (isSquad && validRoles.has(m?.role)) ? m.role
             : (isArena && validArenaRoles.has(m?.role)) ? m.role
             : (isSquad ? 'dev' : undefined),
+        agentProfileId: normalizeAgentProfileId(m?.agentProfileId ?? m?.profileId ?? m?.agentId) || undefined,
         enabled: m?.enabled !== false,
       }));
       patch.members = members;
@@ -378,9 +421,9 @@ export function registerRoomsRoutes(app, deps) {
       patch.debateRounds = n;
     }
     if (Array.isArray(req.body?.skills)) {
-      patch.skills = req.body.skills
-        .filter((n) => typeof n === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(n))
-        .slice(0, 20);
+      const skills = normalizeRoomSkillNames(req.body.skills, skillStore);
+      if (!skills) return res.status(422).json({ error: 'skills 包含未安装或已禁用的 skill' });
+      patch.skills = skills;
     }
     if (typeof req.body?.exportPath === 'string') {
       const p = req.body.exportPath.trim();

@@ -79,6 +79,37 @@ describe('ActivityLog', () => {
     expect(log.recordSafe({ action: 'room.created', entityType: 'room' })).toBeNull();
   });
 
+  it('filters agent and skill diagnostics from event details', () => {
+    const log = new ActivityLog({ logger: null });
+    log.record({
+      action: 'metrics.recorded',
+      roomId: 'room-agent',
+      sessionId: 'session-agent',
+      taskId: 'task-agent',
+      entityType: 'metric_turn',
+      entityId: 'turn-1',
+      details: {
+        agentProfileId: 'xike-verifier',
+        agentSkillNames: ['qa', 'browser'],
+        agentSkillBindings: [{ name: 'qa', sources: ['profile'] }],
+        agentSkillDiagnostics: [{ code: 'too_many_skills', severity: 'warn' }],
+      },
+    });
+    log.record({
+      action: 'room.created',
+      roomId: 'room-agent',
+      entityType: 'room',
+      entityId: 'room-agent',
+      details: { title: 'plain event' },
+    });
+
+    expect(log.list({ agentOnly: true }).map((event) => event.action)).toEqual(['metrics.recorded']);
+    expect(log.list({ agentProfileId: 'xike-verifier' })).toHaveLength(1);
+    expect(log.list({ skillName: 'qa' })).toHaveLength(1);
+    expect(log.list({ diagnosticCode: 'too_many_skills' })).toHaveLength(1);
+    expect(log.list({ skillName: 'not-installed' })).toHaveLength(0);
+  });
+
   it('migrates the legacy events table before creating new activity indexes', () => {
     close();
     const dbPath = join(tmp, 'legacy.db');

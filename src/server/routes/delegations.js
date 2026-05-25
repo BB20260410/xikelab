@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { approvalStore as defaultApprovalStore } from '../../approval/ApprovalStore.js';
+import { agentRunStore as defaultAgentRunStore } from '../../agents/AgentRunStore.js';
 import { autopilotScheduleStore as defaultScheduleStore } from '../../autopilot/AutopilotScheduleStore.js';
 import { delegationStore as defaultDelegationStore } from '../../delegation/DelegationStore.js';
 import { getCurrentTier, hasFeature } from '../../license/LicenseManager.js';
@@ -148,6 +149,7 @@ export function registerDelegationRoutes(app, {
   delegationStore = defaultDelegationStore,
   scheduleStore = defaultScheduleStore,
   approvalStore = defaultApprovalStore,
+  agentRunStore = defaultAgentRunStore,
   roomStore,
   roomAdapterPool,
   safeResolveFsPath,
@@ -209,6 +211,7 @@ export function registerDelegationRoutes(app, {
       const sourceRoom = roomStore.get(delegation.sourceRoomId);
       if (!sourceRoom) return res.status(404).json({ ok: false, error: 'source room not found' });
       const requireApproval = req.body?.requireApproval !== false;
+      const agentRunId = `agent-run-delegation-${delegation.id}`;
       const approval = requireApproval
         ? approvalStore.createApproval({
           type: 'manual',
@@ -218,6 +221,7 @@ export function registerDelegationRoutes(app, {
           payload: {
             title: `启动委派房：${delegation.title}`,
             delegationId: delegation.id,
+            agentRunId,
             sourceRoomId: delegation.sourceRoomId,
             sourceRoomName: sourceRoom.name || '',
             targetMode: delegation.targetMode,
@@ -240,6 +244,7 @@ export function registerDelegationRoutes(app, {
         payload: {
           ...(req.body?.payload || {}),
           delegationId: delegation.id,
+          agentRunId,
           approvalId: approval?.id || req.body?.approvalId || null,
           requireApproval,
           autoStart: req.body?.autoStart !== false,
@@ -247,7 +252,35 @@ export function registerDelegationRoutes(app, {
           budgetEstimate: req.body?.budgetEstimate || req.body?.budget || {},
         },
       });
-      res.status(201).json({ ok: true, job, approval });
+      const agentRun = agentRunStore?.create?.({
+        id: agentRunId,
+        status: 'queued',
+        roomId: delegation.sourceRoomId,
+        taskId: delegation.sourceTaskId || `delegation:${delegation.id}`,
+        approvalId: approval?.id || req.body?.approvalId || null,
+        delegationId: delegation.id,
+        agentProfileId: 'xike-chief',
+        agentProfileTitle: 'Xike Chief',
+        sourceType: 'delegation_autostart',
+        sourceId: delegation.id,
+        dispatchTags: ['governance'],
+        details: {
+          delegationId: delegation.id,
+          agentRunId,
+          approvalId: approval?.id || null,
+          jobId: job?.id || null,
+          targetMode: delegation.targetMode,
+          autoStart: req.body?.autoStart !== false,
+        },
+      }) || null;
+      try {
+        delegationStore.attachAgentRun?.(delegation.id, {
+          agentRunId,
+          approvalId: approval?.id || req.body?.approvalId || null,
+          jobId: job?.id || null,
+        });
+      } catch {}
+      res.status(201).json({ ok: true, job, approval, agentRun });
     } catch (e) {
       res.status(400).json({ ok: false, error: e.message || String(e) });
     }

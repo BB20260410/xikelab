@@ -155,6 +155,36 @@ export class DelegationStore {
     return updated;
   }
 
+  attachAgentRun(id, patch = {}) {
+    const delegation = this.get(id);
+    if (!delegation) throw new Error('delegation not found');
+    const payload = {
+      ...(delegation.payload || {}),
+      agentRunId: str(patch.agentRunId, 160) || delegation.payload?.agentRunId || null,
+      approvalId: str(patch.approvalId, 160) || delegation.payload?.approvalId || null,
+      autopilotJobId: str(patch.jobId || patch.autopilotJobId, 160) || delegation.payload?.autopilotJobId || null,
+    };
+    const now = nowMs();
+    this.db().prepare('UPDATE delegations SET payload = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(payload), now, id);
+    const updated = this.get(id);
+    this.audit.recordSafe({
+      action: 'delegation.agent_run_attached',
+      actorType: 'system',
+      roomId: updated.sourceRoomId,
+      taskId: updated.sourceTaskId,
+      entityType: 'delegation',
+      entityId: id,
+      status: updated.status,
+      details: {
+        agentRunId: payload.agentRunId,
+        approvalId: payload.approvalId,
+        autopilotJobId: payload.autopilotJobId,
+      },
+    });
+    return updated;
+  }
+
   markFailed(id, error) {
     const delegation = this.get(id);
     if (!delegation) throw new Error('delegation not found');

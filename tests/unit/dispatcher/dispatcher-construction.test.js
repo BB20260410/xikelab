@@ -78,6 +78,33 @@ describe('dispatcher resume 错误', () => {
   });
 });
 
+describe('dispatcher agent telemetry', () => {
+  it('SoloChatDispatcher writes agent profile/tag/skill metadata into metrics', async () => {
+    const recorded = [];
+    const metrics = { record(payload) { recorded.push(payload); } };
+    stubStore._rooms.set('chat-1', {
+      id: 'chat-1',
+      mode: 'chat',
+      name: 'Agent telemetry',
+      cwd: '/tmp/xikelab',
+      members: [{ adapterId: 'stub', displayName: 'Stub QA', role: 'qa', enabled: true }],
+      conversation: [],
+    });
+    const d = new SoloChatDispatcher({ store: stubStore, adapters: stubAdapters, broadcast: stubBroadcast, metrics });
+
+    await d.sendMessage('chat-1', '请测试审批和预算治理');
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      roomMode: 'chat',
+      adapter: 'stub',
+      agentProfileId: 'xike-verifier',
+    });
+    expect(recorded[0].agentDispatchTags).toEqual(expect.arrayContaining(['verification', 'governance']));
+    expect(recorded[0].agentGovernance).toMatchObject({ commandGuard: 'strict' });
+  });
+});
+
 describe('learned helper 直接调用', () => {
   it('historyTrimmer 跑通', async () => {
     const { trimHistoryByTokens } = await import('../../../src/room/historyTrimmer.js');

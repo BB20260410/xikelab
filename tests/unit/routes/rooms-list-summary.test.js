@@ -11,7 +11,7 @@ function makeRoom(overrides = {}) {
     updatedAt: '2026-05-24T00:10:00.000Z',
     cwd: '/tmp/project',
     members: [
-      { adapterId: 'claude', displayName: 'Claude', model: 'sonnet', role: 'pm', enabled: true, token: 'drop-me' },
+      { adapterId: 'claude', displayName: 'Claude', model: 'sonnet', role: 'pm', agentProfileId: 'xike-chief', enabled: true, token: 'drop-me' },
       { adapterId: 'codex', displayName: 'Codex', enabled: false },
     ],
     topic: 'important topic',
@@ -81,6 +81,13 @@ function makeDeps(roomStore) {
     arenaDispatcher: noopDispatcher,
     soloChatDispatcher: noopDispatcher,
     roomWsClients: new Map(),
+    skillStore: {
+      list: () => [
+        { name: 'qa', enabled: true },
+        { name: 'browse', enabled: true },
+        { name: 'disabled-skill', enabled: false },
+      ],
+    },
     MAX_ROOMS: 500,
   };
 }
@@ -102,7 +109,7 @@ describe('rooms list summary', () => {
     const summary = summarizeRoom(makeRoom());
     expect(summary.id).toBe('room-1');
     expect(summary.members).toEqual([
-      { adapterId: 'claude', displayName: 'Claude', model: 'sonnet', role: 'pm', enabled: true },
+      { adapterId: 'claude', displayName: 'Claude', model: 'sonnet', role: 'pm', agentProfileId: 'xike-chief', enabled: true },
       { adapterId: 'codex', displayName: 'Codex', model: '', role: undefined, enabled: false },
     ]);
     expect(summary.roundCount).toBe(2);
@@ -221,5 +228,131 @@ describe('rooms list summary', () => {
     expect(res.statusCode).toBe(200);
     expect(updated.objective.title).toBe('New target');
     expect(updated.lineage.objectiveId).toBe(updated.objective.id);
+  });
+
+  it('PATCH /api/rooms/:id preserves valid member agent profile bindings', () => {
+    const room = makeRoom({ mode: 'squad' });
+    let updated;
+    const roomStore = {
+      list: () => [room],
+      listArchived: () => [],
+      get: () => room,
+      update: (_id, patch) => {
+        updated = { ...room, ...patch };
+        return updated;
+      },
+    };
+    const { app, routes } = makeApp();
+    registerRoomsRoutes(app, makeDeps(roomStore));
+    const patchRoute = routes.find((route) => route.method === 'patch' && route.path === '/api/rooms/:id');
+    const req = {
+      params: { id: 'room-1' },
+      body: {
+        members: [
+          { adapterId: 'claude', displayName: 'Claude PM', role: 'pm', agentProfileId: 'xike-architect', enabled: true },
+          { adapterId: 'codex', displayName: 'Codex QA', role: 'qa', agentProfileId: '', enabled: true },
+        ],
+      },
+    };
+    const res = {
+      statusCode: 200,
+      payload: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.payload = body; return this; },
+    };
+
+    patchRoute.handlers[1](req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(updated.members[0]).toMatchObject({ role: 'pm', agentProfileId: 'xike-architect' });
+    expect(updated.members[1].agentProfileId).toBeUndefined();
+    expect(updated.roleCards).toHaveLength(2);
+  });
+
+  it('PATCH /api/rooms/:id rejects unknown member agent profile ids', () => {
+    const room = makeRoom({ mode: 'squad' });
+    const roomStore = {
+      list: () => [room],
+      listArchived: () => [],
+      get: () => room,
+      update: () => { throw new Error('should not update'); },
+    };
+    const { app, routes } = makeApp();
+    registerRoomsRoutes(app, makeDeps(roomStore));
+    const patchRoute = routes.find((route) => route.method === 'patch' && route.path === '/api/rooms/:id');
+    const req = {
+      params: { id: 'room-1' },
+      body: {
+        members: [
+          { adapterId: 'claude', displayName: 'Claude PM', role: 'pm', agentProfileId: 'not-real-profile', enabled: true },
+        ],
+      },
+    };
+    const res = {
+      statusCode: 200,
+      payload: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.payload = body; return this; },
+    };
+
+    patchRoute.handlers[1](req, res);
+
+    expect(res.statusCode).toBe(422);
+    expect(res.payload.error).toContain('agentProfileId');
+  });
+
+  it('PATCH /api/rooms/:id saves only installed enabled room skills', () => {
+    const room = makeRoom();
+    let updated;
+    const roomStore = {
+      list: () => [room],
+      listArchived: () => [],
+      get: () => room,
+      update: (_id, patch) => {
+        updated = { ...room, ...patch };
+        return updated;
+      },
+    };
+    const { app, routes } = makeApp();
+    registerRoomsRoutes(app, makeDeps(roomStore));
+    const patchRoute = routes.find((route) => route.method === 'patch' && route.path === '/api/rooms/:id');
+    const req = { params: { id: 'room-1' }, body: { skills: ['qa', 'browse', 'qa'] } };
+    const res = {
+      statusCode: 200,
+      payload: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.payload = body; return this; },
+    };
+
+    patchRoute.handlers[1](req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(updated.skills).toEqual(['qa', 'browse']);
+    expect(res.payload.room.skills).toEqual(['qa', 'browse']);
+  });
+
+  it('PATCH /api/rooms/:id rejects unknown or disabled room skills', () => {
+    const room = makeRoom();
+    const roomStore = {
+      list: () => [room],
+      listArchived: () => [],
+      get: () => room,
+      update: () => { throw new Error('should not update'); },
+    };
+    const { app, routes } = makeApp();
+    registerRoomsRoutes(app, makeDeps(roomStore));
+    const patchRoute = routes.find((route) => route.method === 'patch' && route.path === '/api/rooms/:id');
+    const req = { params: { id: 'room-1' }, body: { skills: ['qa', 'disabled-skill'] } };
+    const res = {
+      statusCode: 200,
+      payload: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.payload = body; return this; },
+    };
+
+    patchRoute.handlers[1](req, res);
+
+    expect(res.statusCode).toBe(422);
+    expect(res.payload.error).toContain('skills');
   });
 });

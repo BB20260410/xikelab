@@ -2,6 +2,7 @@ import { activityLog } from '../audit/ActivityLog.js';
 import { approvalStore as defaultApprovalStore } from '../approval/ApprovalStore.js';
 import { budgetPolicyStore as defaultBudgetStore, BudgetLimitExceededError } from '../budget/BudgetPolicyStore.js';
 import { delegationStore as defaultDelegationStore } from '../delegation/DelegationStore.js';
+import { agentRunStore as defaultAgentRunStore } from '../agents/AgentRunStore.js';
 import { executeDelegation } from '../server/routes/delegations.js';
 
 const DEFAULT_GATE_POLL_MS = 30_000;
@@ -31,6 +32,7 @@ function deferGate({ job, reason, runAfter, approval = null, budgetBlocked = [] 
       jobId: job?.id || null,
       approvalId: approval?.id || null,
       budgetBlocked,
+      agentRunId: job?.payload?.agentRunId || null,
     },
   };
 }
@@ -45,6 +47,7 @@ function buildBudgetContext({ job, delegation, sourceRoom, targetRoom = null } =
     sessionId: job.sessionId || null,
     adapterId: estimate.adapterId || job.payload?.adapterId || 'autopilot',
     taskId: job.taskId || delegation.sourceTaskId || `delegation:${delegation.id}`,
+    agentRunId: job.payload?.agentRunId || delegation.payload?.agentRunId || null,
     estimateUSD: num(estimate.estimateUSD ?? estimate.usd, 0),
     estimateTokens: num(estimate.estimateTokens ?? estimate.tokens, 0),
     estimateCalls: num(estimate.estimateCalls ?? estimate.calls, 1),
@@ -82,6 +85,7 @@ function ensureApproval({ approvalStore, job, delegation, sourceRoom, now, pollM
       sourceRoomName: sourceRoom?.name || '',
       targetMode: delegation.targetMode,
       jobId: job.id,
+      agentRunId: job.payload?.agentRunId || delegation.payload?.agentRunId || null,
       risk: 'Autopilot will create and start a delegated room after budget gates pass.',
     },
   });
@@ -115,6 +119,7 @@ export function makeDelegationAutostartHandler({
   roomAdapterPool,
   safeResolveFsPath,
   startRoom,
+  agentRunStore = defaultAgentRunStore,
   now = () => Date.now(),
   gatePollMs = DEFAULT_GATE_POLL_MS,
 } = {}) {
@@ -134,10 +139,40 @@ export function makeDelegationAutostartHandler({
     if (!sourceRoom) throw new Error('source room not found');
 
     const approvalGate = ensureApproval({ approvalStore, job, delegation, sourceRoom, now: ts, pollMs });
-    if (!approvalGate.ok) return approvalGate.deferred;
+    if (!approvalGate.ok) {
+      const agentRunId = job.payload?.agentRunId || delegation.payload?.agentRunId || null;
+      if (agentRunId) {
+        try {
+          agentRunStore.transition(agentRunId, 'deferred', {
+            deferReason: approvalGate.deferred.reason,
+            approvalId: approvalGate.deferred.result?.approvalId || null,
+            delegationId: delegation.id,
+            jobId: job.id,
+          });
+        } catch {}
+      }
+      return approvalGate.deferred;
+    }
 
     const budgetGate = checkBudget({ budgetStore, job, delegation, sourceRoom, now: ts, pollMs });
-    if (budgetGate?.__defer) return budgetGate;
+    if (budgetGate?.__defer) {
+      const agentRunId = job.payload?.agentRunId || delegation.payload?.agentRunId || null;
+      const incidents = (budgetGate.result?.budgetBlocked || []).map((item) => item?.incident).filter(Boolean);
+      if (agentRunId) {
+        try {
+          agentRunStore.transition(agentRunId, 'deferred', {
+            deferReason: 'budget_blocked',
+            approvalId: approvalGate.approval?.id || null,
+            delegationId: delegation.id,
+            jobId: job.id,
+            budgetIncidentId: incidents[0]?.id || null,
+            budgetIncidentIds: incidents.map((incident) => incident.id).filter(Boolean),
+            relatedActivityIds: incidents.map((incident) => incident.activityId).filter(Boolean),
+          });
+        } catch {}
+      }
+      return budgetGate;
+    }
 
     const execution = executeDelegation({
       id: delegation.id,
@@ -156,7 +191,25 @@ export function makeDelegationAutostartHandler({
       now: ts,
       pollMs,
     });
-    if (targetBudgetGate?.__defer) return targetBudgetGate;
+    if (targetBudgetGate?.__defer) {
+      const agentRunId = job.payload?.agentRunId || execution.delegation.payload?.agentRunId || null;
+      const incidents = (targetBudgetGate.result?.budgetBlocked || []).map((item) => item?.incident).filter(Boolean);
+      if (agentRunId) {
+        try {
+          agentRunStore.transition(agentRunId, 'deferred', {
+            deferReason: 'budget_blocked',
+            approvalId: approvalGate.approval?.id || null,
+            delegationId: execution.delegation.id,
+            jobId: job.id,
+            targetRoomId: targetRoom?.id || execution.delegation.targetRoomId,
+            budgetIncidentId: incidents[0]?.id || null,
+            budgetIncidentIds: incidents.map((incident) => incident.id).filter(Boolean),
+            relatedActivityIds: incidents.map((incident) => incident.activityId).filter(Boolean),
+          });
+        } catch {}
+      }
+      return targetBudgetGate;
+    }
 
     const autoStart = job.payload?.autoStart !== false;
     const startResult = autoStart && targetRoom?.mode !== 'chat'
@@ -178,8 +231,22 @@ export function makeDelegationAutostartHandler({
         targetMode: execution.delegation.targetMode,
         started: !!startResult.started,
         approvalId: approvalGate.approval?.id || null,
+        agentRunId: job.payload?.agentRunId || execution.delegation.payload?.agentRunId || null,
       },
     });
+
+    const agentRunId = job.payload?.agentRunId || execution.delegation.payload?.agentRunId || null;
+    if (agentRunId) {
+      try {
+        agentRunStore.transition(agentRunId, 'succeeded', {
+          approvalId: approvalGate.approval?.id || null,
+          delegationId: execution.delegation.id,
+          jobId: job.id,
+          targetRoomId: targetRoom?.id || execution.delegation.targetRoomId,
+          started: !!startResult.started,
+        });
+      } catch {}
+    }
 
     return {
       ok: true,
@@ -188,6 +255,7 @@ export function makeDelegationAutostartHandler({
       started: !!startResult.started,
       startResult,
       approvalId: approvalGate.approval?.id || null,
+      agentRunId,
     };
   };
 }

@@ -251,8 +251,73 @@ export function initSqlite(dbPath = DEFAULT_DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_delegations_source ON delegations(source_room_id, status, created_at);
     CREATE INDEX IF NOT EXISTS idx_delegations_target ON delegations(target_room_id, status);
     CREATE INDEX IF NOT EXISTS idx_delegations_status ON delegations(status, updated_at);
+
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'queued',
+      room_id TEXT,
+      session_id TEXT,
+      task_id TEXT,
+      agent_profile_id TEXT,
+      agent_profile_title TEXT,
+      adapter_id TEXT,
+      model_id TEXT,
+      turn_id TEXT,
+      source_type TEXT,
+      source_id TEXT,
+      defer_reason TEXT,
+      approval_id TEXT,
+      budget_incident_id TEXT,
+      delegation_id TEXT,
+      related_activity_ids TEXT NOT NULL DEFAULT '[]',
+      skills TEXT NOT NULL DEFAULT '[]',
+      dispatch_tags TEXT NOT NULL DEFAULT '[]',
+      governance TEXT NOT NULL DEFAULT '{}',
+      details TEXT NOT NULL DEFAULT '{}',
+      error TEXT,
+      started_at INTEGER,
+      finished_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_room_status ON agent_runs(room_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_profile_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_source ON agent_runs(source_type, source_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_delegation ON agent_runs(delegation_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_approval ON agent_runs(approval_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS agent_messages (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'message',
+      role TEXT NOT NULL DEFAULT 'system',
+      status TEXT,
+      summary TEXT,
+      content TEXT,
+      payload TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_run ON agent_messages(run_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS agent_tool_results (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'done',
+      input_summary TEXT,
+      output_summary TEXT,
+      cost_usd REAL DEFAULT 0,
+      approval_id TEXT,
+      payload TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_tool_results_run ON agent_tool_results(run_id, created_at);
   `);
   ensureEventsSchema(db);
+  ensureAgentRunSchema(db);
   fs.chmodSync(dbPath, 0o600);
   _db = db;
   _dbPath = dbPath;
@@ -456,6 +521,41 @@ export function getStats() {
       autopilot_jobs: db.prepare('SELECT COUNT(*) as c FROM autopilot_jobs').get().c,
       autopilot_runs: db.prepare('SELECT COUNT(*) as c FROM autopilot_runs').get().c,
       delegations: db.prepare('SELECT COUNT(*) as c FROM delegations').get().c,
+      agent_runs: db.prepare('SELECT COUNT(*) as c FROM agent_runs').get().c,
+      agent_messages: db.prepare('SELECT COUNT(*) as c FROM agent_messages').get().c,
+      agent_tool_results: db.prepare('SELECT COUNT(*) as c FROM agent_tool_results').get().c,
     },
   };
+}
+
+function ensureAgentRunSchema(db) {
+  const tableNames = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
+  if (!tableNames.has('agent_runs')) return;
+  const columns = new Set(db.prepare('PRAGMA table_info(agent_runs)').all().map((c) => c.name));
+  const addColumn = (name, definition) => {
+    if (!columns.has(name)) {
+      db.exec(`ALTER TABLE agent_runs ADD COLUMN ${name} ${definition}`);
+      columns.add(name);
+    }
+  };
+  addColumn('turn_id', 'TEXT');
+  addColumn('source_type', 'TEXT');
+  addColumn('source_id', 'TEXT');
+  addColumn('defer_reason', 'TEXT');
+  addColumn('approval_id', 'TEXT');
+  addColumn('budget_incident_id', 'TEXT');
+  addColumn('delegation_id', 'TEXT');
+  addColumn('related_activity_ids', "TEXT NOT NULL DEFAULT '[]'");
+  addColumn('governance', "TEXT NOT NULL DEFAULT '{}'");
+  addColumn('details', "TEXT NOT NULL DEFAULT '{}'");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_room_status ON agent_runs(room_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_profile_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_source ON agent_runs(source_type, source_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_delegation ON agent_runs(delegation_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_approval ON agent_runs(approval_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_run ON agent_messages(run_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_tool_results_run ON agent_tool_results(run_id, created_at);
+  `);
 }

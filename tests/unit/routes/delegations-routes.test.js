@@ -159,14 +159,25 @@ describe('delegation routes', () => {
     };
     const approval = { id: 'approval-1', status: 'pending' };
     const job = { id: 'job-1', action: 'start_delegation', targetId: 'delegation-1' };
+    const agentRun = { id: 'agent-run-delegation-delegation-1', status: 'queued' };
     const delegationStore = {
       get: () => delegation,
       list: () => [delegation],
+      attachAgentRun(id, patch) {
+        expect(id).toBe('delegation-1');
+        expect(patch).toMatchObject({
+          agentRunId: 'agent-run-delegation-delegation-1',
+          approvalId: 'approval-1',
+          jobId: 'job-1',
+        });
+        return { ...delegation, payload: patch };
+      },
     };
     const approvalStore = {
       createApproval(input) {
         expect(input.dedupeKey).toBe('delegation-autostart-approval:delegation-1');
         expect(input.payload.delegationId).toBe('delegation-1');
+        expect(input.payload.agentRunId).toBe('agent-run-delegation-delegation-1');
         return approval;
       },
     };
@@ -176,6 +187,7 @@ describe('delegation routes', () => {
         expect(input.dedupeKey).toBe('delegation-autostart:delegation-1');
         expect(input.payload).toMatchObject({
           delegationId: 'delegation-1',
+          agentRunId: 'agent-run-delegation-delegation-1',
           approvalId: 'approval-1',
           requireApproval: true,
           autoStart: true,
@@ -183,8 +195,26 @@ describe('delegation routes', () => {
         return job;
       },
     };
+    const agentRunStore = {
+      create(input) {
+        expect(input).toMatchObject({
+          id: 'agent-run-delegation-delegation-1',
+          status: 'queued',
+          roomId: 'room-1',
+          taskId: 'source-task',
+          approvalId: 'approval-1',
+          delegationId: 'delegation-1',
+          agentProfileId: 'xike-chief',
+          sourceType: 'delegation_autostart',
+          sourceId: 'delegation-1',
+          dispatchTags: ['governance'],
+        });
+        expect(input.details).toMatchObject({ approvalId: 'approval-1', jobId: 'job-1' });
+        return agentRun;
+      },
+    };
     const { app, routes } = makeApp();
-    registerDelegationRoutes(app, { delegationStore, approvalStore, scheduleStore, roomStore });
+    registerDelegationRoutes(app, { delegationStore, approvalStore, scheduleStore, agentRunStore, roomStore });
 
     const route = routes.find(r => r.method === 'post' && r.path === '/api/delegations/:id/autostart');
     const res = makeRes();
@@ -194,6 +224,6 @@ describe('delegation routes', () => {
     }, res);
 
     expect(res.statusCode).toBe(201);
-    expect(res.payload).toEqual({ ok: true, job, approval });
+    expect(res.payload).toEqual({ ok: true, job, approval, agentRun });
   });
 });

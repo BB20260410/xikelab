@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { BudgetLimitExceededError, BudgetPolicyStore } from '../../src/budget/BudgetPolicyStore.js';
-import { close, initSqlite } from '../../src/storage/SqliteStore.js';
+import { close, initSqlite, listEvents } from '../../src/storage/SqliteStore.js';
 
 let tmp;
 
@@ -35,6 +35,7 @@ describe('BudgetPolicyStore', () => {
     store.recordMetric({
       ts: '2026-05-24T00:00:00.000Z',
       roomId: 'room-1',
+      agentRunId: 'agent-run-budget-1',
       projectId: '/tmp/project',
       adapter: 'codex',
       estCostUSD: 0.81,
@@ -45,6 +46,11 @@ describe('BudgetPolicyStore', () => {
     let incidents = store.listIncidents({ scopeType: 'room', scopeId: 'room-1', status: 'open' });
     expect(incidents).toHaveLength(1);
     expect(incidents[0]).toMatchObject({ policyId: policy.id, thresholdType: 'warning' });
+    const warningActivity = listEvents({ kind: 'activity', entityType: 'budget_policy', entityId: policy.id })[0];
+    expect(warningActivity.payload.details).toMatchObject({
+      agentRunId: 'agent-run-budget-1',
+      budgetIncidentId: incidents[0].id,
+    });
 
     store.recordMetric({
       ts: '2026-05-24T00:01:00.000Z',
@@ -80,19 +86,26 @@ describe('BudgetPolicyStore', () => {
       warnPercent: 0.5,
       hardStopEnabled: true,
     });
-    store.recordMetric({
-      ts: '2026-05-24T00:00:00.000Z',
-      adapter: 'codex',
-      estCostUSD: 0,
-      tokensIn: 0,
-      tokensOut: 0,
-    });
-
     expect(() => store.preflight({
       ts: '2026-05-24T00:01:00.000Z',
       adapterId: 'codex',
-      estimateCalls: 1,
+      agentRunId: 'agent-run-budget-preflight',
+      estimateCalls: 2,
     })).toThrow(BudgetLimitExceededError);
+
+    try {
+      store.preflight({
+        ts: '2026-05-24T00:01:00.000Z',
+        adapterId: 'codex',
+        agentRunId: 'agent-run-budget-preflight',
+        estimateCalls: 2,
+      });
+    } catch (e) {
+      expect(e.blocked[0].incident.activityId).toBeGreaterThan(0);
+      const event = listEvents({ kind: 'activity', entityType: 'budget_policy', entityId: e.blocked[0].id })
+        .find((item) => item.payload?.action === 'budget.hard_stop');
+      expect(event.payload.details.agentRunId).toBe('agent-run-budget-preflight');
+    }
   });
 
   it('allows the call that reaches the budget and blocks subsequent calls', () => {
@@ -133,6 +146,7 @@ describe('BudgetPolicyStore', () => {
       projectId: '/tmp/project',
       roomId: 'room-1',
       taskId: 'T1',
+      agentProfileId: 'xike-verifier',
       adapter: 'codex',
       estCostUSD: 0.25,
       tokensIn: 100,
@@ -142,5 +156,32 @@ describe('BudgetPolicyStore', () => {
     expect(store.listUsage({ scopeType: 'project', scopeId: '/tmp/project', metric: 'usd', ts: '2026-05-24T00:00:00.000Z' }).amount).toBe(0.25);
     expect(store.listUsage({ scopeType: 'room', scopeId: 'room-1', metric: 'tokens', ts: '2026-05-24T00:00:00.000Z' }).amount).toBe(150);
     expect(store.listUsage({ scopeType: 'task', scopeId: 'T1', metric: 'calls', ts: '2026-05-24T00:00:00.000Z' }).amount).toBe(1);
+    expect(store.listUsage({ scopeType: 'agent_profile', scopeId: 'xike-verifier', metric: 'calls', ts: '2026-05-24T00:00:00.000Z' }).amount).toBe(1);
+  });
+
+  it('blocks profile-specific preflight when an agent profile call budget is exhausted', () => {
+    const store = new BudgetPolicyStore({ logger: null });
+    store.createPolicy({
+      scopeType: 'agent_profile',
+      scopeId: 'xike-shipper',
+      metric: 'calls',
+      windowKind: 'daily',
+      amount: 1,
+      hardStopEnabled: true,
+    });
+    store.recordMetric({
+      ts: '2026-05-24T00:00:00.000Z',
+      agentProfileId: 'xike-shipper',
+      adapter: 'codex',
+      tokensIn: 1,
+      tokensOut: 1,
+    });
+
+    expect(() => store.preflight({
+      ts: '2026-05-24T00:00:01.000Z',
+      adapterId: 'codex',
+      agentProfileId: 'xike-shipper',
+      estimateCalls: 1,
+    })).toThrow(BudgetLimitExceededError);
   });
 });

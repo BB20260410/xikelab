@@ -7,6 +7,12 @@ function parseLimit(value) {
   return Math.max(1, Math.min(1000, Math.trunc(n)));
 }
 
+function parseBooleanFlag(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value !== 'string') return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
 function parseActivityQuery(query = {}) {
   return {
     roomId: query.roomId || query.room || undefined,
@@ -18,6 +24,10 @@ function parseActivityQuery(query = {}) {
     actorType: query.actorType || undefined,
     severity: query.severity || undefined,
     status: query.status || undefined,
+    agentOnly: parseBooleanFlag(query.agentOnly || query.agent || query.agentSkillOnly) || undefined,
+    agentProfileId: query.agentProfileId || query.agentProfile || query.profile || undefined,
+    skillName: query.skillName || query.skill || undefined,
+    diagnosticCode: query.diagnosticCode || query.diagnostic || undefined,
     since: query.since || query.sinceTs || undefined,
     until: query.until || query.untilTs || undefined,
     order: query.order === 'ASC' ? 'ASC' : 'DESC',

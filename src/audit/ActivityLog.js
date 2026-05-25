@@ -79,6 +79,68 @@ function normalizeActivityRow(row = {}) {
   };
 }
 
+function collectValues(value, out = []) {
+  if (value === null || value === undefined || value === '') return out;
+  if (Array.isArray(value)) {
+    for (const item of value) collectValues(item, out);
+    return out;
+  }
+  if (typeof value === 'object') {
+    if (value.name) out.push(value.name);
+    else if (value.id) out.push(value.id);
+    return out;
+  }
+  out.push(value);
+  return out;
+}
+
+function stringSet(values) {
+  return new Set(collectValues(values).map((item) => String(item).trim()).filter(Boolean));
+}
+
+function activityAgentProfileIds(event) {
+  const details = event.details || {};
+  const ids = new Set();
+  if (event.entityType === 'agent_profile' && event.entityId) ids.add(String(event.entityId));
+  for (const value of [
+    details.agentProfileId,
+    details.profileId,
+    details.agentProfile?.id,
+    details.agent?.profileId,
+  ]) {
+    if (value) ids.add(String(value));
+  }
+  return ids;
+}
+
+function activitySkillNames(event) {
+  const details = event.details || {};
+  return stringSet([
+    details.agentSkillNames,
+    details.skillNames,
+    details.skills,
+    details.agentSkillBindings,
+    details.skillBindings,
+  ]);
+}
+
+function activityDiagnosticCodes(event) {
+  const details = event.details || {};
+  return stringSet([
+    (details.diagnostics || []).map((item) => item?.code),
+    (details.agentSkillDiagnostics || []).map((item) => item?.code),
+    details.diagnosticCode,
+  ]);
+}
+
+function hasAgentActivity(event) {
+  const action = String(event.action || '');
+  return action.startsWith('agent.')
+    || activityAgentProfileIds(event).size > 0
+    || activitySkillNames(event).size > 0
+    || activityDiagnosticCodes(event).size > 0;
+}
+
 export class ActivityLog {
   constructor({ storage = sqliteStore, logger = console } = {}) {
     this.storage = storage;
@@ -145,6 +207,19 @@ export class ActivityLog {
     if (query.actorType) events = events.filter((e) => e.actorType === query.actorType);
     if (query.severity) events = events.filter((e) => e.severity === query.severity);
     if (query.status) events = events.filter((e) => e.status === query.status);
+    if (query.agentOnly) events = events.filter(hasAgentActivity);
+    if (query.agentProfileId) {
+      const target = String(query.agentProfileId);
+      events = events.filter((e) => activityAgentProfileIds(e).has(target));
+    }
+    if (query.skillName) {
+      const target = String(query.skillName);
+      events = events.filter((e) => activitySkillNames(e).has(target));
+    }
+    if (query.diagnosticCode) {
+      const target = String(query.diagnosticCode);
+      events = events.filter((e) => activityDiagnosticCodes(e).has(target));
+    }
     return events;
   }
 }

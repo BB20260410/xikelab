@@ -13,8 +13,9 @@ import { randomUUID } from 'node:crypto';
 import { TaskGraph } from './TaskGraph.js';
 import { SQUAD_LIMITS, PROMPT_VERSIONS, CONTENT_LIMITS } from './squad-limits.js';
 import { metricsStore as defaultMetricsStore } from '../metrics/MetricsStore.js';
-import { injectSkillsToMessages } from './skillInjector.js';
+import { buildRoomAgentContext, injectSkillsToMessages } from './skillInjector.js';
 import { findRoleCard, formatRoleCardForPrompt } from './roleCards.js';
+import { summarizeAgentRuntimeContext } from '../agents/AgentSkillRegistry.js';
 
 const PM_PROMPT = (topic, members, room) => `# 你的角色：squad PM（项目经理）
 
@@ -640,7 +641,15 @@ export class CollaborationDispatcher {
     const startedAt = Date.now();
     let result, err;
     // v0.55 Sprint 14 F2：注入房 skills
-    const finalMessages = ctx?.room ? injectSkillsToMessages(messages, ctx.room) : messages;
+    const objective = ctx?.objective
+      || ctx?.task?.desc
+      || ctx?.room?.topic
+      || messages.map((m) => m?.content || '').join('\n').slice(0, 8000);
+    const agentContext = ctx?.room ? buildRoomAgentContext(ctx.room, { member, objective }) : null;
+    const agentMetrics = summarizeAgentRuntimeContext(agentContext);
+    const finalMessages = ctx?.room
+      ? injectSkillsToMessages(messages, ctx.room, { agentContext })
+      : messages;
     try {
       result = await adapter.chat(finalMessages, {
         cwd,
@@ -651,6 +660,7 @@ export class CollaborationDispatcher {
           roomId: ctx?.room?.id || null,
           adapterId: member.adapterId,
           taskId: ctx?.taskId || null,
+          agentProfileId: agentMetrics.agentProfileId,
         },
       });
     } catch (e) {
@@ -673,6 +683,8 @@ export class CollaborationDispatcher {
           tokensOut: result?.tokensOut || 0,
           success: !err,
           errorKind: err ? (err.name || 'error') : null,
+          agentRunId: result?.agentRunId || err?.agentRunId || '',
+          ...agentMetrics,
         });
       } catch {}
       // v0.53 Sprint 3.5：自动暂停计数

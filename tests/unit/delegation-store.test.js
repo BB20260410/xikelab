@@ -40,6 +40,17 @@ describe('DelegationStore', () => {
     expect(store.list({ sourceRoomId: 'room-1' })).toHaveLength(1);
     expect(getStats().counts.delegations).toBe(1);
 
+    const linked = store.attachAgentRun(delegation.id, {
+      agentRunId: 'agent-run-1',
+      approvalId: 'approval-1',
+      jobId: 'job-1',
+    });
+    expect(linked.payload).toMatchObject({
+      agentRunId: 'agent-run-1',
+      approvalId: 'approval-1',
+      autopilotJobId: 'job-1',
+    });
+
     const done = store.markCreated(delegation.id, { targetRoomId: 'room-2' });
     expect(done).toMatchObject({ status: 'created', targetRoomId: 'room-2' });
   });

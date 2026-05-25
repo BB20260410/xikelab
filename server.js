@@ -79,6 +79,9 @@ import { registerApprovalRoutes } from './src/server/routes/approvals.js';
 import { registerProjectContextRoutes } from './src/server/routes/projectContext.js';
 import { registerDelegationRoutes } from './src/server/routes/delegations.js';
 import { registerGovernanceRoutes } from './src/server/routes/governance.js';
+import { registerAgentRegistryRoutes } from './src/server/routes/agentRegistry.js';
+import { registerAgentRunRoutes } from './src/server/routes/agentRuns.js';
+import { registerCodebaseIndexRoutes } from './src/server/routes/codebaseIndex.js';
 // v2.0 Task 4.2：向量索引
 import { registerEmbeddingsRoutes } from './src/server/routes/embeddings.js';
 // v2.0 Task 4.3：workspace 多空间隔离
@@ -1287,6 +1290,12 @@ registerApprovalRoutes(app);
 registerProjectContextRoutes(app, { safeResolveFsPath });
 // 本地治理状态聚合
 registerGovernanceRoutes(app);
+// Agent Profile / Skill 绑定 / 任务标签分派预览
+registerAgentRegistryRoutes(app, { skillStore, safeResolveFsPath });
+// Agent Run 会话化追踪：run / message / tool result
+registerAgentRunRoutes(app);
+// Codebase Index 二期后端：可解释代码索引 / 查询
+registerCodebaseIndexRoutes(app, { safeResolveFsPath });
 // v2.0 Task 4.2：embeddings / 向量索引
 registerEmbeddingsRoutes(app);
 // v2.0 Task 4.3：workspace 多空间
@@ -2299,7 +2308,7 @@ const MAX_ROOMS = 500;   // v0.51 S-04 / v0.52 200→500（保留在 server.js �
 registerRoomsRoutes(app, {
   roomStore, safeResolveFsPath, safeSlice, roomAdapterPool,
   debateDispatcher, squadDispatcher, arenaDispatcher, soloChatDispatcher,
-  roomWsClients, MAX_ROOMS,
+  roomWsClients, skillStore, MAX_ROOMS,
 });
 
 // 跨房间本地任务委派队列（依赖 roomStore + roomAdapterPool）

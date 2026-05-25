@@ -10,7 +10,8 @@
 
 import { CONTENT_LIMITS } from './squad-limits.js';
 import { metricsStore as defaultMetricsStore } from '../metrics/MetricsStore.js';
-import { injectSkillsToMessages } from './skillInjector.js';
+import { buildRoomAgentContext, injectSkillsToMessages } from './skillInjector.js';
+import { summarizeAgentRuntimeContext } from '../agents/AgentSkillRegistry.js';
 
 const PROPOSAL_PROMPT = (topic, anonId) => `# 你的角色：Arena 提案者（编号 ${anonId}）
 
@@ -105,8 +106,14 @@ export class ArenaDispatcher {
   }
   _resetFailure(roomId) { this._fails.delete(roomId); }
 
-  _recordMetric(room, turnKind, speaker, model, latencyMs, result, errorKind = null) {
+  _recordMetric(room, turnKind, speakerOrMember, model, latencyMs, result, errorKind = null, objective = '') {
     try {
+      const member = typeof speakerOrMember === 'object'
+        ? speakerOrMember
+        : (room.members || []).find((m) => m.adapterId === speakerOrMember) || { adapterId: speakerOrMember };
+      const speaker = member.adapterId || String(speakerOrMember || 'unknown');
+      const agentContext = buildRoomAgentContext(room, { member, objective: objective || room.topic || String(turnKind || '') });
+      const agentMetrics = summarizeAgentRuntimeContext(agentContext);
       this.metrics?.record?.({
         roomId: room.id,
         roomMode: 'arena',
@@ -120,6 +127,8 @@ export class ArenaDispatcher {
         tokensOut: result?.tokensOut || 0,
         success: !errorKind,
         errorKind,
+        agentRunId: result?.agentRunId || '',
+        ...agentMetrics,
       });
     } catch {}
   }
@@ -182,15 +191,17 @@ export class ArenaDispatcher {
         }, 20000);
         const startedAt = Date.now();
         try {
+          const agentContext = buildRoomAgentContext(room, { member, objective: topic });
+          const agentMetrics = summarizeAgentRuntimeContext(agentContext);
           const result = await adapter.chat(injectSkillsToMessages([
             { role: 'system', content: PROPOSAL_PROMPT(topic, anonId) },
             { role: 'user', content: `任务：${topic}\n\n请直接给方案。` },
-          ], room), {
+          ], room, { agentContext }), {
             cwd: room.cwd,
             abortSignal: aborter.signal,
             model: member.model,
             onProgress,
-            budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId },
+            budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId, agentProfileId: agentMetrics.agentProfileId },
           });
           clearInterval(keepAlive);
           const turn = {
@@ -202,7 +213,7 @@ export class ArenaDispatcher {
             anonId,
           };
           this.store.appendTurn(roomId, 'proposals', turn);
-          this._recordMetric(room, `proposals:${anonId}`, member.adapterId, member.model, Date.now() - startedAt, result);
+          this._recordMetric(room, `proposals:${anonId}`, member, member.model, Date.now() - startedAt, result, null, topic);
           this._resetFailure(roomId);
           this.broadcast(roomId, { type: 'turn_done', kind: 'proposals', macroRound: 1, ...turn });
           return turn;
@@ -216,7 +227,7 @@ export class ArenaDispatcher {
             anonId,
           };
           this.store.appendTurn(roomId, 'proposals', turn);
-          this._recordMetric(room, `proposals:${anonId}`, member.adapterId, member.model, Date.now() - startedAt, null, e?.name || 'error');
+          this._recordMetric(room, `proposals:${anonId}`, member, member.model, Date.now() - startedAt, { agentRunId: e.agentRunId }, e?.name || 'error', topic);
           this._bumpFailure(roomId, aborter.signal.aborted);
           this.broadcast(roomId, { type: 'turn_error', kind: 'proposals', macroRound: 1, speaker: member.adapterId, error: e.message });
           return turn;
@@ -252,14 +263,16 @@ export class ArenaDispatcher {
       this.broadcast(roomId, { type: 'judge_start', judge: judgeMember.displayName });
       const judgeStartedAt = Date.now();
       try {
+        const judgeAgentContext = buildRoomAgentContext(room, { member: judgeMember, objective: topic });
+        const judgeAgentMetrics = summarizeAgentRuntimeContext(judgeAgentContext);
         const judgeResult = await judge.chat(injectSkillsToMessages([
           { role: 'system', content: '你是 Arena 联网事实核对员。你有 WebSearch 和 WebFetch 工具，必须真的去调用。' },
           { role: 'user', content: JUDGE_PROMPT(topic, anonymized, validTurns.length) },
-        ], room), {
+        ], room, { agentContext: judgeAgentContext }), {
           cwd: room.cwd,
           abortSignal: aborter.signal,
           model: judgeMember.model,
-          budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: judgeMember.adapterId },
+          budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: judgeMember.adapterId, agentProfileId: judgeAgentMetrics.agentProfileId },
         });
 
         this.store.appendTurn(roomId, 'arena_judge', {
@@ -269,7 +282,7 @@ export class ArenaDispatcher {
           tokensIn: judgeResult.tokensIn,
           tokensOut: judgeResult.tokensOut,
         });
-        this._recordMetric(room, 'arena_judge', judgeMember.adapterId, judgeMember.model, Date.now() - judgeStartedAt, judgeResult);
+        this._recordMetric(room, 'arena_judge', judgeMember, judgeMember.model, Date.now() - judgeStartedAt, judgeResult, null, topic);
         this._resetFailure(roomId);
         const MAX = CONTENT_LIMITS.maxReplyChars;
         const fc = (typeof judgeResult.reply === 'string' && judgeResult.reply.length > MAX)
@@ -284,7 +297,7 @@ export class ArenaDispatcher {
           content: '[judge 失败] ' + e.message,
           error: true,
         });
-        this._recordMetric(room, 'arena_judge', judgeMember.adapterId, judgeMember.model, Date.now() - judgeStartedAt, null, e?.name || 'error');
+        this._recordMetric(room, 'arena_judge', judgeMember, judgeMember.model, Date.now() - judgeStartedAt, { agentRunId: e.agentRunId }, e?.name || 'error', topic);
         this._bumpFailure(roomId, aborter.signal.aborted);
         const fallback = `> ⚠️ Judge 失败，下面是 ${validTurns.length} 份原始提案合并（降级）\n\n` +
           validTurns.map(t => `## 提案 ${t.anonId}（${t.displayName}）\n\n${t.content}`).join('\n\n---\n\n');
@@ -360,10 +373,12 @@ export class ArenaDispatcher {
     this.broadcast(roomId, { type: 'turn_retry_start', kind, macroRound: 1, speaker: speakerAdapterId, displayName: member.displayName });
     const retryStartedAt = Date.now();
     try {
-      const result = await adapter.chat(injectSkillsToMessages(messages, room), {
+      const agentContext = buildRoomAgentContext(room, { member, objective: room.topic || '' });
+      const agentMetrics = summarizeAgentRuntimeContext(agentContext);
+      const result = await adapter.chat(injectSkillsToMessages(messages, room, { agentContext }), {
         cwd: room.cwd,
         model: member.model,
-        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: speakerAdapterId },
+        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: speakerAdapterId, agentProfileId: agentMetrics.agentProfileId },
       });
       const newTurn = {
         speaker: speakerAdapterId,
@@ -381,7 +396,7 @@ export class ArenaDispatcher {
         this.store.update(roomId, { finalConsensus: result.reply, finalDegraded: false });
       }
       this.store.save();
-      this._recordMetric(room, `${kind}#retry`, speakerAdapterId, member.model, Date.now() - retryStartedAt, result);
+      this._recordMetric(room, `${kind}#retry`, member, member.model, Date.now() - retryStartedAt, result, null, room.topic || '');
       this.broadcast(roomId, { type: 'turn_done', kind, macroRound: 1, ...newTurn, retry: true });
       return { ok: true, turn: newTurn };
     } catch (e) {
@@ -391,7 +406,7 @@ export class ArenaDispatcher {
         retriedAt: new Date().toISOString(),
       };
       this.store.save();
-      this._recordMetric(room, `${kind}#retry`, speakerAdapterId, member.model, Date.now() - retryStartedAt, null, e?.name || 'error');
+      this._recordMetric(room, `${kind}#retry`, member, member.model, Date.now() - retryStartedAt, { agentRunId: e.agentRunId }, e?.name || 'error', room.topic || '');
       this.broadcast(roomId, { type: 'turn_error', kind, macroRound: 1, speaker: speakerAdapterId, error: e.message, retry: true });
       throw e;
     }
