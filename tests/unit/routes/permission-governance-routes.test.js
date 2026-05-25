@@ -28,6 +28,17 @@ function approvalGovernance(seen) {
   return {
     evaluatePermission(input) {
       seen.push(input);
+      if (input.approvalId === 'approval-ok') {
+        return {
+          id: `permission-${seen.length}`,
+          decision: 'allow',
+          reason: 'approved permission resumed',
+          action: input.action,
+          risk: input.risk,
+          target: input.target,
+          approval: { id: 'approval-ok', status: 'approved' },
+        };
+      }
       return {
         id: `permission-${seen.length}`,
         decision: 'ask',
@@ -61,11 +72,11 @@ describe('permission governance route integration', () => {
 
     const route = routes.find((r) => r.method === 'put' && r.path === '/api/room-adapters');
     const res = makeRes();
-    route.handlers[1]({ body: {} }, res);
+    route.handlers[1]({ body: { approvalId: 'pending-approval' } }, res);
 
     expect(res.statusCode).toBe(202);
     expect(res.payload).toMatchObject({ ok: false, error: 'approval_required' });
-    expect(seen[0]).toMatchObject({ action: 'provider.model_config.write' });
+    expect(seen[0]).toMatchObject({ action: 'provider.model_config.write', approvalId: 'pending-approval' });
     expect(saved).toBe(false);
   });
 
@@ -89,10 +100,10 @@ describe('permission governance route integration', () => {
 
     const route = routes.find((r) => r.method === 'put' && r.path === '/api/watcher/config');
     const res = makeRes();
-    route.handlers[1]({ body: { provider: 'openai', model: 'gpt-test' } }, res);
+    route.handlers[1]({ body: { provider: 'openai', model: 'gpt-test', approvalId: 'pending-approval' } }, res);
 
     expect(res.statusCode).toBe(202);
-    expect(seen[0]).toMatchObject({ action: 'provider.model_config.write' });
+    expect(seen[0]).toMatchObject({ action: 'provider.model_config.write', approvalId: 'pending-approval' });
     expect(saved).toBe(false);
 
     const testRoute = routes.find((r) => r.method === 'post' && r.path === '/api/watcher/test');
@@ -137,6 +148,32 @@ describe('permission governance route integration', () => {
     expect(tested).toBe(false);
   });
 
+  it('allows webhook create retry with approval id and strips permission fields from storage', async () => {
+    const seen = [];
+    let storedBody = null;
+    const { app, routes } = makeApp();
+    registerWebhookRoutes(app, {
+      webhookStore: {
+        create(body) {
+          storedBody = body;
+          return { id: 'webhook-1', url: body.url };
+        },
+      },
+      maskWebhookUrl: (url) => url,
+      testWebhook: () => {},
+      permissionGovernance: approvalGovernance(seen),
+    });
+
+    const createRoute = routes.find((r) => r.method === 'post' && r.path === '/api/webhooks');
+    const createRes = makeRes();
+    await createRoute.handlers[1]({ body: { url: 'https://8.8.8.8/hook', approvalId: 'approval-ok' } }, createRes);
+
+    expect(createRes.statusCode).toBe(200);
+    expect(createRes.payload).toMatchObject({ ok: true, webhook: { id: 'webhook-1' } });
+    expect(seen[0]).toMatchObject({ action: 'network.upload', approvalId: 'approval-ok' });
+    expect(storedBody).toEqual({ url: 'https://8.8.8.8/hook' });
+  });
+
   it('gates MCP configuration and execution-like tool listing', async () => {
     const seen = [];
     let created = false;
@@ -163,5 +200,32 @@ describe('permission governance route integration', () => {
 
     expect(toolsRes.statusCode).toBe(202);
     expect(seen[1]).toMatchObject({ action: 'skill.plugin.execute', target: expect.objectContaining({ operation: 'list_tools' }) });
+  });
+
+  it('allows MCP config retry with approval id and strips permission fields from storage', () => {
+    const seen = [];
+    let storedBody = null;
+    const { app, routes } = makeApp();
+    registerMcpRoutes(app, {
+      mcpStore: {
+        list: () => [],
+        create: (body) => {
+          storedBody = body;
+          return { name: body.name };
+        },
+      },
+      permissionGovernance: approvalGovernance(seen),
+    });
+
+    const createRoute = routes.find((r) => r.method === 'post' && r.path === '/api/mcp/servers');
+    const createRes = makeRes();
+    createRoute.handlers[1]({
+      body: { name: 'demo', command: 'node', args: ['server.js'], approvalId: 'approval-ok' },
+    }, createRes);
+
+    expect(createRes.statusCode).toBe(200);
+    expect(createRes.payload).toMatchObject({ ok: true, server: { name: 'demo' } });
+    expect(seen[0]).toMatchObject({ action: 'skill.plugin.configure', approvalId: 'approval-ok' });
+    expect(storedBody).toEqual({ name: 'demo', command: 'node', args: ['server.js'] });
   });
 });

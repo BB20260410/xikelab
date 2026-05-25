@@ -280,13 +280,6 @@ export function initSqlite(dbPath = DEFAULT_DB_PATH) {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_room_status ON agent_runs(room_id, status, updated_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id, updated_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_profile_id, updated_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_source ON agent_runs(source_type, source_id);
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_delegation ON agent_runs(delegation_id, updated_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_approval ON agent_runs(approval_id, updated_at);
-
     CREATE TABLE IF NOT EXISTS agent_messages (
       id TEXT PRIMARY KEY,
       run_id TEXT NOT NULL,

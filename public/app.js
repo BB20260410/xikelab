@@ -7890,7 +7890,7 @@ async function decideApproval(id, action) {
   const reason = await promptModal({
     title: `${label}审批`,
     message: action === 'approve'
-      ? '批准只记录人工决策；被暂停的危险命令不会自动重放，需要用户确认后重新执行。'
+      ? '批准会记录人工决策；HTTP/API 操作可带 approvalId 重试同一动作，危险终端命令不会自动重放。'
       : '填写处理说明，留空也可以。',
     value: '',
     placeholder: '处理说明',
@@ -7913,7 +7913,7 @@ async function decideApproval(id, action) {
 function handleApprovalRequired(msg) {
   const approval = msg?.approval || null;
   const id = approval?.id || msg?.approvalId || null;
-  toast(`危险操作已暂停等待审批${id ? '：' + id : ''}`, 'warn', 5000);
+  toast(`危险操作已暂停等待审批${id ? '：' + id : ''}，批准后可重试原操作`, 'warn', 5000);
   if ($('#approvalModal')?.style.display === 'flex') {
     if (id) approvalState.activeId = id;
     refreshApprovals();

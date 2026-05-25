@@ -1,6 +1,6 @@
 import { requireOwnerToken } from '../auth/owner-token.js';
 import { getCurrentTier, hasFeature } from '../../license/LicenseManager.js';
-import { permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
+import { permissionApprovalIdFromRequest, permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
 
 export function registerRoomAdaptersRoutes(app, deps) {
   const {
@@ -43,6 +43,7 @@ export function registerRoomAdaptersRoutes(app, deps) {
     const permission = permissionGovernance?.evaluatePermission?.({
       actorType: 'owner',
       actorId: 'local-owner',
+      approvalId: permissionApprovalIdFromRequest(req),
       action: 'provider.model_config.write',
       cwd: process.cwd(),
       risk: 'high',

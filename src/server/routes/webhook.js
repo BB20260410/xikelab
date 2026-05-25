@@ -14,7 +14,15 @@
 
 import { requireOwnerToken } from '../auth/owner-token.js';
 import { assertPublicUrl } from './img-cache.js';
-import { permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
+import { permissionApprovalIdFromRequest, permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
+
+function stripPermissionFields(body = {}) {
+  const clean = { ...(body || {}) };
+  delete clean.approvalId;
+  delete clean.permissionApprovalId;
+  delete clean.resumeApprovalId;
+  return clean;
+}
 
 export function registerWebhookRoutes(app, deps) {
   const { webhookStore, maskWebhookUrl, testWebhook, permissionGovernance } = deps;
@@ -38,6 +46,7 @@ export function registerWebhookRoutes(app, deps) {
         const permission = permissionGovernance?.evaluatePermission?.({
           actorType: 'owner',
           actorId: 'local-owner',
+          approvalId: permissionApprovalIdFromRequest(req),
           action: 'network.upload',
           cwd: process.cwd(),
           risk: 'high',
@@ -47,7 +56,7 @@ export function registerWebhookRoutes(app, deps) {
           return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
         }
       }
-      const w = webhookStore.create(body);
+      const w = webhookStore.create(stripPermissionFields(body));
       res.json({ ok: true, webhook: { ...w, url: maskWebhookUrl(w.url) } });
     } catch (e) {
       res.status(400).json({ ok: false, error: e.message });
@@ -64,6 +73,7 @@ export function registerWebhookRoutes(app, deps) {
         const permission = permissionGovernance?.evaluatePermission?.({
           actorType: 'owner',
           actorId: 'local-owner',
+          approvalId: permissionApprovalIdFromRequest(req),
           action: 'network.upload',
           cwd: process.cwd(),
           risk: 'high',
@@ -73,7 +83,7 @@ export function registerWebhookRoutes(app, deps) {
           return res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
         }
       }
-      const w = webhookStore.update(req.params.id, body);
+      const w = webhookStore.update(req.params.id, stripPermissionFields(body));
       if (!w) return res.status(404).json({ ok: false, error: 'not found' });
       res.json({ ok: true, webhook: { ...w, url: maskWebhookUrl(w.url) } });
     } catch (e) {
@@ -101,6 +111,7 @@ export function registerWebhookRoutes(app, deps) {
       const permission = permissionGovernance?.evaluatePermission?.({
         actorType: 'owner',
         actorId: 'local-owner',
+        approvalId: permissionApprovalIdFromRequest(req),
         action: 'network.upload',
         cwd: process.cwd(),
         risk: 'high',

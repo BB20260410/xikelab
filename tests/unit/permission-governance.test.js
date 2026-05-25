@@ -12,6 +12,9 @@ function makeGovernance() {
         approvals.push(approval);
         return approval;
       },
+      getApproval(id) {
+        return approvals.find(a => a.id === id) || null;
+      },
     },
     audit: {
       recordSafe(input) {
@@ -155,6 +158,82 @@ describe('PermissionGovernance', () => {
     expect(decision).toMatchObject({
       decision: 'allow',
       reason: 'low-risk auto-accept scope allowed',
+    });
+  });
+
+  it('allows an approved permission to resume only the same action and target', () => {
+    const { governance, approvals } = makeGovernance();
+
+    const first = governance.evaluatePermission({
+      action: 'network.upload',
+      target: { url: 'https://example.com/webhook' },
+    });
+    expect(first).toMatchObject({ decision: 'ask', approval: { id: 'approval-1' } });
+    approvals[0].status = 'approved';
+
+    const resumed = governance.evaluatePermission({
+      action: 'network.upload',
+      approvalId: 'approval-1',
+      target: { url: 'https://example.com/webhook' },
+    });
+
+    expect(resumed).toMatchObject({
+      decision: 'allow',
+      reason: 'approved permission resumed',
+      approval: { id: 'approval-1', status: 'approved' },
+      details: { resumed: true, resumeApprovalId: 'approval-1' },
+    });
+    expect(approvals).toHaveLength(1);
+
+    const mismatch = governance.evaluatePermission({
+      action: 'network.upload',
+      approvalId: 'approval-1',
+      target: { url: 'https://evil.example/webhook' },
+    });
+    expect(mismatch).toMatchObject({
+      decision: 'deny',
+      reason: 'approval does not match permission action/target',
+    });
+  });
+
+  it('does not create duplicate approvals when a pending approval id is retried', () => {
+    const { governance, approvals } = makeGovernance();
+
+    governance.evaluatePermission({
+      action: 'skill.plugin.execute',
+      target: { pluginId: 'demo', commandId: 'run' },
+    });
+
+    const retry = governance.evaluatePermission({
+      action: 'skill.plugin.execute',
+      approvalId: 'approval-1',
+      target: { commandId: 'run', pluginId: 'demo' },
+    });
+
+    expect(retry).toMatchObject({
+      decision: 'ask',
+      reason: 'approval is still pending',
+      approval: { id: 'approval-1', status: 'pending' },
+    });
+    expect(approvals).toHaveLength(1);
+  });
+
+  it('denies rejected approval resume attempts', () => {
+    const { governance, approvals } = makeGovernance();
+
+    governance.evaluatePermission({
+      action: 'provider.model_config.write',
+      target: { section: 'watcher', provider: 'openai' },
+    });
+    approvals[0].status = 'rejected';
+
+    expect(governance.evaluatePermission({
+      action: 'provider.model_config.write',
+      approvalId: 'approval-1',
+      target: { provider: 'openai', section: 'watcher' },
+    })).toMatchObject({
+      decision: 'deny',
+      reason: 'approval rejected; permission resume denied',
     });
   });
 });

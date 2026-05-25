@@ -111,7 +111,7 @@ import { delegationStore } from './src/delegation/DelegationStore.js';
 import { activityLog } from './src/audit/ActivityLog.js';
 import { approvalStore } from './src/approval/ApprovalStore.js';
 import { createDangerousCommandApproval, TerminalApprovalGate } from './src/approval/CommandApprovalGate.js';
-import { permissionGovernance, permissionHttpBody, permissionHttpStatus } from './src/permissions/PermissionGovernance.js';
+import { permissionApprovalIdFromRequest, permissionGovernance, permissionHttpBody, permissionHttpStatus } from './src/permissions/PermissionGovernance.js';
 import { buildProjectContextBundle, formatProjectContextBundle, summarizeProjectContextBundle } from './src/context/ProjectContextBundle.js';
 import { ArenaDispatcher } from './src/room/ArenaDispatcher.js';
 import { SoloChatDispatcher } from './src/room/SoloChatDispatcher.js';
@@ -2008,6 +2008,7 @@ app.post('/api/rooms/:id/report', requireOwnerToken, (req, res) => {
       actorType: 'owner',
       actorId: 'local-owner',
       roomId: r.id,
+      approvalId: permissionApprovalIdFromRequest(req),
       action: 'file.write',
       cwd: r.cwd || process.cwd(),
       risk: 'high',
@@ -2293,10 +2294,11 @@ const pluginRegistry = new PluginRegistry();
   }
 }
 
-function requirePluginPermission(res, input) {
+function requirePluginPermission(req, res, input) {
   const permission = permissionGovernance.evaluatePermission({
     actorType: 'owner',
     actorId: 'local-owner',
+    approvalId: permissionApprovalIdFromRequest(req),
     cwd: process.cwd(),
     risk: 'high',
     ...input,
@@ -2304,6 +2306,14 @@ function requirePluginPermission(res, input) {
   if (!permission || permission.decision === 'allow') return true;
   res.status(permissionHttpStatus(permission)).json(permissionHttpBody(permission));
   return false;
+}
+
+function stripPermissionFields(body = {}) {
+  const clean = { ...(body || {}) };
+  delete clean.approvalId;
+  delete clean.permissionApprovalId;
+  delete clean.resumeApprovalId;
+  return clean;
 }
 
 // GET /api/plugins — 列已加载 plugin manifest（摘要）
@@ -2331,11 +2341,12 @@ app.get('/api/plugins/:id', requireOwnerToken, (req, res) => {
 // POST /api/plugins/install — 装一份用户 manifest（body 直接是 manifest 对象）
 // 改：owner-token 保护 — manifest 里可以指定 bin path → 装恶意 manifest = RCE 入口
 app.post('/api/plugins/install', requireOwnerToken, (req, res) => {
-  const manifest = req.body;
-  if (!manifest || typeof manifest !== 'object') return res.status(400).json({ error: 'manifest 必须是 JSON 对象' });
+  const rawManifest = req.body;
+  if (!rawManifest || typeof rawManifest !== 'object') return res.status(400).json({ error: 'manifest 必须是 JSON 对象' });
   // 大小上限
-  try { if (JSON.stringify(manifest).length > 32 * 1024) return res.status(413).json({ error: 'manifest 过大（>32KB）' }); } catch {}
-  if (!requirePluginPermission(res, {
+  try { if (JSON.stringify(rawManifest).length > 32 * 1024) return res.status(413).json({ error: 'manifest 过大（>32KB）' }); } catch {}
+  const manifest = stripPermissionFields(rawManifest);
+  if (!requirePluginPermission(req, res, {
     action: 'skill.plugin.configure',
     target: {
       section: 'plugins',
@@ -2355,7 +2366,7 @@ app.post('/api/plugins/install', requireOwnerToken, (req, res) => {
 app.delete('/api/plugins/:id', requireOwnerToken, (req, res) => {
   const id = req.params.id;
   if (!/^[a-z][a-z0-9_-]{0,39}$/.test(id)) return res.status(400).json({ error: 'plugin id 非法' });
-  if (!requirePluginPermission(res, {
+  if (!requirePluginPermission(req, res, {
     action: 'skill.plugin.configure',
     target: { section: 'plugins', operation: 'delete', pluginId: id },
   })) return;
@@ -2366,7 +2377,7 @@ app.delete('/api/plugins/:id', requireOwnerToken, (req, res) => {
 
 // POST /api/plugins/reload — 重扫两个目录
 app.post('/api/plugins/reload', requireOwnerToken, (req, res) => {
-  if (!requirePluginPermission(res, {
+  if (!requirePluginPermission(req, res, {
     action: 'skill.plugin.configure',
     target: { section: 'plugins', operation: 'reload' },
   })) return;
@@ -2397,7 +2408,7 @@ app.post('/api/plugins/:id/exec', requireOwnerToken, async (req, res) => {
     safeCwd = safe;
   }
 
-  if (!requirePluginPermission(res, {
+  if (!requirePluginPermission(req, res, {
     action: 'skill.plugin.execute',
     cwd: safeCwd || process.cwd(),
     target: {

@@ -22,6 +22,13 @@ function safeJson(value) {
   try { return JSON.parse(JSON.stringify(value)); } catch { return {}; }
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  const entries = Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`);
+  return `{${entries.join(',')}}`;
+}
+
 function hashParts(parts = []) {
   return createHash('sha256').update(parts.map(part => safeString(part, 2000)).join('\n---\n')).digest('hex').slice(0, 32);
 }
@@ -50,6 +57,11 @@ function isPrivateHost(host = '') {
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
   if (host === '::1' || host === '[::1]') return true;
   return false;
+}
+
+function approvalMatchesActionTarget(approval, { action, target }) {
+  const payload = approval?.payload || {};
+  return safeString(payload.action, 160) === action && stableJson(safeJson(payload.target)) === stableJson(safeJson(target));
 }
 
 export class PermissionPolicy {
@@ -123,6 +135,7 @@ export class PermissionGovernance {
   evaluatePermission(input = {}) {
     const action = safeString(input.action, 160);
     const target = safeJson(input.target);
+    const approvalId = safeString(input.approvalId || input.permissionApprovalId || input.resumeApprovalId, 160);
     const context = {
       actorType: safeString(input.actorType || 'system', 80),
       actorId: safeString(input.actorId || input.requesterId, 160),
@@ -134,9 +147,12 @@ export class PermissionGovernance {
       risk: safeString(input.risk || 'low', 40),
     };
     let decision = this.classify({ ...context, action, target, details: input.details || {} });
+    if (decision.decision === 'ask' && approvalId) {
+      decision = this.resolveResumeApproval({ approvalId, action, target, decision });
+    }
     if (decision.decision === 'ask') {
       const approvalPayload = this.buildApprovalPayload({ ...context, action, target, decision, details: input.details || {} });
-      const approval = this.createApproval({ ...context, action, target, decision, approvalPayload });
+      const approval = decision.approval || this.createApproval({ ...context, action, target, decision, approvalPayload });
       decision = { ...decision, approvalPayload, approval };
     }
     const finalDecision = new PermissionDecision({ ...context, action, target, ...decision });
@@ -150,6 +166,64 @@ export class PermissionGovernance {
     });
     this.recordDecision(finalDecision, invocation);
     return { ...finalDecision, invocation };
+  }
+
+  resolveResumeApproval({ approvalId, action, target, decision }) {
+    const approval = this.approvalStore?.getApproval?.(approvalId);
+    if (!approval) {
+      return {
+        decision: 'deny',
+        reason: 'approval not found for permission resume',
+        risk: 'high',
+        details: { resumeApprovalId: approvalId },
+      };
+    }
+    if (!approvalMatchesActionTarget(approval, { action, target })) {
+      return {
+        decision: 'deny',
+        reason: 'approval does not match permission action/target',
+        risk: 'high',
+        approval,
+        approvalPayload: approval.payload || null,
+        details: { resumeApprovalId: approvalId, approvalStatus: approval.status || null },
+      };
+    }
+    if (approval.status === 'approved') {
+      return {
+        decision: 'allow',
+        reason: 'approved permission resumed',
+        risk: decision.risk || 'high',
+        approval,
+        approvalPayload: approval.payload || null,
+        details: {
+          ...(decision.details || {}),
+          resumeApprovalId: approvalId,
+          approvalStatus: approval.status,
+          resumed: true,
+        },
+      };
+    }
+    if (approval.status === 'pending') {
+      return {
+        ...decision,
+        approval,
+        approvalPayload: approval.payload || null,
+        reason: 'approval is still pending',
+        details: {
+          ...(decision.details || {}),
+          resumeApprovalId: approvalId,
+          approvalStatus: approval.status,
+        },
+      };
+    }
+    return {
+      decision: 'deny',
+      reason: `approval ${approval.status || 'closed'}; permission resume denied`,
+      risk: 'high',
+      approval,
+      approvalPayload: approval.payload || null,
+      details: { resumeApprovalId: approvalId, approvalStatus: approval.status || null },
+    };
   }
 
   classify({ action, target, cwd, risk }) {
@@ -237,7 +311,7 @@ export class PermissionGovernance {
   }
 
   createApproval({ action, target, actorType, actorId, agentRunId, roomId, sessionId, cwd, approvalPayload }) {
-    const dedupeKey = hashParts(['permission', action, actorType, actorId, agentRunId, roomId, sessionId, cwd, JSON.stringify(target)]);
+    const dedupeKey = hashParts(['permission', action, actorType, actorId, agentRunId, roomId, sessionId, cwd, stableJson(target)]);
     return this.approvalStore?.createApproval?.({
       type: 'manual',
       requesterType: actorType || 'system',
@@ -303,6 +377,20 @@ export function permissionHttpBody(decision) {
   return {
     ok: false,
     error: permissionHttpError(decision),
+    approval: decision?.approval || null,
+    approvalId: decision?.approval?.id || null,
     permissionDecision: decision || null,
   };
+}
+
+export function permissionApprovalIdFromRequest(req) {
+  const header = req?.get?.('X-Panel-Approval-Id') || req?.headers?.['x-panel-approval-id'];
+  return safeString(
+    req?.body?.approvalId ||
+      req?.body?.permissionApprovalId ||
+      req?.query?.approvalId ||
+      req?.query?.permissionApprovalId ||
+      header,
+    160
+  );
 }

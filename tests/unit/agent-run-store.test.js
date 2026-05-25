@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import Database from 'better-sqlite3';
 import { AgentRunStore } from '../../src/agents/AgentRunStore.js';
 import { close, getStats, initSqlite } from '../../src/storage/SqliteStore.js';
 
@@ -20,6 +21,40 @@ afterEach(() => {
 });
 
 describe('AgentRunStore', () => {
+  it('migrates legacy agent_runs tables before creating governance indexes', () => {
+    close();
+    const dbPath = join(tmp, 'legacy-panel.db');
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE agent_runs (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'queued',
+        room_id TEXT,
+        session_id TEXT,
+        task_id TEXT,
+        agent_profile_id TEXT,
+        agent_profile_title TEXT,
+        adapter_id TEXT,
+        model_id TEXT,
+        skills TEXT NOT NULL DEFAULT '[]',
+        dispatch_tags TEXT NOT NULL DEFAULT '[]',
+        error TEXT,
+        started_at INTEGER,
+        finished_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+    legacy.close();
+
+    const db = initSqlite(dbPath);
+    const columns = new Set(db.prepare('PRAGMA table_info(agent_runs)').all().map((c) => c.name));
+    expect(columns.has('delegation_id')).toBe(true);
+    expect(columns.has('approval_id')).toBe(true);
+    expect(columns.has('source_type')).toBe(true);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_runs_delegation'").get()).toBeTruthy();
+  });
+
   it('creates a run, appends messages and tool results, then exports the timeline', () => {
     const store = new AgentRunStore({ logger: null });
     const run = store.create({

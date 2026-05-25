@@ -1,5 +1,5 @@
 import { requireOwnerToken } from '../auth/owner-token.js';
-import { permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
+import { permissionApprovalIdFromRequest, permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
 
 const ALLOWED_PROVIDERS = new Set(['minimax', 'gemini', 'openai', 'ollama', 'custom']);
 
@@ -87,6 +87,7 @@ export function registerWatcherRoutes(app, deps) {
       const permission = permissionGovernance?.evaluatePermission?.({
         actorType: 'owner',
         actorId: 'local-owner',
+        approvalId: permissionApprovalIdFromRequest(req),
         action: 'provider.model_config.write',
         cwd: process.cwd(),
         risk: 'high',
@@ -110,6 +111,7 @@ export function registerWatcherRoutes(app, deps) {
       const permission = permissionGovernance?.evaluatePermission?.({
         actorType: 'owner',
         actorId: 'local-owner',
+        approvalId: permissionApprovalIdFromRequest(req),
         action: 'auto_accept.scope',
         cwd: process.cwd(),
         risk: clean.autoMode === true || clean.perSessionDefault === true ? 'high' : 'medium',
@@ -140,6 +142,7 @@ export function registerWatcherRoutes(app, deps) {
     const permission = permissionGovernance?.evaluatePermission?.({
       actorType: 'owner',
       actorId: 'local-owner',
+      approvalId: permissionApprovalIdFromRequest(req),
       action: 'provider.model_config.access',
       cwd: process.cwd(),
       risk: 'high',
