@@ -1,6 +1,6 @@
 # Panel 打包发布
 
-## 当前方案（v1.0）· electron-builder
+## 当前方案（v2.x）· electron-builder
 
 ```bash
 npm run package    # macOS 不签名快测（out/mac-arm64/Xike Lab.app）
@@ -19,7 +19,7 @@ npm run dist:all   # 全平台 mac/win/linux
 - arm64 要求签名（需 Apple Developer Program $99/年）
 - 启动比纯 web 慢 ~2-3 秒（electron 初始化）
 
-## 未来方案（v2.0）· Tauri
+## 未来方案 · Tauri
 
 迁移 Tauri 后预期：
 - 体积 **~20MB**（缩小 15×）
@@ -45,7 +45,7 @@ npm run dist:all   # 全平台 mac/win/linux
 - 体积可从 304MB 降到 ~150MB（仍大）
 - 适合内测，不适合公开下载
 
-## 上架渠道（v1.0）
+## 上架渠道
 
 1. **GitHub Releases**（免费）：build .app 上传，让用户自己下载
    - 缺点：用户绕过 Gatekeeper 警告
@@ -54,7 +54,7 @@ npm run dist:all   # 全平台 mac/win/linux
 3. **Setapp** ($9.99/月 用户订阅）：垂类 macOS 工具集合
 4. **官网直分发** ：自建 download 页 + Sparkle/electron-updater 自动更新
 
-## 当前推荐路径（v1.0 → v1.5 → v2.0）
+## 当前推荐路径
 
 | 版本 | 渠道 | 体积 | 用户群 |
 |---|---|---|---|
@@ -65,7 +65,7 @@ npm run dist:all   # 全平台 mac/win/linux
 
 ## 上架前 checklist
 
-- [ ] 装 .icns / .ico app icon（当前用 electron 默认）
+- [x] 装 .icns app icon
 - [ ] 写 LICENSE 文件（决定 MIT / GPL / 商业 License）
 - [ ] README 加截图 + 5 分钟 demo 视频
 - [ ] 隐私政策（如开启 telemetry）

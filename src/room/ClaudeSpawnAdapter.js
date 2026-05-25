@@ -96,11 +96,19 @@ export class ClaudeSpawnAdapter extends RoomAdapter {
       };
       const finishOk = (val) => { if (settled) return; settled = true; cleanup(); resolve(val); };
       const finishErr = (e) => { if (settled) return; settled = true; cleanup(); reject(e); };
+      const forceKillSoon = () => {
+        const killTimer = setTimeout(() => {
+          try {
+            if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+          } catch {}
+        }, 2000);
+        try { killTimer.unref?.(); } catch {}
+      };
 
       timer = setTimeout(() => {
         try { child.kill('SIGTERM'); } catch {}
         // v0.51 ZZ-09 fix: SIGTERM 后 2s 再 SIGKILL 兜底（防 child 忽略 SIGTERM 变僵尸）
-        setTimeout(() => { try { if (child && !child.killed) child.kill('SIGKILL'); } catch {} }, 2000);
+        forceKillSoon();
         finishErr(new Error(`Claude 超时 ${this.timeout}ms`));
       }, this.timeout);
 
@@ -109,7 +117,11 @@ export class ClaudeSpawnAdapter extends RoomAdapter {
           try { child.kill('SIGTERM'); } catch {}
           return finishErr(new Error('Claude 被中断'));
         }
-        onAbort = () => { try { child.kill('SIGTERM'); } catch {} };
+        onAbort = () => {
+          try { child.kill('SIGTERM'); } catch {}
+          forceKillSoon();
+          finishErr(new Error('Claude 被中断'));
+        };
         opts.abortSignal.addEventListener('abort', onAbort, { once: true });
       }
 

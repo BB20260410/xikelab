@@ -1,6 +1,6 @@
 # Xike Lab 文档
 
-> 你正在看的是 panel v1.0 的开发者文档。
+> 你正在看的是 Xike Lab v2.x 的开发者文档。
 > 未来用 Docusaurus / Astro Starlight 起独立站，目前为 markdown 集合。
 
 ## 🚀 新手必读
@@ -18,6 +18,7 @@
 - [CCR_USAGE.md](./CCR_USAGE.md) — Claude Code Router
 - [PLUGIN_GUIDE.md](./PLUGIN_GUIDE.md) — Plugin 开发
 - [QUICK_API.md](./QUICK_API.md) — API 速查
+- [local-governance-learning-record.md](./local-governance-learning-record.md) — Paperclip 学习沉淀的本地治理能力记录
 
 ## 🛠 部署 / 运维
 
@@ -28,9 +29,9 @@
 ## 🗺 商品化路线
 
 - v1.0 ✅ 完成（Sentry / Tauri 评估 / electron-updater / i18n / onboarding）
-- v1.1 用户增长（PostHog / Docusaurus / shadcn）
-- v1.5 收费（License / Pro vs Free）
-- v2.0 数据底座（Tauri / libsql / workspace）
+- v1.5 ✅ 完成（License / Pro vs Free）
+- v2.0 ✅ 完成（SQLite 数据底座 / workspace / 向量搜索）
+- v3.0 规划中（debate 置信度 / 成本日历 / squad 角色卡 / CLI 检测接管）
 
 ## 💬 反馈渠道
 

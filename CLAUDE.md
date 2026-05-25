@@ -7,7 +7,8 @@
 
 - 本地多 Claude session 管理面板：Express + WebSocket 后端 + Web GUI 前端
 - 运行模式：`npm start` 起 `node server.js`（端口 51735，仅 127.0.0.1）；或 `npm run electron` 包成桌面 app
-- 当前版本：v0.56 (代码内 v0.XX 注释为权威；README/package.json 同步更新)
+- 产品版本：以 `package.json` 为准；代码注释里的 `v0.xx` 是内部迭代/buildVersion，不作为对外版本号
+- Node 运行版本：22+；CI 固定 22.x。本机 Node 26 已验证可跑，`@homebridge/node-pty-prebuilt-multiarch` 自身声明 `<25`，若 PTY/打包异常优先回退 Node 22/24 复测。
 
 ## 工程约束（硬规则）
 
@@ -70,9 +71,9 @@ README.md              用户上手 + 文档索引
 
 ## 测试
 
-- 无 jest/vitest/playwright（项目无自动测试框架；不装新依赖）
-- 自建 4 个 Node smoke 套件 (`.s18-*.mjs`)：68/68 全过为绿线
-- mcp playwright（外部工具）可用于真浏览器 e2e，不需装包
+- 已有 vitest / Playwright 脚本；不新增依赖，除非诊断报告明列且用户同意
+- `npm test` 跑单元测试，`npm run test:e2e` 跑本地 UI walkthrough，`npm run perf-check` 做本地性能/健康 audit
+- 自建 4 个 Node smoke 套件 (`.s18-*.mjs`) 可用于专项回归
 
 ## 安全护栏（既有）
 

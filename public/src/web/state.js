@@ -1,6 +1,6 @@
 // Xike Lab — 统一 state store ES module (S18-5 starter)
-// 当前**未被任何代码使用**（app.js 仍用顶层 const state/roomState/pluginState 各自分散）
-// 下次对话用户授权激活后：把 app.js 内散落的 state 对象合并到这里
+// 目前作为渐进式 SSOT：app.js 仍保留顶层状态对象，plugin/archive/autopilot 已镜像到 PanelStore。
+// 后续可继续把 app.js 内散落 state 合并到这里。
 //
 // 设计：单一 root store + 命名空间分组 + persistent layer + subscribe pattern
 
@@ -91,10 +91,23 @@ export function restore() {
   } catch (e) { console.warn('[state.restore]', e); }
 }
 
+export function flushPendingMirrors(target = globalThis) {
+  const pending = target?.__panelPendingStateMirrors;
+  if (!Array.isArray(pending) || pending.length === 0) return 0;
+  const items = pending.splice(0, pending.length);
+  let count = 0;
+  for (const item of items) {
+    if (!item || typeof item.path !== 'string') continue;
+    set(item.path, item.value);
+    count++;
+  }
+  return count;
+}
+
 // 调试出口
 export function _debug() { return _store; }
 
-// v0.84 starter: 5 个散落 state 的 schema 定义（未实际迁移）
+// v0.84 starter: 散落 state 的 schema 定义（逐步迁移中）
 /**
  * @typedef {Object} PanelStoreSchema
  * @property {Array} sessions               app.js:13 const state.sessions

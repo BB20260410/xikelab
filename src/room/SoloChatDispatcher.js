@@ -97,6 +97,7 @@ export class SoloChatDispatcher {
         cwd: room.cwd,
         abortSignal: aborter.signal,
         model: member.model,
+        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId },
       });
       // v0.51 ZZZZ-02 fix: AI reply 长度 cap，防极长输出撑爆 rooms.json
       const MAX_REPLY = CONTENT_LIMITS.maxReplyChars;  // v0.52 256KB
@@ -116,6 +117,7 @@ export class SoloChatDispatcher {
       try {
         this.metrics?.record?.({
           roomId: room.id, roomMode: 'chat', roomName: room.name,
+          projectId: room.cwd,
           turn: 'chat', adapter: member.adapterId, model: member.model || '',
           latencyMs: Date.now() - startedAt,
           tokensIn: result.tokensIn || 0, tokensOut: result.tokensOut || 0,
@@ -138,6 +140,7 @@ export class SoloChatDispatcher {
       try {
         this.metrics?.record?.({
           roomId: room.id, roomMode: 'chat', roomName: room.name,
+          projectId: room.cwd,
           turn: 'chat', adapter: member.adapterId, model: member.model || '',
           latencyMs: Date.now() - startedAt,
           tokensIn: 0, tokensOut: 0,

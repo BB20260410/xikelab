@@ -85,4 +85,91 @@ describe('RoomReporter 内容上限 1.5M', () => {
     expect(captured.promptLen).toBeLessThan(1_048_576);
     expect(captured.promptLen).toBeGreaterThan(900_000);
   }, 30_000);
+
+  it('adapter 自报 maxReportContentChars 时优先按报告上下文预算压缩', async () => {
+    const room = makeRoom(10_000, 200);
+    const { adapter, captured } = makeCapturingAdapter();
+    adapter.maxPromptChars = 1_000_000;
+    adapter.maxReportContentChars = 80_000;
+
+    const res = await generateReport({ room, adapter });
+
+    expect(res.ok).toBe(true);
+    expect(res.truncated).toBe(true);
+    expect(res.sourceContentLimit).toBe(80_000);
+    expect(res.reportStrategy).toBe('map-reduce');
+    expect(res.chunkCount).toBeGreaterThan(1);
+    expect(captured.promptLen).toBeLessThan(120_000);
+  }, 30_000);
+
+  it('超出 adapter 报告预算时会先分块摘要再合并最终报告', async () => {
+    const room = makeRoom(2_000, 200);
+    const captured = { calls: 0, finalPrompt: '' };
+    const adapter = {
+      id: 'codex-like',
+      maxPromptChars: 1_000_000,
+      maxReportContentChars: 60_000,
+      async chat(messages) {
+        captured.calls += 1;
+        const prompt = (messages || []).map(m => m.content || '').join('\n');
+        if (prompt.includes('# 分块摘要任务')) {
+          return {
+            reply: `### 分块摘要 ${captured.calls}\n` + '关键事实、决定、风险、下一步。\n'.repeat(20),
+            tokensIn: 10,
+            tokensOut: 20,
+          };
+        }
+        captured.finalPrompt = prompt;
+        return {
+          reply: '# 最终报告\n\n' + '基于分块摘要合并后的完整报告。\n'.repeat(100),
+          tokensIn: 30,
+          tokensOut: 40,
+        };
+      },
+    };
+
+    const res = await generateReport({ room, adapter });
+
+    expect(res.ok).toBe(true);
+    expect(res.reportStrategy).toBe('map-reduce');
+    expect(res.chunkCount).toBeGreaterThan(1);
+    expect(captured.calls).toBe(res.chunkCount + 1);
+    expect(captured.finalPrompt).toContain('本报告由系统先对原始房间记录分块摘要');
+    expect(res.tokensIn).toBe(10 * res.chunkCount + 30);
+    expect(res.tokensOut).toBe(20 * res.chunkCount + 40);
+  }, 30_000);
+
+  it('Codex context-window 错误会自动缩小单次报告输入并重试', async () => {
+    const room = makeRoom(10_000, 200);
+    const captured = { calls: 0, promptLens: [] };
+    const adapter = {
+      id: 'codex-like',
+      maxPromptChars: 1_000_000,
+      contextRetryContentChars: 32_000,
+      async chat(messages) {
+        captured.calls += 1;
+        const promptLen = (messages || []).reduce((s, m) => s + (m.content || '').length, 0);
+        captured.promptLens.push(promptLen);
+        if (captured.calls === 1) {
+          const err = new Error("Codex ran out of room in the model's context window");
+          err.code = 'CONTEXT_WINDOW_EXHAUSTED';
+          throw err;
+        }
+        return {
+          reply: '# 压缩重试报告\n\n' + '压缩后报告内容。'.repeat(100),
+          tokensIn: Math.floor(promptLen / 2),
+          tokensOut: 200,
+        };
+      },
+    };
+
+    const res = await generateReport({ room, adapter });
+
+    expect(res.ok).toBe(true);
+    expect(captured.calls).toBe(2);
+    expect(captured.promptLens[1]).toBeLessThan(captured.promptLens[0]);
+    expect(res.truncated).toBe(true);
+    expect(res.retryReason).toBe('context-window-retry');
+    expect(res.sourceContentLimit).toBe(32_000);
+  }, 30_000);
 });

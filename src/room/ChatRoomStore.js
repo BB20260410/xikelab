@@ -24,9 +24,31 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { ROOM_LIMITS, DEBATE_LIMITS, CONTENT_LIMITS } from './squad-limits.js';
+import { activityLog } from '../audit/ActivityLog.js';
+import { sanitizeLineage, sanitizeObjective } from './RoomLineage.js';
+import { buildRoleCardsForMembers } from './roleCards.js';
+import { buildProjectContextBundle, summarizeProjectContextBundle } from '../context/ProjectContextBundle.js';
 
 const STORE_FILE = join(homedir(), '.claude-panel', 'rooms.json');
 const STORE_DIR = dirname(STORE_FILE);
+
+function recordRoomActivity(action, room, details = {}) {
+  if (!room?.id) return;
+  activityLog.recordSafe({
+    action,
+    actorType: 'system',
+    roomId: room.id,
+    entityType: 'room',
+    entityId: room.id,
+    status: room.status || null,
+    details: {
+      mode: room.mode || null,
+      name: room.name || null,
+      cwd: room.cwd || null,
+      ...details,
+    },
+  });
+}
 
 export class ChatRoomStore {
   constructor() {
@@ -72,6 +94,13 @@ export class ChatRoomStore {
         if (!Array.isArray(r.rounds)) r.rounds = [];
         if (!Array.isArray(r.conversation)) r.conversation = [];
         if (!Array.isArray(r.taskList)) r.taskList = [];
+        r.objective = sanitizeObjective(r.objective);
+        r.lineage = sanitizeLineage(r.lineage, { projectId: r.cwd || process.cwd() });
+        if (r.objective && !r.lineage.objectiveId) r.lineage.objectiveId = r.objective.id;
+        if (r.projectContext && !r.projectContextSummary) {
+          r.projectContextSummary = summarizeProjectContextBundle(r.projectContext);
+        }
+        r.roleCards = buildRoleCardsForMembers(r.members, { mode: r.mode, existing: r.roleCards });
         // 重启时把 running 改回 idle，避免假状态
         if (r.status === 'running') r.status = 'paused';
         this.rooms.set(r.id, r);
@@ -135,8 +164,16 @@ export class ChatRoomStore {
     return this.rooms.get(id);
   }
 
-  create({ name, cwd, members, mode }) {
+  create({ name, cwd, members, mode, objective, lineage, projectContext }) {
     const id = randomUUID();
+    const cleanObjective = sanitizeObjective(objective, { fallbackTitle: name || '' });
+    const cleanLineage = sanitizeLineage(lineage, {
+      projectId: cwd || process.cwd(),
+    });
+    if (cleanObjective && !cleanLineage.objectiveId) cleanLineage.objectiveId = cleanObjective.id;
+    const cleanMembers = members || [];
+    const contextBundle = projectContext || buildProjectContextBundle(cwd || process.cwd());
+    const contextSummary = summarizeProjectContextBundle(contextBundle);
     const room = {
       id,
       name: name || '未命名讨论',
@@ -144,7 +181,7 @@ export class ChatRoomStore {
       qaStrictness: 'standard',
       createdAt: new Date().toISOString(),
       cwd: cwd || process.cwd(),
-      members: members || [],
+      members: cleanMembers,
       topic: '',
       debateRounds: DEBATE_LIMITS.defaultMacroRounds,
       rounds: [],
@@ -155,17 +192,29 @@ export class ChatRoomStore {
       currentMacroRound: 0,
       finalConsensus: null,
       userInterventions: [],
+      objective: cleanObjective,
+      lineage: cleanLineage,
+      projectContext: contextBundle?.prompt ? contextBundle : null,
+      projectContextSummary: contextSummary.fileCount > 0 ? contextSummary : null,
+      roleCards: buildRoleCardsForMembers(cleanMembers, { mode: ['squad', 'arena'].includes(mode) ? mode : 'chat' }),
       archived: false,                  // v0.52 归档标记
       archivedAt: null,
     };
     this.rooms.set(id, room);
     this.save();
+    recordRoomActivity('room.created', room, {
+      memberCount: Array.isArray(room.members) ? room.members.length : 0,
+      objectiveId: room.objective?.id || null,
+      lineage: room.lineage || null,
+      projectContext: room.projectContextSummary || null,
+    });
     return room;
   }
 
   update(id, patch) {
     const r = this.rooms.get(id);
     if (!r) return null;
+    const oldStatus = r.status;
     // v0.51 S-14 fix: 防原型污染（即使调用方传 raw req.body）
     const safe = {};
     for (const k of Object.keys(patch || {})) {
@@ -174,12 +223,21 @@ export class ChatRoomStore {
     }
     Object.assign(r, safe);
     this.save();
+    recordRoomActivity('room.updated', r, {
+      patchKeys: Object.keys(safe),
+      oldStatus,
+      newStatus: r.status,
+    });
     return r;
   }
 
   delete(id) {
+    const room = this.rooms.get(id);
     const ok = this.rooms.delete(id);
-    if (ok) this.save();
+    if (ok) {
+      this.save();
+      recordRoomActivity('room.deleted', room, { deleted: true });
+    }
     return ok;
   }
 
@@ -199,12 +257,21 @@ export class ChatRoomStore {
     }
     round.turns.push({ at: new Date().toISOString(), ...turn });
     this.save();
+    recordRoomActivity('room.turn_appended', room, {
+      roundKind,
+      speaker: turn?.speaker || null,
+      displayName: turn?.displayName || null,
+      tokensIn: Math.max(0, Number(turn?.tokensIn) || 0),
+      tokensOut: Math.max(0, Number(turn?.tokensOut) || 0),
+      hasError: !!turn?.error,
+    });
     return round;
   }
 
   setStatus(roomId, status, extras = {}) {
     const r = this.rooms.get(roomId);
     if (!r) return null;
+    const oldStatus = r.status;
     r.status = status;
     // v0.51 W-07 fix: 同 update 防原型污染一致
     for (const k of Object.keys(extras || {})) {
@@ -212,6 +279,13 @@ export class ChatRoomStore {
       r[k] = extras[k];
     }
     this.save();
+    if (oldStatus !== status) {
+      recordRoomActivity('room.status_changed', r, {
+        oldStatus,
+        newStatus: status,
+        extraKeys: Object.keys(extras || {}).filter((k) => !['__proto__', 'constructor', 'prototype'].includes(k)),
+      });
+    }
     return r;
   }
 }

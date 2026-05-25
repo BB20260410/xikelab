@@ -27,6 +27,7 @@ import { readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync, appendFi
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
+import { activityLog } from '../audit/ActivityLog.js';
 
 const DIR = join(homedir(), '.claude-panel');
 const FILE = join(DIR, 'autopilot.json');
@@ -204,6 +205,15 @@ export class AutopilotStore {
     try {
       const line = JSON.stringify({ ...entry, at: entry.at || new Date().toISOString() }) + '\n';
       appendFileSync(LOG_FILE, line, { mode: 0o600 });
+      activityLog.recordSafe({
+        action: `autopilot.${entry?.type || 'event'}`,
+        actorType: 'system',
+        roomId: entry?.roomId || entry?.sourceRoomId || entry?.newRoomId || null,
+        entityType: 'autopilot_event',
+        entityId: entry?.id || entry?.ruleId || entry?.newRoomId || entry?.sourceRoomId || null,
+        status: entry?.status || null,
+        details: entry || {},
+      });
     } catch (e) {
       console.warn('[autopilot] log append failed:', e.message);
     }

@@ -154,6 +154,7 @@ export class DebateDispatcher {
         roomId: room.id,
         roomMode: 'debate',
         roomName: room.name,
+        projectId: room.cwd,
         turn: typeof kind === 'string' ? `${kind}:${speaker}` : String(kind),
         adapter: speaker,
         model: model || '',
@@ -336,10 +337,10 @@ export class DebateDispatcher {
         const judgePrompt = R4_JUDGE_PROMPT(topic, allTurnsText);
         const judgeResult = await judge.chat(
           injectSkillsToMessages([
-            { role: 'system', content: '你是中立主持人，负责合成最终方案。' },
-            { role: 'user', content: judgePrompt },
-          ], room),
-          { cwd: room.cwd, abortSignal: aborter.signal, model: judgeModel },
+          { role: 'system', content: '你是中立主持人，负责合成最终方案。' },
+          { role: 'user', content: judgePrompt },
+        ], room),
+          { cwd: room.cwd, abortSignal: aborter.signal, model: judgeModel, budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: judge.id } },
         );
         this.store.appendTurn(roomId, 'r4_judge', {
           speaker: judge.id,
@@ -420,7 +421,13 @@ export class DebateDispatcher {
       }, 20000);
       const startedAt = Date.now();
       try {
-        const result = await adapter.chat(injectSkillsToMessages(messages, room), { cwd: room.cwd, abortSignal, model: member.model, onProgress });
+        const result = await adapter.chat(injectSkillsToMessages(messages, room), {
+          cwd: room.cwd,
+          abortSignal,
+          model: member.model,
+          onProgress,
+          budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId },
+        });
         clearInterval(keepAliveTimer);
         const turn = {
           speaker: member.adapterId,
@@ -576,7 +583,12 @@ export class DebateDispatcher {
     }, 20000);
     const retryStartedAt = Date.now();
     try {
-      const result = await adapter.chat(injectSkillsToMessages(messages, room), { cwd: room.cwd, model: member.model, onProgress });
+      const result = await adapter.chat(injectSkillsToMessages(messages, room), {
+        cwd: room.cwd,
+        model: member.model,
+        onProgress,
+        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: speakerAdapterId },
+      });
       clearInterval(keepAlive);
       const newTurn = {
         speaker: speakerAdapterId,

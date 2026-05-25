@@ -20,12 +20,17 @@ export function registerStorageRoutes(app) {
     try {
       const m = await import('../../storage/SqliteStore.js');
       m.initSqlite();
-      const { kind, room, tag, since, limit } = req.query;
+      const { kind, room, roomId, session, sessionId, tag, entityType, entityId, taskId, since, until, limit } = req.query;
       const events = m.listEvents({
         kind: kind || undefined,
-        roomId: room || undefined,
+        roomId: roomId || room || undefined,
+        sessionId: sessionId || session || undefined,
         tag: tag || undefined,
+        entityType: entityType || undefined,
+        entityId: entityId || undefined,
+        taskId: taskId || undefined,
         sinceTs: since ? parseInt(since, 10) : undefined,
+        untilTs: until ? parseInt(until, 10) : undefined,
         limit: limit ? Math.min(parseInt(limit, 10), 1000) : 200,
       });
       res.json({ ok: true, count: events.length, events });
@@ -36,11 +41,11 @@ export function registerStorageRoutes(app) {
 
   app.post('/api/storage/events', requireOwnerToken, async (req, res) => {
     try {
-      const { kind, ts, roomId, tag, ...rest } = req.body || {};
+      const { kind, ts, roomId, sessionId, tag, entityType, entityId, taskId, ...rest } = req.body || {};
       if (!kind) return res.status(400).json({ error: 'kind required' });
       const m = await import('../../storage/SqliteStore.js');
       m.initSqlite();
-      const id = m.appendEvent({ kind, ts, roomId, tag, ...rest });
+      const id = m.appendEvent({ kind, ts, roomId, sessionId, tag, entityType, entityId, taskId, ...rest });
       res.json({ ok: true, id: Number(id) });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message });

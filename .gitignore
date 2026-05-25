@@ -13,7 +13,9 @@ package-lock.json.bak
 # Electron build
 out/
 dist/
-build/
+build/*
+!build/icon.icns
+!build/icon.png
 *.dmg
 *.app
 *.pkg
@@ -41,6 +43,7 @@ ERROR_LOG.md
 /cmdk-*.png
 .playwright-mcp/
 test-results/
+output/playwright/
 
 # Env
 .env

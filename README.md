@@ -50,7 +50,7 @@ open out/*.dmg        # 装到 Applications
 
 ```bash
 npm install
-npm start             # 浏览器开 http://localhost:5173
+npm start             # 浏览器开 http://localhost:51735
 # 或
 npm run electron      # Electron 窗口启动
 ```
@@ -132,12 +132,12 @@ npm run electron      # Electron 窗口启动
 
 ```
 .
-├── server.js                  Express + WS 后端（v0.56 ~4100 行；含路由分发）
+├── server.js                  Express + WS 后端（~4100 行；含遗留 inline route）
 ├── electron-main.js           Electron 主进程
 ├── public/                    前端
 │   ├── index.html
 │   ├── style.css              ~3900 行（Anthropic + Codex token + @layer 框架）
-│   ├── app.js                 ~6500 行（v0.56 IIFE，S18 已抽 Modal/UI 组件）
+│   ├── app.js                 ~7100 行（IIFE，S18 已抽 Modal/UI 组件）
 │   ├── main.js                ES module 入口（S18 启动，桥接 window.PanelUtils/Store）
 │   └── src/
 │       ├── components/        Modal.js / UI.js（IIFE 全局组件）
@@ -150,7 +150,7 @@ npm run electron      # Electron 窗口启动
 │   ├── room/                  DebateDispatcher / CollaborationDispatcher / ArenaDispatcher / 各 adapter
 │   ├── mcp/                   McpStore + McpClientManager
 │   ├── webhook/ archive/ autopilot/ skills/ knowledge/ metrics/ templates/ plugin/ watcher/
-│   └── server/routes/         S18-2 抽出的 8 个路由 module（webhook/archive/mcp/autopilot/rooms/roomTemplates/skills/knowledge）
+│   └── server/routes/         已拆出的路由 module（继续从 server.js 迁移）
 ├── HANDOFF.md                 项目交接文档（给 AI 接手时读）
 ├── PROGRESS_LOOP.md           cycle 进度档案（loop 自驱时维护）
 ├── .audit-progress.json       Sprint 18+ 体检 manifest
@@ -189,7 +189,7 @@ npm run dist                  # 打 .dmg 到 out/
 ### 调环境变量
 
 ```bash
-PORT=5173            # server 端口
+PORT=51735           # server 端口
 CLAUDE_BIN=/path     # claude CLI 路径（默认 /Users/<you>/.npm-global/bin/claude）
 ```
 

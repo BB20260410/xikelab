@@ -51,8 +51,11 @@ if (typeof window !== 'undefined') {
   // 顺序：先 telemetry 同意（弹窗），再 walkthrough（不阻塞）
   _askTlm().catch(() => {});
   _startOnb();
-  // 启动时从 localStorage 恢复
-  try { Store.restore(); } catch (e) { console.warn('[main.js] Store.restore', e); }
+  // 启动时先从 localStorage 恢复，再 flush app.js 在 PanelStore 挂载前积压的 mirror 写入。
+  try {
+    Store.restore();
+    Store.flushPendingMirrors();
+  } catch (e) { console.warn('[main.js] Store.restore/flushPendingMirrors', e); }
 }
 
 console.log('[main.js] S18-1/S18-5/v0.80 loaded; window.PanelUtils + PanelStore + PanelCmdk ready');

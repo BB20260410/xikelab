@@ -16,6 +16,11 @@ import { homedir } from 'os';
 
 const MAX_CONTENT_PER_TURN = 32_000;   // 每条 turn 内容 cap，防超长 prompt
 const MAX_TOTAL_CONTENT = 1_500_000;   // 整体 prompt 上限 1.5M 字符（≈ 750K tokens 中文 / 375-500K tokens 混合，安全装入 claude/gemini 1M context）
+const PROMPT_OVERHEAD_RESERVE = 32_000; // system/user 模板、AGENTS/skill 元信息、输出空间预留
+const DEFAULT_CONTEXT_RETRY_CONTENT = 120_000;
+const MIN_CONTEXT_RETRY_CONTENT = 24_000;
+const MAX_REPORT_CHUNKS = 18;
+const MAX_CHUNK_SUMMARY_CHARS = 8_000;
 const REPORT_TIMEOUT = 480_000;        // 报告生成超时 8min（大内容 AI 处理慢）
 
 function expandHome(p) {
@@ -113,6 +118,165 @@ function flattenRoomContent(room, maxChars = MAX_TOTAL_CONTENT) {
   }
 
   return { content: lines.join('\n'), truncated: used >= maxChars };
+}
+
+function finitePositive(n) {
+  return Number.isFinite(n) && n > 0 ? n : Infinity;
+}
+
+function getInitialContentLimit(adapter) {
+  const stdinHardLimit = finitePositive(adapter?.maxPromptChars);
+  const promptSafeLimit = stdinHardLimit === Infinity
+    ? Infinity
+    : Math.max(MIN_CONTEXT_RETRY_CONTENT, stdinHardLimit - PROMPT_OVERHEAD_RESERVE);
+  const reportSoftLimit = finitePositive(adapter?.maxReportContentChars);
+  return Math.min(MAX_TOTAL_CONTENT, promptSafeLimit, reportSoftLimit);
+}
+
+function getRetryContentLimit(adapter, previousLimit) {
+  const configured = finitePositive(adapter?.contextRetryContentChars);
+  const target = configured === Infinity ? DEFAULT_CONTEXT_RETRY_CONTENT : configured;
+  return Math.max(MIN_CONTEXT_RETRY_CONTENT, Math.min(target, Math.floor(previousLimit / 4)));
+}
+
+function isContextWindowError(e) {
+  const haystack = `${e?.code || ''}\n${e?.message || ''}\n${e?.stderr || ''}\n${e?.stdout || ''}`;
+  return /CONTEXT_WINDOW|out of room in the model'?s context window|context window|context length|max(?:imum)? context|too many tokens|prompt is too long|input is too long/i.test(haystack);
+}
+
+function trimAdapterError(e) {
+  const raw = e?.message || String(e || '');
+  if (isContextWindowError(e)) {
+    return 'adapter.chat 失败: 模型上下文窗口不足，已自动压缩并重试后仍失败；请换用更大上下文 adapter，或先归档/拆分房间记录';
+  }
+  return 'adapter.chat 失败: ' + (raw.length > 1200 ? raw.slice(0, 1200) + '...(已截断)' : raw);
+}
+
+function buildReportMessages(room, contentLimit) {
+  const { content: flatContent, truncated } = flattenRoomContent(room, contentLimit);
+  if (!flatContent.trim()) return { error: '房间内无任何聊天内容可总结' };
+  const prompt = summaryPrompt(room, flatContent);
+  const projectContext = room?.projectContext?.prompt
+    ? `\n\n${room.projectContext.prompt}`
+    : '';
+  const messages = [
+    { role: 'system', content: `你是一名擅长把多 AI 协作记录浓缩成可读报告的专业编辑。中文输出，事实准确，结构清晰。${projectContext}` },
+    { role: 'user', content: prompt },
+  ];
+  return { messages, truncated, sourceContentChars: flatContent.length, contentLimit };
+}
+
+function shouldUseChunkedReport(adapter, sourceContentChars, contentLimit) {
+  return Number.isFinite(adapter?.maxReportContentChars)
+    && Number.isFinite(contentLimit)
+    && sourceContentChars > contentLimit;
+}
+
+function capText(s, maxChars) {
+  const text = String(s || '').trim();
+  if (!Number.isFinite(maxChars) || text.length <= maxChars) return text;
+  return text.slice(0, maxChars) + '\n...(分块摘要截断)';
+}
+
+function splitReportChunks(text, chunkChars, maxChunks = MAX_REPORT_CHUNKS) {
+  const chunks = [];
+  const maxChunk = Math.max(MIN_CONTEXT_RETRY_CONTENT, Math.floor(chunkChars || MIN_CONTEXT_RETRY_CONTENT));
+  let cursor = 0;
+
+  while (cursor < text.length && chunks.length < maxChunks) {
+    let end = Math.min(text.length, cursor + maxChunk);
+    if (end < text.length) {
+      const slice = text.slice(cursor, end);
+      const minBreak = Math.floor(slice.length * 0.55);
+      let breakAt = -1;
+      for (const marker of ['\n### ', '\n## ', '\n\n']) {
+        const idx = slice.lastIndexOf(marker);
+        if (idx > minBreak) {
+          breakAt = idx;
+          break;
+        }
+      }
+      if (breakAt > 0) end = cursor + breakAt;
+    }
+    if (end <= cursor) end = Math.min(text.length, cursor + maxChunk);
+    const chunk = text.slice(cursor, end).trim();
+    if (chunk) chunks.push(chunk);
+    cursor = end;
+    while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1;
+  }
+
+  return { chunks, omittedChars: Math.max(0, text.length - cursor) };
+}
+
+function buildChunkSummaryMessages(room, chunk, index, total) {
+  const modeLabel = MODE_LABEL[room.mode] || room.mode;
+  const prompt = `# 分块摘要任务
+
+你正在为一间「${modeLabel}房」生成最终报告的中间摘要。下面是完整聊天记录中的第 ${index + 1}/${total} 块。
+
+请只基于本块内容输出中文 markdown 摘要，目标是供后续合并成最终报告。要求：
+- 保留本块出现的关键事实、决策、分歧、未解决问题、可执行下一步
+- 保留重要人名 / adapter 名 / 时间线 / 文件路径 / 报错信息
+- 不要复述原文，不要输出寒暄或说明文字
+- 控制在 1200-2000 字之间；信息密度优先
+
+## 房间信息
+- 房名：${room.name || '未命名'}
+- 模式：${modeLabel}（${room.mode}）
+- 房间 ID：${room.id || '-'}
+
+## 本块原文
+${chunk}`;
+
+  return [
+    { role: 'system', content: '你是多 AI 协作记录的分块摘要器。只抽取事实和决策，不发挥。' },
+    { role: 'user', content: prompt },
+  ];
+}
+
+function buildFinalFromChunkMessages(room, summaries, meta = {}) {
+  const joined = summaries.map((s, i) => `## 分块摘要 ${i + 1}\n${s}`).join('\n\n');
+  const omitted = meta.omittedChars > 0
+    ? `\n\n## 截断说明\n由于报告输入预算限制，仍有约 ${meta.omittedChars} 字符未进入分块摘要。`
+    : '';
+  const content = `## 生成策略
+本报告由系统先对原始房间记录分块摘要，再合并生成最终报告。请基于下面的分块摘要生成一份完整、自洽、面向用户的最终报告。
+
+${joined}${omitted}`;
+
+  const prompt = summaryPrompt(room, content);
+  return [
+    { role: 'system', content: `你是一名擅长把多 AI 协作记录浓缩成可读报告的专业编辑。中文输出，事实准确，结构清晰。` },
+    { role: 'user', content: prompt },
+  ];
+}
+
+async function runChunkedReport({ room, flatContent, flatTruncated, contentLimit, callAdapter }) {
+  const { chunks, omittedChars } = splitReportChunks(flatContent, contentLimit);
+  if (!chunks.length) throw new Error('报告分块失败：没有可总结内容');
+
+  const summaries = [];
+  let tokensIn = 0;
+  let tokensOut = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const r = await callAdapter(buildChunkSummaryMessages(room, chunks[i], i, chunks.length));
+    tokensIn += r?.tokensIn || 0;
+    tokensOut += r?.tokensOut || 0;
+    summaries.push(capText(r?.reply || '', MAX_CHUNK_SUMMARY_CHARS));
+  }
+
+  const final = await callAdapter(buildFinalFromChunkMessages(room, summaries, { omittedChars }));
+  return {
+    result: {
+      ...final,
+      tokensIn: tokensIn + (final?.tokensIn || 0),
+      tokensOut: tokensOut + (final?.tokensOut || 0),
+    },
+    chunkCount: chunks.length,
+    truncated: flatTruncated || omittedChars > 0,
+    omittedChars,
+    sourceContentChars: flatContent.length,
+  };
 }
 
 /** 按 room.mode 选 prompt 模板 */
@@ -261,43 +425,116 @@ export function defaultReportPath(room, rootDir) {
  * @param {object} params.adapter - RoomAdapter 实例（有 .chat 方法）
  * @param {string?} params.model - 可选 model 名
  * @param {string?} params.outputPath - 可选写盘路径；不传则只返回 content
+ * @param {number?} params.timeoutMs - 可选报告硬超时；测试可传小值
  * @returns {Promise<{ok, content, path?, tokensIn, tokensOut, elapsedMs, truncated, error?}>}
  */
-export async function generateReport({ room, adapter, model, outputPath } = {}) {
+export async function generateReport({ room, adapter, model, outputPath, timeoutMs = REPORT_TIMEOUT } = {}) {
   if (!room) return { ok: false, error: 'room required' };
   if (!adapter || typeof adapter.chat !== 'function') return { ok: false, error: 'adapter (with .chat) required' };
 
   const startedAt = Date.now();
-  // 各 adapter 后端有不同的输入上限（如 codex CLI 0.128.0 stdin 硬上限 1,048,576 字符）；
-  // 取 min(全局 cap, adapter 自报上限) 决定本次实际截断点。
-  const adapterMax = Number.isFinite(adapter.maxPromptChars) ? adapter.maxPromptChars : Infinity;
-  const effectiveMax = Math.min(MAX_TOTAL_CONTENT, adapterMax);
-  const { content: flatContent, truncated } = flattenRoomContent(room, effectiveMax);
-  if (!flatContent.trim()) {
+  const fullContent = flattenRoomContent(room, MAX_TOTAL_CONTENT);
+  if (!fullContent.content.trim()) {
     return { ok: false, error: '房间内无任何聊天内容可总结' };
   }
-
-  const prompt = summaryPrompt(room, flatContent);
-  const messages = [
-    { role: 'system', content: `你是一名擅长把多 AI 协作记录浓缩成可读报告的专业编辑。中文输出，事实准确，结构清晰。` },
-    { role: 'user', content: prompt },
-  ];
+  // adapter.maxPromptChars 只表示传输/CLI stdin 硬上限；maxReportContentChars 才表示报告输入的上下文预算。
+  let contentLimit = getInitialContentLimit(adapter);
+  let built = buildReportMessages(room, contentLimit);
+  if (built.error) return { ok: false, error: built.error };
+  let { messages, truncated, sourceContentChars } = built;
+  let retryReason = null;
+  let reportStrategy = 'single';
+  let chunkCount = 0;
+  let omittedChars = 0;
 
   let result;
   try {
-    const abortController = new AbortController();
-    const timer = setTimeout(() => abortController.abort(), REPORT_TIMEOUT);
-    try {
-      result = await adapter.chat(messages, {
-        cwd: room.cwd || homedir(),
-        abortSignal: abortController.signal,
-        model: model || '',
+    const callAdapter = async (attemptMessages) => {
+      const abortController = new AbortController();
+      let timedOut = false;
+      const reportTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : REPORT_TIMEOUT;
+      let timer = null;
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          abortController.abort();
+          reject(new Error(`报告生成超时 ${reportTimeout}ms，已中断 adapter`));
+        }, reportTimeout);
       });
-    } finally {
-      clearTimeout(timer);
+      try {
+        return await Promise.race([
+          adapter.chat(attemptMessages, {
+            cwd: room.cwd || homedir(),
+            abortSignal: abortController.signal,
+            model: model || '',
+            skipResilience: true,
+            disableMcp: true,
+            budgetContext: { projectId: room.cwd || homedir(), roomId: room.id || null, adapterId: adapter.id || null },
+          }),
+          timeoutPromise,
+        ]);
+      } catch (e) {
+        if (timedOut) {
+          e.code = e.code || 'REPORT_TIMEOUT';
+          throw e;
+        }
+        throw e;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    try {
+      if (shouldUseChunkedReport(adapter, fullContent.content.length, contentLimit)) {
+        const chunked = await runChunkedReport({
+          room,
+          flatContent: fullContent.content,
+          flatTruncated: fullContent.truncated,
+          contentLimit,
+          callAdapter,
+        });
+        result = chunked.result;
+        truncated = chunked.truncated;
+        sourceContentChars = chunked.sourceContentChars;
+        reportStrategy = 'map-reduce';
+        retryReason = 'map-reduce';
+        chunkCount = chunked.chunkCount;
+        omittedChars = chunked.omittedChars;
+      } else {
+        result = await callAdapter(messages);
+      }
+    } catch (e) {
+      if (!isContextWindowError(e)) throw e;
+      const retryLimit = getRetryContentLimit(adapter, contentLimit);
+      if (retryLimit >= contentLimit) throw e;
+      retryReason = 'context-window-retry';
+      contentLimit = retryLimit;
+      if (shouldUseChunkedReport(adapter, fullContent.content.length, contentLimit)) {
+        const chunked = await runChunkedReport({
+          room,
+          flatContent: fullContent.content,
+          flatTruncated: true,
+          contentLimit,
+          callAdapter,
+        });
+        result = chunked.result;
+        truncated = true;
+        sourceContentChars = chunked.sourceContentChars;
+        reportStrategy = 'map-reduce';
+        chunkCount = chunked.chunkCount;
+        omittedChars = chunked.omittedChars;
+      } else {
+        built = buildReportMessages(room, contentLimit);
+        if (built.error) return { ok: false, error: built.error };
+        messages = built.messages;
+        truncated = true;
+        sourceContentChars = built.sourceContentChars;
+        result = await callAdapter(messages);
+      }
     }
   } catch (e) {
-    return { ok: false, error: 'adapter.chat 失败: ' + (e.message || String(e)), elapsedMs: Date.now() - startedAt };
+    if (e?.code === 'REPORT_TIMEOUT') return { ok: false, error: e.message || String(e), elapsedMs: Date.now() - startedAt };
+    return { ok: false, error: trimAdapterError(e), elapsedMs: Date.now() - startedAt, retryReason };
   }
 
   let reply = (result && typeof result.reply === 'string') ? result.reply : '';
@@ -329,6 +566,12 @@ generatedBy: ${adapter.id || 'unknown-adapter'}${model ? ' / ' + model : ''}
 roomMode: ${room.mode}
 roomId: ${room.id}
 contentTruncated: ${truncated}
+sourceContentChars: ${sourceContentChars}
+sourceContentLimit: ${contentLimit}
+reportStrategy: ${reportStrategy}
+chunkCount: ${chunkCount}
+omittedChars: ${omittedChars}
+retryReason: ${retryReason || ''}
 -->
 
 `;
@@ -367,6 +610,12 @@ contentTruncated: ${truncated}
     tokensOut: result.tokensOut || 0,
     elapsedMs: Date.now() - startedAt,
     truncated,
+    sourceContentChars,
+    sourceContentLimit: contentLimit,
+    reportStrategy,
+    chunkCount,
+    omittedChars,
+    retryReason,
     assertionFailed,    // v0.70.2-t2: 给前端 toast 用
   };
 }

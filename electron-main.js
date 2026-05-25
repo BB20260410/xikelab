@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 51735;
+const APP_ICON_PATH = join(__dirname, 'public', 'app-icon.png');
 
 // v1.0 Task 1.3: electron-updater 自动更新（动态 import 失败时静默 disable）
 let autoUpdater = null;
@@ -68,6 +69,7 @@ function createWindow() {
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#F4F1EA',
+    icon: APP_ICON_PATH,
     webPreferences: { nodeIntegration: false, contextIsolation: true },
     title: 'Xike Lab',
   });
@@ -89,6 +91,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  app.dock?.setIcon(APP_ICON_PATH);
   startServer();
   createWindow();
   // v1.0 Task 1.3: 启动自动更新

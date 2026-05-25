@@ -111,6 +111,7 @@ export class ArenaDispatcher {
         roomId: room.id,
         roomMode: 'arena',
         roomName: room.name,
+        projectId: room.cwd,
         turn: turnKind,
         adapter: speaker,
         model: model || '',
@@ -184,7 +185,13 @@ export class ArenaDispatcher {
           const result = await adapter.chat(injectSkillsToMessages([
             { role: 'system', content: PROPOSAL_PROMPT(topic, anonId) },
             { role: 'user', content: `任务：${topic}\n\n请直接给方案。` },
-          ], room), { cwd: room.cwd, abortSignal: aborter.signal, model: member.model, onProgress });
+          ], room), {
+            cwd: room.cwd,
+            abortSignal: aborter.signal,
+            model: member.model,
+            onProgress,
+            budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: member.adapterId },
+          });
           clearInterval(keepAlive);
           const turn = {
             speaker: member.adapterId,
@@ -248,7 +255,12 @@ export class ArenaDispatcher {
         const judgeResult = await judge.chat(injectSkillsToMessages([
           { role: 'system', content: '你是 Arena 联网事实核对员。你有 WebSearch 和 WebFetch 工具，必须真的去调用。' },
           { role: 'user', content: JUDGE_PROMPT(topic, anonymized, validTurns.length) },
-        ], room), { cwd: room.cwd, abortSignal: aborter.signal, model: judgeMember.model });
+        ], room), {
+          cwd: room.cwd,
+          abortSignal: aborter.signal,
+          model: judgeMember.model,
+          budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: judgeMember.adapterId },
+        });
 
         this.store.appendTurn(roomId, 'arena_judge', {
           speaker: judgeMember.adapterId,
@@ -348,7 +360,11 @@ export class ArenaDispatcher {
     this.broadcast(roomId, { type: 'turn_retry_start', kind, macroRound: 1, speaker: speakerAdapterId, displayName: member.displayName });
     const retryStartedAt = Date.now();
     try {
-      const result = await adapter.chat(injectSkillsToMessages(messages, room), { cwd: room.cwd, model: member.model });
+      const result = await adapter.chat(injectSkillsToMessages(messages, room), {
+        cwd: room.cwd,
+        model: member.model,
+        budgetContext: { projectId: room.cwd, roomId: room.id, adapterId: speakerAdapterId },
+      });
       const newTurn = {
         speaker: speakerAdapterId,
         displayName: member.displayName,

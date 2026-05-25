@@ -8,6 +8,7 @@
 import { breakers } from '../safety/CircuitBreaker.js';
 import { bulkheads } from '../safety/Bulkhead.js';
 import { rateLimiters } from '../safety/RateLimiter.js';
+import { budgetPolicyStore } from '../budget/BudgetPolicyStore.js';
 
 export class RoomAdapter {
   constructor({ id, displayName, model, timeout = 180000 } = {}) {
@@ -25,6 +26,17 @@ export class RoomAdapter {
    * v0.56：opts.skipResilience = true 时跳过（report 等内部任务可用）
    */
   async chat(messages, opts = {}) {
+    if (!opts.skipBudget) {
+      budgetPolicyStore.preflight({
+        adapterId: this.id,
+        projectId: opts.budgetContext?.projectId || opts.cwd || null,
+        roomId: opts.budgetContext?.roomId || null,
+        sessionId: opts.budgetContext?.sessionId || null,
+        taskId: opts.budgetContext?.taskId || null,
+        estimateTokens: this._countTokens(messages),
+        estimateCalls: 1,
+      });
+    }
     if (opts.skipResilience) return this._doChat(messages, opts);
     const breaker = breakers.get(this.id);
     const bulkhead = bulkheads.get(this.id);

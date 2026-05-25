@@ -6,9 +6,12 @@
 //   本机其他 UID 进程能写入恶意规则 → 拿用户付费配额跑垃圾任务，必须 owner-token
 
 import { requireOwnerToken } from '../auth/owner-token.js';
+import { autopilotScheduleStore as defaultScheduleStore } from '../../autopilot/AutopilotScheduleStore.js';
 
 export function registerAutopilotRoutes(app, deps) {
   const { autopilotStore } = deps;
+  const scheduleStore = deps.scheduleStore || defaultScheduleStore;
+  const scheduler = deps.scheduler || null;
 
   app.get('/api/autopilot/config', (req, res) => {
     try { res.json({ ok: true, config: autopilotStore.getConfig() }); }
@@ -50,6 +53,104 @@ export function registerAutopilotRoutes(app, deps) {
     try {
       const limit = Math.max(1, Math.min(1000, parseInt(req.query.limit, 10) || 100));
       res.json({ ok: true, logs: autopilotStore.recentLogs(limit) });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  app.get('/api/autopilot/schedules', (req, res) => {
+    try {
+      const schedules = scheduleStore.listSchedules({
+        status: req.query.status,
+        targetType: req.query.targetType,
+        targetId: req.query.targetId,
+        roomId: req.query.roomId,
+        limit: req.query.limit,
+      });
+      res.json({ ok: true, count: schedules.length, schedules });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  app.post('/api/autopilot/schedules', requireOwnerToken, (req, res) => {
+    try {
+      const schedule = scheduleStore.createSchedule(req.body || {});
+      res.status(201).json({ ok: true, schedule });
+    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+  });
+
+  app.patch('/api/autopilot/schedules/:id', requireOwnerToken, (req, res) => {
+    try {
+      const schedule = scheduleStore.updateSchedule(req.params.id, req.body || {});
+      res.json({ ok: true, schedule });
+    } catch (e) { res.status(/not found/i.test(e.message) ? 404 : 400).json({ ok: false, error: e.message }); }
+  });
+
+  app.delete('/api/autopilot/schedules/:id', requireOwnerToken, (req, res) => {
+    try {
+      const ok = scheduleStore.deleteSchedule(req.params.id);
+      if (!ok) return res.status(404).json({ ok: false, error: 'schedule not found' });
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  app.post('/api/autopilot/schedules/:id/queue', requireOwnerToken, (req, res) => {
+    try {
+      const schedule = scheduleStore.getSchedule(req.params.id);
+      if (!schedule) return res.status(404).json({ ok: false, error: 'schedule not found' });
+      const job = scheduleStore.enqueueJob({
+        scheduleId: schedule.id,
+        action: req.body?.action || schedule.action,
+        runAfter: req.body?.runAfter || Date.now(),
+        priority: req.body?.priority,
+        payload: req.body?.payload || schedule.payload,
+        dedupeKey: req.body?.dedupeKey,
+      });
+      res.status(201).json({ ok: true, job });
+    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+  });
+
+  app.get('/api/autopilot/jobs', (req, res) => {
+    try {
+      const jobs = scheduleStore.listJobs({
+        status: req.query.status,
+        scheduleId: req.query.scheduleId,
+        roomId: req.query.roomId,
+        limit: req.query.limit,
+      });
+      res.json({ ok: true, count: jobs.length, jobs });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  app.post('/api/autopilot/jobs', requireOwnerToken, (req, res) => {
+    try {
+      const job = scheduleStore.enqueueJob(req.body || {});
+      res.status(201).json({ ok: true, job });
+    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+  });
+
+  app.post('/api/autopilot/jobs/:id/cancel', requireOwnerToken, (req, res) => {
+    try {
+      const job = scheduleStore.cancelJob(req.params.id, { reason: req.body?.reason });
+      res.json({ ok: true, job });
+    } catch (e) { res.status(/not found/i.test(e.message) ? 404 : 400).json({ ok: false, error: e.message }); }
+  });
+
+  app.get('/api/autopilot/runs', (req, res) => {
+    try {
+      const runs = scheduleStore.listRuns({
+        status: req.query.status,
+        jobId: req.query.jobId,
+        scheduleId: req.query.scheduleId,
+        limit: req.query.limit,
+      });
+      res.json({ ok: true, count: runs.length, runs });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  app.post('/api/autopilot/tick', requireOwnerToken, async (req, res) => {
+    try {
+      const result = scheduler
+        ? await scheduler.tick({ limit: req.body?.limit, force: !!req.body?.force })
+        : { ok: true, enqueued: scheduleStore.enqueueDueSchedules({ limit: req.body?.limit }) };
+      res.json(result);
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 

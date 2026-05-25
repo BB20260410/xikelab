@@ -127,10 +127,16 @@ export class GeminiSpawnAdapter extends RoomAdapter {
       };
       const finishOk = (val) => { if (settled) return; settled = true; cleanup(); resolve(val); };
       const finishErr = (e) => { if (settled) return; settled = true; cleanup(); reject(e); };
+      const forceKillSoon = () => {
+        const killTimer = setTimeout(() => {
+          try { ptyProcess.kill('SIGKILL'); } catch {}
+        }, 2000);
+        try { killTimer.unref?.(); } catch {}
+      };
 
       timer = setTimeout(() => {
         try { ptyProcess.kill('SIGTERM'); } catch {}
-        setTimeout(() => { try { ptyProcess.kill('SIGKILL'); } catch {} }, 2000);
+        forceKillSoon();
         finishErr(new Error(`Gemini CLI 超时 ${this.timeout}ms`));
       }, this.timeout);
 
@@ -139,7 +145,11 @@ export class GeminiSpawnAdapter extends RoomAdapter {
           try { ptyProcess.kill('SIGTERM'); } catch {}
           return finishErr(new Error('Gemini CLI 被中断'));
         }
-        onAbort = () => { try { ptyProcess.kill('SIGTERM'); } catch {} };
+        onAbort = () => {
+          try { ptyProcess.kill('SIGTERM'); } catch {}
+          forceKillSoon();
+          finishErr(new Error('Gemini CLI 被中断'));
+        };
         opts.abortSignal.addEventListener('abort', onAbort, { once: true });
       }
 

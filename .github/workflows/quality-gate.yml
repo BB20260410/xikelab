@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  NODE_VERSION: '20.x'
+  NODE_VERSION: '22.x'
 
 jobs:
   lint-and-test:
@@ -45,12 +45,56 @@ jobs:
         run: npx vitest run --reporter=verbose
         timeout-minutes: 5
 
+      - name: npm audit (production dependencies)
+        run: npm audit --registry=https://registry.npmjs.org --omit=dev --audit-level=moderate
+        timeout-minutes: 3
+
+      - name: Panel e2e + perf observation (non-blocking)
+        continue-on-error: true
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          PANEL_URL="http://127.0.0.1:51735"
+          PANEL_LOG="${RUNNER_TEMP}/xikelab-panel.log"
+          VERSION_JSON="${RUNNER_TEMP}/xikelab-version.json"
+
+          PANEL_NO_OPEN=1 PORT=51735 npm start > "${PANEL_LOG}" 2>&1 &
+          PANEL_PID=$!
+          echo "${PANEL_PID}" > "${RUNNER_TEMP}/xikelab-panel.pid"
+
+          cleanup() {
+            kill "${PANEL_PID}" 2>/dev/null || true
+            wait "${PANEL_PID}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for _ in $(seq 1 45); do
+            if curl -fsS "${PANEL_URL}/api/version" > "${VERSION_JSON}"; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "${ready}" != "1" ]; then
+            echo "panel did not become ready"
+            tail -200 "${PANEL_LOG}" || true
+            exit 1
+          fi
+
+          cat "${VERSION_JSON}"
+          PANEL_URL="${PANEL_URL}" npm run test:e2e
+          PANEL_URL="${PANEL_URL}" npm run perf-check
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: quality-reports-${{ matrix.os }}
-          path: eslint-report.json
+          path: |
+            eslint-report.json
+            ${{ runner.temp }}/xikelab-panel.log
+            output/playwright/
           retention-days: 14
 
   done:

@@ -12,23 +12,33 @@ import { skillStore } from '../skills/SkillStore.js';
  * @returns {Array} 新 messages（不变更原数组）
  */
 export function injectSkillsToMessages(messages, room) {
+  let out = messages;
+  const projectPrompt = room?.projectContext?.prompt;
+  if (projectPrompt && typeof projectPrompt === 'string') {
+    out = appendSystemContext(out, projectPrompt);
+  }
   const skillNames = room?.skills;
-  if (!Array.isArray(skillNames) || skillNames.length === 0) return messages;
+  if (!Array.isArray(skillNames) || skillNames.length === 0) return out;
   try {
     const ctx = skillStore.buildSystemPromptForSkills(skillNames);
-    if (!ctx) return messages;
-    const out = messages.slice();
-    const sysIdx = out.findIndex((m) => m && m.role === 'system');
-    if (sysIdx >= 0) {
-      out[sysIdx] = { ...out[sysIdx], content: (out[sysIdx].content || '') + '\n\n' + ctx };
-    } else {
-      out.unshift({ role: 'system', content: ctx });
-    }
-    return out;
+    if (!ctx) return out;
+    return appendSystemContext(out, ctx);
   } catch (e) {
     console.warn('[skillInjector] failed:', e.message);
-    return messages;
+    return out;
   }
+}
+
+function appendSystemContext(messages, ctx) {
+  if (!ctx) return messages;
+  const out = messages.slice();
+  const sysIdx = out.findIndex((m) => m && m.role === 'system');
+  if (sysIdx >= 0) {
+    out[sysIdx] = { ...out[sysIdx], content: (out[sysIdx].content || '') + '\n\n' + ctx };
+  } else {
+    out.unshift({ role: 'system', content: ctx });
+  }
+  return out;
 }
 
 /** 给 chat / debate / arena / squad 复用：拿 room 的 enabled skill names（filter 掉无效的） */

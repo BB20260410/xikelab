@@ -20,6 +20,24 @@ function resolveCodexBin() {
 }
 const DEFAULT_CODEX_BIN = resolveCodexBin();
 
+function isContextWindowText(text) {
+  return /out of room in the model'?s context window|context window|context length|max(?:imum)? context|too many tokens|prompt is too long|input is too long/i.test(String(text || ''));
+}
+
+function codexExitError({ code, stdout, stderr }) {
+  // codex banner + prompt echo 常常挤在 stderr 头部，UI 只需要短错误，完整 raw 仍放 raw 字段给调用方调试。
+  const stderrTail = stderr.length > 1500 ? '...(头部省略)...' + stderr.slice(-1500) : stderr;
+  const stdoutTail = stdout.length > 800 ? '...(头部省略)...' + stdout.slice(-800) : stdout;
+  const err = new Error(`Codex exit code=${code} reply 空 stderr_tail=${stderrTail} stdout_tail=${stdoutTail}`);
+  err.stdout = stdout;
+  err.stderr = stderr;
+  if (isContextWindowText(stderr) || isContextWindowText(stdout)) {
+    err.code = 'CONTEXT_WINDOW_EXHAUSTED';
+    err.message = 'Codex 上下文窗口不足：底层模型拒绝当前报告输入，请缩短输入或使用报告压缩重试';
+  }
+  return err;
+}
+
 export class CodexSpawnAdapter extends RoomAdapter {
   constructor(opts = {}) {
     super({
@@ -32,6 +50,10 @@ export class CodexSpawnAdapter extends RoomAdapter {
     // codex CLI 0.128.0 的 turn/start 硬上限是 1,048,576 字符（stdin 整段）；
     // 扣掉 flattenMessages 分隔符 + system prompt + 模板 + 元信息，安全余量 ~48K。
     this.maxPromptChars = 1_000_000;
+    // 报告不是普通聊天：Codex 还会加载 AGENTS / skills / 内置系统提示，1M 字符会超过真实模型上下文。
+    // 单独给报告输入一个软预算，RoomReporter 可在 context-window 错误后继续压缩重试。
+    this.maxReportContentChars = opts.maxReportContentChars || 120_000;
+    this.contextRetryContentChars = opts.contextRetryContentChars || 32_000;
   }
 
   async _doChat(messages, opts = {}) {
@@ -77,11 +99,19 @@ export class CodexSpawnAdapter extends RoomAdapter {
       };
       const finishOk = (val) => { if (settled) return; settled = true; cleanup(); resolve(val); };
       const finishErr = (e) => { if (settled) return; settled = true; cleanup(); reject(e); };
+      const forceKillSoon = () => {
+        const killTimer = setTimeout(() => {
+          try {
+            if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+          } catch {}
+        }, 2000);
+        try { killTimer.unref?.(); } catch {}
+      };
 
       timer = setTimeout(() => {
         try { child.kill('SIGTERM'); } catch {}
         // v0.51 ZZ-09 fix: SIGKILL 兜底
-        setTimeout(() => { try { if (child && !child.killed) child.kill('SIGKILL'); } catch {} }, 2000);
+        forceKillSoon();
         finishErr(new Error(`Codex 超时 ${this.timeout}ms`));
       }, this.timeout);
 
@@ -90,7 +120,11 @@ export class CodexSpawnAdapter extends RoomAdapter {
           try { child.kill('SIGTERM'); } catch {}
           return finishErr(new Error('Codex 被中断'));
         }
-        onAbort = () => { try { child.kill('SIGTERM'); } catch {} };
+        onAbort = () => {
+          try { child.kill('SIGTERM'); } catch {}
+          forceKillSoon();
+          finishErr(new Error('Codex 被中断'));
+        };
         opts.abortSignal.addEventListener('abort', onAbort, { once: true });
       }
 
@@ -118,10 +152,7 @@ export class CodexSpawnAdapter extends RoomAdapter {
         if (code === 0 && reply) {
           finishOk({ reply, tokensIn: 0, tokensOut, raw: { stdout, stderr, code } });
         } else {
-          // codex banner + prompt 回显常常占满 stderr 头部，真错误在末尾，抓 tail 而非 head
-          const stderrTail = stderr.length > 1500 ? '...(头部省略)...' + stderr.slice(-1500) : stderr;
-          const stdoutTail = stdout.length > 800 ? '...(头部省略)...' + stdout.slice(-800) : stdout;
-          finishErr(new Error(`Codex exit code=${code} reply 空 stderr_tail=${stderrTail} stdout_tail=${stdoutTail}`));
+          finishErr(codexExitError({ code, stdout, stderr }));
         }
       });
 

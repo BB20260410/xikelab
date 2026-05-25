@@ -1,16 +1,180 @@
-// Xike Lab — Rooms 主 CRUD routes (S18-2e2)
-// 5 个核心 routes：GET list / POST create / GET :id / DELETE :id / PATCH :id
-// 从 server.js 2086-2271 提取，行为完全一致
+// Xike Lab — Rooms routes (S18-2e2 + P3 compact list)
+// 6 个核心 routes：GET list / GET search / POST create / GET :id / DELETE :id / PATCH :id
+// list 默认返回轻量摘要；旧完整列表保留为 GET /api/rooms?full=1
 //
 // 不在本 module 范围（仍留 server.js）：
-//   - POST /api/rooms/:id/debate / forward / retry-turn / retry-task / resume / abort / chat / quick / search
+//   - POST /api/rooms/:id/debate / forward / retry-turn / retry-task / resume / abort / chat / quick
 //   - 这些 advanced endpoints 依赖更多 helpers（broadcastRoom/roomAdapterPool/etc）和 ws 状态
 
 import { statSync } from 'fs';
 import { homedir } from 'os';
 import { hasFeature, getCurrentTier } from '../../license/LicenseManager.js';
+import { objectiveSummary, sanitizeLineage, sanitizeObjective } from '../../room/RoomLineage.js';
+import { buildRoleCardsForMembers, summarizeRoleCards } from '../../room/roleCards.js';
 // Round 5 H#6：rooms 写端点会拉起 LLM dispatcher 烧配额、注入 adapter、毁聊天 → 全部 owner-token
 import { requireOwnerToken } from '../auth/owner-token.js';
+
+const ROOM_LIST_FULL_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
+function wantsFullRoomList(query = {}) {
+  return ROOM_LIST_FULL_VALUES.has(String(query.full || '').toLowerCase());
+}
+
+function countTurns(rounds) {
+  if (!Array.isArray(rounds)) return 0;
+  return rounds.reduce((sum, round) => sum + (Array.isArray(round?.turns) ? round.turns.length : 0), 0);
+}
+
+function memberSummary(member = {}) {
+  return {
+    adapterId: typeof member.adapterId === 'string' ? member.adapterId : '',
+    displayName: typeof member.displayName === 'string' ? member.displayName : '',
+    model: typeof member.model === 'string' ? member.model : '',
+    role: typeof member.role === 'string' ? member.role : undefined,
+    enabled: member.enabled !== false,
+  };
+}
+
+export function summarizeRoom(room = {}) {
+  const rounds = Array.isArray(room.rounds) ? room.rounds : [];
+  const taskList = Array.isArray(room.taskList) ? room.taskList : [];
+  const conversation = Array.isArray(room.conversation) ? room.conversation : [];
+  const userInterventions = Array.isArray(room.userInterventions) ? room.userInterventions : [];
+  return {
+    id: room.id,
+    name: room.name,
+    mode: room.mode,
+    status: room.status,
+    createdAt: room.createdAt,
+    updatedAt: room.updatedAt,
+    cwd: room.cwd,
+    archived: room.archived === true,
+    archivedAt: room.archivedAt || null,
+    currentRound: room.currentRound,
+    currentMacroRound: room.currentMacroRound,
+    debateRounds: room.debateRounds,
+    qaStrictness: room.qaStrictness,
+    skills: Array.isArray(room.skills) ? room.skills : undefined,
+    exportPath: typeof room.exportPath === 'string' ? room.exportPath : undefined,
+    members: Array.isArray(room.members) ? room.members.map(memberSummary) : [],
+    roundCount: rounds.length,
+    turnCount: countTurns(rounds),
+    taskCount: taskList.length,
+    conversationCount: conversation.length,
+    userInterventionCount: userInterventions.length,
+    hasFinalConsensus: typeof room.finalConsensus === 'string' && room.finalConsensus.length > 0,
+    objective: objectiveSummary(room.objective),
+    projectContext: room.projectContextSummary || (room.projectContext ? {
+      fileCount: Array.isArray(room.projectContext.files) ? room.projectContext.files.length : 0,
+      totalChars: Number(room.projectContext.totalChars) || 0,
+      truncated: !!room.projectContext.truncated,
+    } : null),
+    roleCards: summarizeRoleCards(room.roleCards),
+    lineage: room.lineage ? {
+      projectId: room.lineage.projectId || '',
+      parentRoomId: room.lineage.parentRoomId || null,
+      parentTaskId: room.lineage.parentTaskId || null,
+      taskId: room.lineage.taskId || null,
+      objectiveId: room.lineage.objectiveId || room.objective?.id || null,
+      source: room.lineage.source || 'manual',
+    } : undefined,
+  };
+}
+
+function roomListResponse(rooms, query = {}) {
+  if (wantsFullRoomList(query)) {
+    return { ok: true, rooms, compact: false };
+  }
+  return { ok: true, rooms: rooms.map(summarizeRoom), compact: true };
+}
+
+function searchRooms({ roomStore, query }) {
+  const q = query.q;
+  if (!q || typeof q !== 'string' || !q.trim()) return { status: 400, body: { error: 'q required' } };
+  if (q.length > 200) return { status: 400, body: { error: 'q 过长（>200）' } };
+  const limit = Math.max(1, Math.min(100, parseInt(query.limit, 10) || 30));
+  const includeArchived = query.includeArchived === '1';
+  const needle = q.toLowerCase();
+  const perRoomCap = Math.max(3, Math.ceil(limit / 4));
+  const hardCap = limit * 5;
+  const hits = [];
+
+  function pushHit(room, where, snippet, extra = {}) {
+    const lc = String(snippet || '').toLowerCase();
+    const idx = lc.indexOf(needle);
+    if (idx < 0) return false;
+    const s = String(snippet);
+    const start = Math.max(0, idx - 60);
+    const end = Math.min(s.length, idx + needle.length + 60);
+    hits.push({
+      roomId: room.id,
+      roomName: room.name,
+      mode: room.mode,
+      where,
+      snippet: (start > 0 ? '…' : '') + s.slice(start, end) + (end < s.length ? '…' : ''),
+      updatedAt: room.updatedAt || room.createdAt,
+      ...extra,
+    });
+    return true;
+  }
+
+  const allRooms = includeArchived
+    ? [...roomStore.list(), ...roomStore.listArchived()]
+    : roomStore.list();
+
+  outer: for (const room of allRooms) {
+    let perRoomHits = 0;
+    for (const field of ['name', 'topic', 'finalConsensus']) {
+      if (pushHit(room, field, room[field])) perRoomHits++;
+      if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
+    }
+    if (perRoomHits < perRoomCap && hits.length < hardCap && room.objective) {
+      if (pushHit(room, 'objective:title', room.objective.title)) perRoomHits++;
+      if (pushHit(room, 'objective:description', room.objective.description)) perRoomHits++;
+      for (const [i, criterion] of (room.objective.acceptanceCriteria || []).entries()) {
+        if (pushHit(room, `objective:acceptance:${i + 1}`, criterion)) perRoomHits++;
+        if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
+      }
+    }
+    if (perRoomHits >= perRoomCap || hits.length >= hardCap) {
+      if (hits.length >= hardCap) break outer;
+      continue;
+    }
+    for (const r of (room.rounds || [])) {
+      for (const t of (r.turns || [])) {
+        if (pushHit(room, `turn:${r.kind}`, t.content, { speaker: t.speaker })) perRoomHits++;
+        if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
+      }
+      if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
+    }
+    if (perRoomHits >= perRoomCap || hits.length >= hardCap) {
+      if (hits.length >= hardCap) break outer;
+      continue;
+    }
+    for (const c of (room.conversation || [])) {
+      if (pushHit(room, `chat:${c.from}`, c.content)) perRoomHits++;
+      if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
+    }
+    if (perRoomHits >= perRoomCap || hits.length >= hardCap) {
+      if (hits.length >= hardCap) break outer;
+      continue;
+    }
+    for (const task of (room.taskList || [])) {
+      if (pushHit(room, `task:${task.id}.title`, task.title)) perRoomHits++;
+      if (pushHit(room, `task:${task.id}.desc`, task.desc)) perRoomHits++;
+      for (const at of (task.attempts || [])) {
+        if (pushHit(room, `task:${task.id}.attempt`, at.content)) perRoomHits++;
+        if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
+      }
+      if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
+    }
+    if (hits.length >= hardCap) break outer;
+  }
+
+  hits.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+  const finalHits = hits.slice(0, limit);
+  return { status: 200, body: { ok: true, query: q, count: finalHits.length, total: hits.length, hits: finalHits } };
+}
 
 export function registerRoomsRoutes(app, deps) {
   const {
@@ -24,9 +188,9 @@ export function registerRoomsRoutes(app, deps) {
   app.get('/api/rooms', (req, res) => {
     // v0.52 ?archived=1 返已归档列表；默认返活跃
     if (req.query?.archived === '1') {
-      return res.json({ ok: true, rooms: roomStore.listArchived() });
+      return res.json(roomListResponse(roomStore.listArchived(), req.query));
     }
-    res.json({ ok: true, rooms: roomStore.list() });
+    res.json(roomListResponse(roomStore.list(), req.query));
   });
 
   // 创建房间
@@ -34,7 +198,7 @@ export function registerRoomsRoutes(app, deps) {
     if (roomStore.list().length >= MAX_ROOMS) {
       return res.status(429).json({ error: `已达房间总数上限（${MAX_ROOMS}）。先删除一些旧房间` });
     }
-    const { name, cwd, members, mode, defaultPartner } = req.body || {};
+    const { name, cwd, members, mode, defaultPartner, objective, lineage } = req.body || {};
     // v0.49 N-07 fix: cwd 必须在沙箱内
     let roomCwd = homedir();
     if (cwd && typeof cwd === 'string' && cwd.trim()) {
@@ -95,8 +259,21 @@ export function registerRoomsRoutes(app, deps) {
         { adapterId: 'ollama', displayName: '🔵 Ollama（顶位 MiniMax）', enabled: true },
       ];
     }
-    const room = roomStore.create({ name, cwd: roomCwd, members: defaultMembers, mode: roomMode });
+    const room = roomStore.create({
+      name,
+      cwd: roomCwd,
+      members: defaultMembers,
+      mode: roomMode,
+      objective: sanitizeObjective(objective, { fallbackTitle: typeof name === 'string' ? name : '' }),
+      lineage: sanitizeLineage(lineage, { projectId: roomCwd }),
+    });
     res.json({ ok: true, room });
+  });
+
+  // v0.53 Sprint 3.5：跨房搜索（必须注册在 /api/rooms/:id 前，避免 search 被当成房间 id）
+  app.get('/api/rooms/search', requireOwnerToken, (req, res) => {
+    const result = searchRooms({ roomStore, query: req.query || {} });
+    res.status(result.status).json(result.body);
   });
 
   // 获取单房间
@@ -171,9 +348,23 @@ export function registerRoomsRoutes(app, deps) {
         enabled: m?.enabled !== false,
       }));
       patch.members = members;
+      patch.roleCards = buildRoleCardsForMembers(members, { mode: r.mode, existing: r.roleCards });
+    }
+    if (Array.isArray(req.body?.roleCards)) {
+      patch.roleCards = buildRoleCardsForMembers(r.members || [], { mode: r.mode, existing: req.body.roleCards });
     }
     if (typeof req.body?.qaStrictness === 'string' && ['loose', 'standard', 'strict'].includes(req.body.qaStrictness)) {
       patch.qaStrictness = req.body.qaStrictness;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'objective')) {
+      patch.objective = sanitizeObjective(req.body.objective, { fallbackTitle: r.name || '' });
+      const nextLineage = sanitizeLineage(r.lineage, { projectId: r.cwd || homedir() });
+      nextLineage.objectiveId = patch.objective?.id || null;
+      patch.lineage = nextLineage;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'lineage')) {
+      patch.lineage = sanitizeLineage(req.body.lineage, { projectId: r.cwd || homedir() });
+      if (r.objective && !patch.lineage.objectiveId) patch.lineage.objectiveId = r.objective.id;
     }
     if (typeof req.body?.archived === 'boolean') {
       patch.archived = req.body.archived;

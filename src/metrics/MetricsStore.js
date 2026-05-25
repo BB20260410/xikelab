@@ -11,6 +11,8 @@ import { appendFileSync, existsSync, readFileSync, readdirSync, statSync, mkdirS
 import { join } from 'path';
 import { homedir } from 'os';
 import { estimateCost } from './pricing.js';
+import { activityLog } from '../audit/ActivityLog.js';
+import { budgetPolicyStore } from '../budget/BudgetPolicyStore.js';
 
 const DIR = join(homedir(), '.claude-panel');
 const MAX_BYTES_PER_FILE = 50 * 1024 * 1024;  // 50MB 后滚动
@@ -76,6 +78,9 @@ export class MetricsStore {
       roomId: turnSummary.roomId || '',
       roomMode: turnSummary.roomMode || 'unknown',
       roomName: turnSummary.roomName || '',
+      projectId: turnSummary.projectId || turnSummary.cwd || '',
+      sessionId: turnSummary.sessionId || '',
+      taskId: turnSummary.taskId || '',
       turn: turnSummary.turn || '',
       adapter: turnSummary.adapter || 'unknown',
       model: turnSummary.model || '',
@@ -114,6 +119,30 @@ export class MetricsStore {
     if (this.broadcast) {
       try { this.broadcast({ type: 'metrics_update', delta: enriched }); } catch {}
     }
+    activityLog.recordSafe({
+      action: 'metrics.recorded',
+      actorType: 'system',
+      roomId: enriched.roomId || null,
+      entityType: 'metric_turn',
+      entityId: `${enriched.ts}:${enriched.adapter}:${enriched.turn}`,
+      status: enriched.success ? 'success' : 'error',
+      severity: enriched.success ? 'info' : 'error',
+      details: {
+        roomMode: enriched.roomMode,
+        roomName: enriched.roomName,
+        turn: enriched.turn,
+        adapter: enriched.adapter,
+        model: enriched.model,
+        latencyMs: enriched.latencyMs,
+        tokensIn: enriched.tokensIn,
+        tokensOut: enriched.tokensOut,
+        estCostUSD: enriched.estCostUSD,
+        success: enriched.success,
+        errorKind: enriched.errorKind,
+      },
+    });
+    try { budgetPolicyStore.recordMetric(enriched); }
+    catch (e) { this.logger?.warn?.('[budget] metric observe failed:', e.message); }
     return enriched;
   }
 

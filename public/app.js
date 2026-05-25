@@ -84,6 +84,32 @@ function persistCollapsedGroups() {
   try { localStorage.setItem('cp-collapsed-groups', JSON.stringify([...state.collapsedGroups])); } catch {}
 }
 
+function queuePanelStoreMirror(path, value) {
+  try {
+    if (window.PanelStore?.set) {
+      window.PanelStore.set(path, value);
+      return;
+    }
+    const pending = window.__panelPendingStateMirrors ||= [];
+    const existing = pending.find(item => item && item.path === path);
+    if (existing) existing.value = value;
+    else pending.push({ path, value });
+  } catch {}
+}
+
+function createPanelMirroredState(namespace, initialState) {
+  for (const key of Object.keys(initialState || {})) {
+    queuePanelStoreMirror(`${namespace}.${key}`, initialState[key]);
+  }
+  return new Proxy(initialState, {
+    set(target, key, value) {
+      target[key] = value;
+      queuePanelStoreMirror(`${namespace}.${String(key)}`, value);
+      return true;
+    },
+  });
+}
+
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -885,6 +911,9 @@ function attachSessionWS(id) {
         if (msg.snapshot) updateCostChip(msg.snapshot.totalUSD, msg.snapshot.ratePerMinute);
       } else if (msg.type === 'danger_blocked') {
         showDangerBanner(msg);
+        maybeRefreshSafetyIfOpen();
+      } else if (msg.type === 'approval_required') {
+        handleApprovalRequired(msg);
         maybeRefreshSafetyIfOpen();
       } else if (msg.type === 'danger_warn') {
         showDangerBanner({ ...msg, blocked: false });
@@ -2265,7 +2294,9 @@ async function openTerm(cwd) {
       try {
         const msg = JSON.parse(ev.data);
         if (msg.type === 'data') xterm.write(msg.data);
-        else if (msg.type === 'exit') {
+        else if (msg.type === 'approval_required') {
+          handleApprovalRequired(msg);
+        } else if (msg.type === 'exit') {
           xterm.write(`\r\n\x1b[33m[终端退出 code=${msg.exitCode}]\x1b[0m\r\n`);
           $('#termMeta').textContent = `已退出 (code ${msg.exitCode})`;
           termState.termId = null;
@@ -2397,6 +2428,7 @@ document.addEventListener('click', (e) => {
 const roomState = {
   rooms: [],
   activeId: null,
+  activeRoom: null,
   ws: null,
 };
 
@@ -2411,6 +2443,8 @@ function showRoomArea() {
 function hideRoomArea() {
   $('#roomArea').style.display = 'none';
   if (roomState.ws) { try { roomState.ws.close(); } catch {} roomState.ws = null; }
+  roomState.activeRoom = null;
+  renderRoomLineage(null);
   if (state.activeId) $('#chatArea').style.display = 'flex';
   else $('#mainHeader').style.display = 'flex';
 }
@@ -2454,8 +2488,13 @@ function renderRoomList() {
     div.className = 'room-list-item' + (r.id === roomState.activeId ? ' active' : '');
     div.dataset.id = r.id;
     const memberCount = (r.members || []).filter(m => m.enabled !== false).length;
+    const objectiveTitle = r.objective?.title || r.lineage?.taskId || '';
+    const objectiveHtml = objectiveTitle
+      ? `<div class="room-list-item-objective" title="${escapeHtml(objectiveTitle)}">目标 ${escapeHtml(objectiveTitle.slice(0, 42))}${objectiveTitle.length > 42 ? '…' : ''}</div>`
+      : '';
     div.innerHTML = `
       <div class="room-list-item-name">${escapeHtml(r.name || '未命名')}</div>
+      ${objectiveHtml}
       <div class="room-list-item-meta">
         <span>${memberCount} 成员</span>
         <span>${r.status === 'running' ? '🟠 讨论中' : r.status === 'done' ? '🟢 完成' : r.status === 'error' ? '🔴 错误' : '⚪ ' + (ROOM_STATUS_ZH[r.status] || '闲置')}</span>
@@ -2526,8 +2565,10 @@ async function setRoomArchived(id, archived) {
     });
     if (archived && roomState.activeId === id) {
       roomState.activeId = null;
+      roomState.activeRoom = null;
       $('#roomDebate').style.display = 'none';
       $('.room-empty').style.display = '';
+      renderRoomLineage(null);
     }
     await loadRooms();
     await loadArchivedRooms();
@@ -2563,10 +2604,12 @@ async function createRoom(mode = 'debate', defaultPartner) {
 
 async function selectRoom(id) {
   roomState.activeId = id;
+  roomState.activeRoom = null;
   if (roomState.ws) { try { roomState.ws.close(); } catch {} roomState.ws = null; }
   renderRoomList();
   const r = await fetch(`/api/rooms/${id}`).then(x => x.json());
   if (!r.ok) return;
+  roomState.activeRoom = r.room;
   renderRoomDebate(r.room);
   // v0.51 S-27 fix: room WS 自动重连（指数退避，最多 5 次）
   roomState.wsReconnectAttempts = 0;
@@ -2674,8 +2717,10 @@ const MODEL_OPTIONS = {
 };
 
 function renderRoomDebate(room) {
+  roomState.activeRoom = room || null;
   $('#roomDebate').style.display = 'flex';
   $('.room-empty').style.display = 'none';
+  renderRoomLineage(room);
   $('#roomNameDisplay').textContent = (room.name || '未命名') + (
     room.mode === 'squad' ? '  · 团队拆活' :
     room.mode === 'chat'  ? '  · 单聊'  :
@@ -2747,6 +2792,88 @@ function renderRoomDebate(room) {
   } else {
     $('#roomConsensus').style.display = 'none';
   }
+}
+
+function statusLabel(status) {
+  return ROOM_STATUS_ZH[status] || status || '未知';
+}
+
+function shortLineageValue(value) {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  if (s.length <= 36) return s;
+  return `${s.slice(0, 14)}…${s.slice(-14)}`;
+}
+
+function renderRoomLineage(room) {
+  const panel = $('#roomLineagePanel');
+  if (!panel) return;
+  if (!room) {
+    panel.innerHTML = `
+      <div class="room-lineage-title">目标追溯</div>
+      <div class="room-lineage-empty">选择房间后显示目标、任务链路和上下文注入状态。</div>`;
+    return;
+  }
+
+  const objective = room.objective || null;
+  const lineage = room.lineage || {};
+  const contextSummary = room.projectContextSummary || room.projectContext || null;
+  const tasks = Array.isArray(room.taskList) ? room.taskList : [];
+  const counts = tasks.reduce((acc, t) => {
+    const key = t?.status || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const acceptance = Array.isArray(objective?.acceptanceCriteria) ? objective.acceptanceCriteria : [];
+  const lineageRows = [
+    ['project', lineage.projectId || room.cwd || ''],
+    ['objective', lineage.objectiveId || objective?.id || ''],
+    ['task', lineage.taskId || ''],
+    ['parent room', lineage.parentRoomId || ''],
+    ['parent task', lineage.parentTaskId || ''],
+    ['source', lineage.source || 'manual'],
+  ].filter(([, value]) => value);
+  const taskChips = tasks.slice(0, 10).map(t => {
+    const st = t?.status || 'unknown';
+    const title = t?.title || t?.id || 'task';
+    return `<span class="room-lineage-task-chip ${escapeHtml(st)}" title="${escapeHtml(st)} · ${escapeHtml(title)}">${escapeHtml(t?.id || title)}</span>`;
+  }).join('');
+  const hiddenTasks = tasks.length > 10 ? `<span class="room-lineage-task-chip">+${tasks.length - 10}</span>` : '';
+  const countText = Object.entries(counts).map(([k, v]) => `${k}:${v}`).join(' / ');
+  const contextFiles = Array.isArray(contextSummary?.files)
+    ? contextSummary.files.slice(0, 3).map(f => f.name || f.path).filter(Boolean)
+    : [];
+
+  panel.innerHTML = `
+    <div class="room-lineage-title">目标追溯</div>
+    <div class="room-lineage-node">
+      <div class="label">当前目标</div>
+      <div class="value">${escapeHtml(objective?.title || room.name || '未命名目标')}</div>
+      <div class="room-lineage-path">
+        <span>状态 ${escapeHtml(statusLabel(objective?.status || room.status))}${acceptance.length ? ` · 验收 ${acceptance.length} 条` : ''}</span>
+        ${objective?.description ? `<span>${escapeHtml(objective.description.slice(0, 120))}${objective.description.length > 120 ? '…' : ''}</span>` : ''}
+      </div>
+    </div>
+    <div class="room-lineage-node">
+      <div class="label">链路</div>
+      <div class="room-lineage-path">
+        ${lineageRows.length ? lineageRows.map(([label, value]) => `<span>${escapeHtml(label)} <code title="${escapeHtml(value)}">${escapeHtml(shortLineageValue(value))}</code></span>`).join('') : '<span>未记录 lineage</span>'}
+      </div>
+    </div>
+    <div class="room-lineage-node">
+      <div class="label">任务</div>
+      <div class="value">${tasks.length ? `${tasks.length} 个任务` : '暂无任务'}</div>
+      ${countText ? `<div class="room-lineage-path"><span>${escapeHtml(countText)}</span></div>` : ''}
+      ${taskChips || hiddenTasks ? `<div class="room-lineage-task-list">${taskChips}${hiddenTasks}</div>` : ''}
+    </div>
+    <div class="room-lineage-node">
+      <div class="label">项目上下文</div>
+      <div class="value">${contextSummary?.fileCount ? `${contextSummary.fileCount} 个文件 · ${contextSummary.totalChars || 0} 字符` : '未注入'}</div>
+      <div class="room-lineage-path">
+        ${contextSummary?.truncated ? '<span>已截断，避免上下文膨胀</span>' : ''}
+        ${contextFiles.length ? `<span>${contextFiles.map(escapeHtml).join(' / ')}</span>` : ''}
+      </div>
+    </div>`;
 }
 
 // v0.52 房间 adapter providers 缓存（GET /api/room-adapters/providers）
@@ -3766,8 +3893,10 @@ async function deleteRoom() {
   if (!ok) return;
   await fetch(`/api/rooms/${roomState.activeId}`, { method: 'DELETE' });
   roomState.activeId = null;
+  roomState.activeRoom = null;
   $('#roomDebate').style.display = 'none';
   $('.room-empty').style.display = '';
+  renderRoomLineage(null);
   await loadRooms();
 }
 
@@ -3794,6 +3923,10 @@ async function pullRoomAndRender() {
   try {
     const r = await fetch(`/api/rooms/${targetId}`).then(x => x.json());
     if (roomState.activeId !== targetId) return; // 期间切走了
+    if (r.ok && r.room) {
+      roomState.activeRoom = r.room;
+      renderRoomLineage(r.room);
+    }
     if (r.ok && r.room?.mode === 'squad') {
       renderSquadKanban(r.room.taskList || []);
     }
@@ -3849,6 +3982,62 @@ document.querySelectorAll('#roomConsensusActions [data-forward]').forEach(btn =>
     } catch (e) { toast('转发失败：' + e.message, 'error'); }
   });
 });
+
+async function delegateActiveRoom() {
+  if (!roomState.activeId) { toast('先选一个房间', 'warn'); return; }
+  let room = roomState.activeRoom;
+  if (!room || room.id !== roomState.activeId) {
+    const r = await fetch(`/api/rooms/${roomState.activeId}`).then(x => x.json());
+    if (!r.ok) { toast('读取房间失败：' + (r.error || 'unknown'), 'error'); return; }
+    room = r.room;
+    roomState.activeRoom = room;
+  }
+  const defaultTitle = room.objective?.title || room.topic?.slice(0, 80) || room.name || '委派任务';
+  const title = await promptModal({
+    title: '创建跨房间委派',
+    message: '给目标房间一个明确任务标题。',
+    value: defaultTitle,
+    placeholder: '例：把方案拆成可执行开发任务',
+  });
+  if (!title) return;
+  const instructions = await promptModal({
+    title: '委派说明',
+    message: '写清楚目标房间要做什么；会自动带上来源房间、目标和 lineage。',
+    value: room.finalConsensus || room.topic || room.objective?.description || '',
+    placeholder: '例：基于当前共识，拆出 P0/P1 任务并给出验收标准。',
+    multiline: true,
+  });
+  if (!instructions) return;
+  const targetMode = await promptModal({
+    title: '目标房间模式',
+    message: '输入 chat / debate / squad / arena。Free 版如果没有 squad/arena 权限，会由后端拒绝并保留委派记录。',
+    value: 'debate',
+    placeholder: 'debate',
+  });
+  if (!targetMode) return;
+  try {
+    const created = await api('/api/delegations', {
+      method: 'POST',
+      body: JSON.stringify({
+        sourceRoomId: room.id,
+        sourceTaskId: room.lineage?.taskId || null,
+        targetMode,
+        title,
+        instructions,
+        payload: {
+          acceptanceCriteria: room.objective?.acceptanceCriteria || [],
+        },
+      }),
+    });
+    const executed = await api(`/api/delegations/${encodeURIComponent(created.delegation.id)}/execute`, { method: 'POST' });
+    toast('已创建委派房间', 'success', 2000);
+    await loadRooms();
+    if (executed.room?.id) selectRoom(executed.room.id);
+  } catch (e) {
+    toast('委派失败：' + e.message, 'error', 6000);
+  }
+}
+
 $('#btnRoomNewChat')?.addEventListener('click', async () => {
   // 让用户选搭子
   const partner = await promptModal('和谁聊？（claude / codex / ollama / minimax）', 'codex');
@@ -3879,6 +4068,7 @@ $('#qaStrictSelect')?.addEventListener('change', async (e) => {
 $('#btnRoomStart')?.addEventListener('click', startDebate);
 $('#btnRoomAbort')?.addEventListener('click', abortDebate);
 $('#btnRoomDelete')?.addEventListener('click', deleteRoom);
+$('#btnDelegateRoom')?.addEventListener('click', delegateActiveRoom);
 
 // v0.52 重启（清空进度重头跑）
 $('#btnRoomRestart')?.addEventListener('click', async () => {
@@ -3930,13 +4120,7 @@ $('#roomDebateRoundsInput')?.addEventListener('change', async (e) => {
 // ============ v0.52 Plugin 中心（Sprint 10 误删，v0.56 修复重写） ============
 // v0.84 真做 SSOT mirror：pluginState
 const _pluginStateRaw = { list: [], activeId: null };
-const pluginState = new Proxy(_pluginStateRaw, {
-  set(target, key, value) {
-    target[key] = value;
-    try { window.PanelStore?.set?.(`plugin.${String(key)}`, value); } catch {}
-    return true;
-  },
-});
+const pluginState = createPanelMirroredState('plugin', _pluginStateRaw);
 
 function showPluginArea() {
   $('#mainHeader') && ($('#mainHeader').style.display = 'none');
@@ -4809,6 +4993,26 @@ function fmtMs(ms) {
   if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
   return (ms / 60000).toFixed(1) + 'm';
 }
+function fmtBudgetMetric(metric, value) {
+  const n = Number(value) || 0;
+  if (metric === 'usd') return '$' + n.toFixed(4);
+  if (metric === 'tokens') return fmtBigInt(n) + ' tokens';
+  if (metric === 'calls') return fmtBigInt(n) + ' calls';
+  return String(n);
+}
+function fmtBudgetTime(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return '-';
+  try {
+    return new Date(n).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '-';
+  }
+}
+function budgetScopeLabel(scopeType, scopeId) {
+  const labels = { project: '项目', room: '房间', session: '会话', adapter: '模型', task: '任务' };
+  return `${labels[scopeType] || scopeType}:${scopeId || '-'}`;
+}
 
 async function ensureChartLib() {
   if (window.Chart) return window.Chart;
@@ -4854,16 +5058,24 @@ async function refreshOverview() {
     const range = overviewState.range;
     const fromIso = rangeToFromIso(range);
     const bucket = rangeBucket(range);
-    const [ov, ts, ba, health] = await Promise.all([
+    const [ov, ts, ba, health, budgetIncidents, budgetPolicies, governance] = await Promise.all([
       fetch('/api/metrics/overview').then(r => r.json()).catch(() => ({})),
       fetch('/api/metrics/timeseries?from=' + encodeURIComponent(fromIso) + '&bucket=' + bucket).then(r => r.json()).catch(() => ({})),
       fetch('/api/metrics/by-adapter?from=' + encodeURIComponent(fromIso)).then(r => r.json()).catch(() => ({})),
       fetch('/api/metrics/health').then(r => r.json()).catch(() => ({})),
+      fetch('/api/budgets/incidents?status=open&limit=20').then(r => r.json()).catch(() => ({})),
+      fetch('/api/budgets/policies?activeOnly=true&limit=50').then(r => r.json()).catch(() => ({})),
+      fetch('/api/governance/summary').then(r => r.json()).catch(() => ({})),
     ]);
     renderOverviewBlockA(ov);
     await renderOverviewBlockB(ts);
     await renderOverviewBlockC(ba);
     renderOverviewBlockD(health);
+    renderOverviewBlockE({
+      incidents: budgetIncidents?.incidents || [],
+      policies: budgetPolicies?.policies || [],
+    });
+    renderOverviewBlockF(governance);
   } catch (e) {
     console.warn('refreshOverview failed:', e?.message);
   }
@@ -5054,6 +5266,123 @@ function renderOverviewBlockD(health) {
     `;
     $('#btnRetentionClean')?.addEventListener('click', cleanOldMetrics);
   }
+}
+
+function renderOverviewBlockE(budget) {
+  const summary = $('#ovBudgetSummary');
+  const root = $('#ovBudgetIncidents');
+  if (!root) return;
+  const incidents = Array.isArray(budget?.incidents) ? budget.incidents : [];
+  const policies = Array.isArray(budget?.policies) ? budget.policies : [];
+  const hardStops = incidents.filter(i => i.thresholdType === 'hard_stop').length;
+  const warnings = incidents.filter(i => i.thresholdType === 'warning').length;
+
+  if (summary) {
+    summary.innerHTML = `<span class="overview-budget-summary">
+      <span class="overview-budget-pill ${hardStops ? 'is-hard' : ''}">hard-stop ${hardStops}</span>
+      <span class="overview-budget-pill ${warnings ? 'is-warn' : ''}">warning ${warnings}</span>
+      <span class="overview-budget-pill">active policy ${policies.length}</span>
+    </span>`;
+  }
+
+  if (incidents.length === 0) {
+    root.innerHTML = '<div class="overview-budget-empty">当前没有未处理预算事件。</div>';
+    return;
+  }
+
+  root.innerHTML = incidents.map(i => {
+    const hard = i.thresholdType === 'hard_stop';
+    const kind = hard ? 'Hard stop' : 'Warning';
+    const usage = `${fmtBudgetMetric(i.metric, i.observedAmount)} / ${fmtBudgetMetric(i.metric, i.limitAmount)}`;
+    const pct = i.limitAmount > 0 ? Math.round((i.observedAmount / i.limitAmount) * 100) : 0;
+    const scope = budgetScopeLabel(i.scopeType, i.scopeId);
+    return `<div class="overview-budget-incident ${hard ? 'is-hard' : 'is-warn'}" data-incident-id="${escapeHtml(i.id)}">
+      <div>
+        <div class="kind">${kind}</div>
+        <div class="meta">${escapeHtml(i.windowKind || '-')} · ${fmtBudgetTime(i.createdAt)}</div>
+      </div>
+      <div class="scope" title="${escapeHtml(scope)}">
+        作用域 <code>${escapeHtml(scope)}</code>
+      </div>
+      <div class="usage">
+        <strong>${escapeHtml(usage)}</strong> · ${pct}%
+      </div>
+      <div class="actions">
+        <button class="cxbtn cxbtn-secondary cxbtn-sm" data-budget-resolve="${escapeHtml(i.id)}">标记已处理</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  root.querySelectorAll('[data-budget-resolve]').forEach(btn => {
+    btn.addEventListener('click', () => resolveBudgetIncident(btn.dataset.budgetResolve));
+  });
+}
+
+async function resolveBudgetIncident(id) {
+  if (!id) return;
+  try {
+    const r = await fetch(`/api/budgets/incidents/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).then(x => x.json());
+    if (!r.ok) {
+      toast('处理失败：' + (r.error || 'unknown'), 'error');
+      return;
+    }
+    toast('预算事件已处理', 'success', 1500);
+    refreshOverview();
+  } catch (e) {
+    toast('处理失败：' + e.message, 'error');
+  }
+}
+
+function governanceKindLabel(kind) {
+  return ({
+    approval: '审批',
+    budget: '预算',
+    delegation: '委派',
+    autopilot_job: '调度',
+  })[kind] || kind || '事件';
+}
+
+function governanceTarget(kind) {
+  if (kind === 'approval') return () => openApprovalModal();
+  if (kind === 'budget') return () => showOverviewArea();
+  if (kind === 'delegation') return () => openDelegationModal();
+  if (kind === 'autopilot_job') return () => openAutopilotModal();
+  return null;
+}
+
+function renderOverviewBlockF(governance) {
+  const summary = $('#ovGovernanceSummary');
+  const root = $('#ovGovernanceList');
+  if (!root) return;
+  const counts = governance?.counts || {};
+  const blockers = Array.isArray(governance?.blockers) ? governance.blockers : [];
+  if (summary) {
+    summary.innerHTML = `<span class="overview-governance-summary">
+      <span class="overview-governance-pill ${counts.hardBlockers ? 'is-hard' : ''}">hard ${counts.hardBlockers || 0}</span>
+      <span class="overview-governance-pill ${counts.attention ? 'is-warn' : ''}">attention ${counts.attention || 0}</span>
+      <span class="overview-governance-pill">open ${counts.totalOpen || 0}</span>
+    </span>`;
+  }
+  if (!blockers.length) {
+    root.innerHTML = '<div class="overview-governance-empty">当前没有待处理治理事项。</div>';
+    return;
+  }
+  root.innerHTML = blockers.slice(0, 12).map(b => {
+    const sev = safeClassToken(b.severity || 'info');
+    const title = String(b.title || b.id || '').slice(0, 160);
+    return `<button class="overview-governance-item sev-${sev}" data-governance-kind="${escapeHtml(b.kind)}">
+      <span class="kind">${escapeHtml(governanceKindLabel(b.kind))}</span>
+      <span class="title" title="${escapeHtml(title)}">${escapeHtml(title || b.id)}</span>
+      <span class="status">${escapeHtml(b.status || '-')}</span>
+    </button>`;
+  }).join('');
+  root.querySelectorAll('[data-governance-kind]').forEach(btn => {
+    const open = governanceTarget(btn.dataset.governanceKind);
+    if (open) btn.addEventListener('click', open);
+  });
 }
 
 async function cleanOldMetrics() {
@@ -5536,13 +5865,7 @@ $('#btnWebhooks')?.addEventListener('click', openWebhookModal);
 // ========== v0.54 Sprint 4.5 — 📂 聊天归档配置 ==========
 // v0.84 真做 SSOT 第一步：archiveState 用 Proxy 包装，每次 set 自动镜像到 PanelStore
 const _archiveStateRaw = { config: null, list: [] };
-const archiveState = new Proxy(_archiveStateRaw, {
-  set(target, key, value) {
-    target[key] = value;
-    try { window.PanelStore?.set?.(`archive.${String(key)}`, value); } catch {}
-    return true;
-  },
-});
+const archiveState = createPanelMirroredState('archive', _archiveStateRaw);
 
 // S18-3：改走 Modal 组件
 window.Modal?.register('archiveModal', {
@@ -6083,13 +6406,7 @@ function renderAutopilotLogTable(logs) {
 }
 
 // v0.84 真做 SSOT mirror：autopilotState（_autopilotStateRaw 已在 line 5942 定义）
-const autopilotState = new Proxy(_autopilotStateRaw, {
-  set(target, key, value) {
-    target[key] = value;
-    try { window.PanelStore?.set?.(`autopilot.${String(key)}`, value); } catch {}
-    return true;
-  },
-});
+const autopilotState = createPanelMirroredState('autopilot', _autopilotStateRaw);
 
 async function openAutopilotModal() {
   $('#autopilotModal').style.display = 'flex';
@@ -6270,6 +6587,634 @@ async function deleteAutopilotRule(id) {
 
 $('#btnAutopilot')?.addEventListener('click', openAutopilotModal);
 document.querySelectorAll('[data-close-autopilot]').forEach(el => el.addEventListener('click', closeAutopilotModal));
+
+// ========== 本地审批中心 ==========
+const approvalState = {
+  status: 'pending',
+  approvals: [],
+  activeId: null,
+};
+
+function approvalTypeLabel(type) {
+  return ({
+    dangerous_command: '危险命令',
+    budget_override: '预算覆盖',
+    manual: '人工确认',
+  })[type] || type || '审批';
+}
+function approvalTitle(a) {
+  const p = a?.payload || {};
+  if (a?.type === 'dangerous_command') return (p.command || '危险命令').slice(0, 90);
+  return p.title || p.summary || approvalTypeLabel(a?.type);
+}
+function approvalTime(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return '-';
+  try { return new Date(n).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  catch { return '-'; }
+}
+
+async function openApprovalModal(focusId = null) {
+  $('#approvalModal').style.display = 'flex';
+  if (focusId) approvalState.activeId = focusId;
+  await refreshApprovals();
+}
+function closeApprovalModal() { $('#approvalModal').style.display = 'none'; }
+
+async function refreshApprovals() {
+  try {
+    const statusParam = approvalState.status ? `?status=${encodeURIComponent(approvalState.status)}&limit=100` : '?limit=100';
+    const r = await api('/api/approvals' + statusParam);
+    approvalState.approvals = r.approvals || [];
+    if (!approvalState.activeId || !approvalState.approvals.some(a => a.id === approvalState.activeId)) {
+      approvalState.activeId = approvalState.approvals[0]?.id || null;
+    }
+    renderApprovalModal();
+  } catch (e) {
+    $('#approvalModalBody').innerHTML = `<div class="muted small" style="padding:20px;color:var(--color-danger-alt);">加载失败：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderApprovalModal() {
+  const root = $('#approvalModalBody');
+  if (!root) return;
+  const approvals = approvalState.approvals || [];
+  const active = approvals.find(a => a.id === approvalState.activeId) || null;
+  root.innerHTML = `
+    <section>
+      <div class="approval-toolbar">
+        <select id="approvalStatusFilter" aria-label="审批状态">
+          <option value="pending" ${approvalState.status === 'pending' ? 'selected' : ''}>待处理</option>
+          <option value="" ${approvalState.status === '' ? 'selected' : ''}>全部</option>
+          <option value="approved" ${approvalState.status === 'approved' ? 'selected' : ''}>已批准</option>
+          <option value="rejected" ${approvalState.status === 'rejected' ? 'selected' : ''}>已拒绝</option>
+          <option value="cancelled" ${approvalState.status === 'cancelled' ? 'selected' : ''}>已取消</option>
+        </select>
+        <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnApprovalRefresh">刷新</button>
+      </div>
+      <div class="approval-list">
+        ${approvals.length ? approvals.map(a => `
+          <div class="approval-item ${a.id === approvalState.activeId ? 'is-active' : ''}" data-approval-id="${escapeHtml(a.id)}">
+            <div>
+              <div class="title" title="${escapeHtml(approvalTitle(a))}">${escapeHtml(approvalTitle(a))}</div>
+              <div class="meta">${escapeHtml(approvalTypeLabel(a.type))} · ${escapeHtml(a.requesterType || '-')}:${escapeHtml(a.requesterId || '-')} · ${approvalTime(a.createdAt)}</div>
+            </div>
+            <span class="approval-status ${escapeHtml(a.status)}">${escapeHtml(a.status)}</span>
+          </div>
+        `).join('') : '<div class="approval-empty">当前筛选条件下没有审批。</div>'}
+      </div>
+    </section>
+    <section class="approval-detail">
+      ${active ? renderApprovalDetail(active) : '<div class="approval-empty">选择左侧审批查看详情。</div>'}
+    </section>
+  `;
+
+  $('#approvalStatusFilter')?.addEventListener('change', (e) => {
+    approvalState.status = e.target.value;
+    approvalState.activeId = null;
+    refreshApprovals();
+  });
+  $('#btnApprovalRefresh')?.addEventListener('click', refreshApprovals);
+  root.querySelectorAll('[data-approval-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      approvalState.activeId = el.dataset.approvalId;
+      renderApprovalModal();
+    });
+  });
+  root.querySelectorAll('[data-approval-action]').forEach(btn => {
+    btn.addEventListener('click', () => decideApproval(btn.dataset.approvalId, btn.dataset.approvalAction));
+  });
+}
+
+function renderApprovalDetail(a) {
+  const p = a.payload || {};
+  const hits = Array.isArray(p.hits) ? p.hits : [];
+  const isPending = a.status === 'pending';
+  const command = p.command || '';
+  return `
+    <div class="approval-detail-grid">
+      <div class="k">ID</div><div class="v">${escapeHtml(a.id)}</div>
+      <div class="k">类型</div><div class="v">${escapeHtml(approvalTypeLabel(a.type))}</div>
+      <div class="k">状态</div><div class="v"><span class="approval-status ${escapeHtml(a.status)}">${escapeHtml(a.status)}</span></div>
+      <div class="k">来源</div><div class="v">${escapeHtml(p.source || '-')}</div>
+      <div class="k">目录</div><div class="v">${escapeHtml(p.cwd || '-')}</div>
+      <div class="k">请求者</div><div class="v">${escapeHtml(a.requesterType || '-')} / ${escapeHtml(a.requesterId || '-')}</div>
+      <div class="k">创建时间</div><div class="v">${approvalTime(a.createdAt)}</div>
+      ${a.decidedAt ? `<div class="k">处理时间</div><div class="v">${approvalTime(a.decidedAt)} · ${escapeHtml(a.decisionBy || '-')}</div>` : ''}
+      ${a.decisionReason ? `<div class="k">处理说明</div><div class="v">${escapeHtml(a.decisionReason)}</div>` : ''}
+    </div>
+    ${command ? `<div class="approval-command">${escapeHtml(command)}</div>` : ''}
+    <div>
+      ${hits.length ? hits.map(h => `<div class="approval-hit">
+        <strong>${escapeHtml(h.severity || h.rule?.severity || 'risk')}</strong>
+        ${escapeHtml(h.category || h.rule?.category || '')}
+        <div class="muted small">${escapeHtml(h.advice || h.rule?.advice || h.snippet || '')}</div>
+      </div>`).join('') : '<div class="approval-empty">没有附加风险规则详情。</div>'}
+    </div>
+    ${isPending ? `<div class="approval-actions">
+      <button class="cxbtn cxbtn-secondary" data-approval-action="reject" data-approval-id="${escapeHtml(a.id)}">拒绝</button>
+      <button class="cxbtn cxbtn-tertiary" data-approval-action="cancel" data-approval-id="${escapeHtml(a.id)}">取消审批</button>
+      <button class="cxbtn cxbtn-danger" data-approval-action="approve" data-approval-id="${escapeHtml(a.id)}">批准</button>
+    </div>` : ''}
+  `;
+}
+
+async function decideApproval(id, action) {
+  if (!id || !action) return;
+  const label = action === 'approve' ? '批准' : (action === 'reject' ? '拒绝' : '取消');
+  const reason = await promptModal({
+    title: `${label}审批`,
+    message: action === 'approve'
+      ? '批准只记录人工决策；被暂停的危险命令不会自动重放，需要用户确认后重新执行。'
+      : '填写处理说明，留空也可以。',
+    value: '',
+    placeholder: '处理说明',
+    confirmLabel: label,
+  });
+  if (reason === null) return;
+  try {
+    const r = await api(`/api/approvals/${encodeURIComponent(id)}/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ decisionBy: 'owner', reason }),
+    });
+    approvalState.activeId = r.approval?.id || id;
+    toast(`审批已${label}`, 'success', 1500);
+    refreshApprovals();
+  } catch (e) {
+    toast(`${label}失败：${e.message}`, 'error');
+  }
+}
+
+function handleApprovalRequired(msg) {
+  const approval = msg?.approval || null;
+  const id = approval?.id || msg?.approvalId || null;
+  toast(`危险操作已暂停等待审批${id ? '：' + id : ''}`, 'warn', 5000);
+  if ($('#approvalModal')?.style.display === 'flex') {
+    if (id) approvalState.activeId = id;
+    refreshApprovals();
+  }
+}
+
+$('#btnApprovals')?.addEventListener('click', () => openApprovalModal());
+document.querySelectorAll('[data-close-approval]').forEach(el => el.addEventListener('click', closeApprovalModal));
+
+// ========== 本地结构化审计时间线 ==========
+const activityState = {
+  events: [],
+  activeId: null,
+  filters: {
+    q: '',
+    action: '',
+    roomId: '',
+    sessionId: '',
+    taskId: '',
+    entityType: '',
+    severity: '',
+    status: '',
+    limit: 200,
+  },
+};
+
+function activityTime(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return '-';
+  try { return new Date(n).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+  catch { return '-'; }
+}
+function safeClassToken(value) {
+  return String(value || 'none').replace(/[^a-z0-9_-]/gi, '-').slice(0, 40) || 'none';
+}
+function activityTitle(e) {
+  return e.action || e.tag || `${e.entityType || 'event'}.${e.status || 'recorded'}`;
+}
+function activitySearchText(e) {
+  return [
+    e.id, e.action, e.tag, e.roomId, e.sessionId, e.taskId,
+    e.actorType, e.actorId, e.entityType, e.entityId, e.severity, e.status,
+    JSON.stringify(e.details || {}),
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+function activityScopeLine(e) {
+  const parts = [];
+  if (e.roomId) parts.push(`room:${e.roomId}`);
+  if (e.sessionId) parts.push(`session:${e.sessionId}`);
+  if (e.taskId) parts.push(`task:${e.taskId}`);
+  if (e.entityType || e.entityId) parts.push(`${e.entityType || 'entity'}:${e.entityId || '-'}`);
+  return parts.join(' · ') || 'global';
+}
+function filteredActivityEvents() {
+  const q = (activityState.filters.q || '').trim().toLowerCase();
+  if (!q) return activityState.events || [];
+  return (activityState.events || []).filter(e => activitySearchText(e).includes(q));
+}
+function activityApiParams() {
+  const f = activityState.filters;
+  const params = new URLSearchParams();
+  for (const key of ['action', 'roomId', 'sessionId', 'taskId', 'entityType', 'severity', 'status']) {
+    if (f[key]) params.set(key, f[key]);
+  }
+  params.set('limit', String(Math.max(1, Math.min(1000, Number(f.limit) || 200))));
+  return params.toString();
+}
+
+async function openActivityModal(seed = {}) {
+  $('#activityModal').style.display = 'flex';
+  if (seed.roomId) activityState.filters.roomId = seed.roomId;
+  if (seed.sessionId) activityState.filters.sessionId = seed.sessionId;
+  if (seed.taskId) activityState.filters.taskId = seed.taskId;
+  await refreshActivity();
+}
+function closeActivityModal() { $('#activityModal').style.display = 'none'; }
+
+async function refreshActivity() {
+  const root = $('#activityModalBody');
+  if (!root) return;
+  root.innerHTML = '<div class="muted small" style="padding:20px;">加载中…</div>';
+  try {
+    const qs = activityApiParams();
+    const r = await api('/api/activity' + (qs ? '?' + qs : ''));
+    activityState.events = r.events || [];
+    if (!activityState.activeId || !activityState.events.some(e => String(e.id) === String(activityState.activeId))) {
+      activityState.activeId = activityState.events[0]?.id || null;
+    }
+    renderActivityModal();
+  } catch (e) {
+    root.innerHTML = `<div class="muted small" style="padding:20px;color:var(--color-danger-alt);">加载失败：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderActivityModal() {
+  const root = $('#activityModalBody');
+  if (!root) return;
+  const events = filteredActivityEvents();
+  const active = events.find(e => String(e.id) === String(activityState.activeId)) || events[0] || null;
+  if (active && String(active.id) !== String(activityState.activeId)) activityState.activeId = active.id;
+  const errorCount = events.filter(e => ['error', 'warn', 'warning'].includes(String(e.severity || '').toLowerCase()) || String(e.status || '').toLowerCase().includes('error')).length;
+  const roomCount = new Set(events.map(e => e.roomId).filter(Boolean)).size;
+  const actionCount = new Set(events.map(e => e.action).filter(Boolean)).size;
+  const currentRoomBtn = roomState.activeId
+    ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" id="activityUseCurrentRoom">当前房间</button>`
+    : '';
+
+  root.innerHTML = `
+    <div class="activity-toolbar">
+      <input id="activitySearch" type="search" placeholder="搜索 action / room / task / details" value="${escapeHtml(activityState.filters.q)}" />
+      <input id="activityAction" type="text" placeholder="action 精确过滤" value="${escapeHtml(activityState.filters.action)}" />
+      <input id="activityRoomId" type="text" placeholder="roomId" value="${escapeHtml(activityState.filters.roomId)}" />
+      <input id="activitySessionId" type="text" placeholder="sessionId" value="${escapeHtml(activityState.filters.sessionId)}" />
+      <input id="activityTaskId" type="text" placeholder="taskId" value="${escapeHtml(activityState.filters.taskId)}" />
+      <input id="activityEntityType" type="text" placeholder="entityType" value="${escapeHtml(activityState.filters.entityType)}" />
+      <select id="activitySeverity">
+        <option value="" ${activityState.filters.severity === '' ? 'selected' : ''}>severity 全部</option>
+        <option value="info" ${activityState.filters.severity === 'info' ? 'selected' : ''}>info</option>
+        <option value="warn" ${activityState.filters.severity === 'warn' ? 'selected' : ''}>warn</option>
+        <option value="error" ${activityState.filters.severity === 'error' ? 'selected' : ''}>error</option>
+      </select>
+      <input id="activityStatus" type="text" placeholder="status" value="${escapeHtml(activityState.filters.status)}" />
+      <select id="activityLimit">
+        ${[100, 200, 500, 1000].map(n => `<option value="${n}" ${Number(activityState.filters.limit) === n ? 'selected' : ''}>${n}</option>`).join('')}
+      </select>
+      ${currentRoomBtn}
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="activityClearFilters">清空</button>
+      <button class="cxbtn cxbtn-primary cxbtn-sm" id="activityRefresh">刷新</button>
+    </div>
+    <div class="activity-stats">
+      <span><strong>${events.length}</strong> events</span>
+      <span><strong>${actionCount}</strong> actions</span>
+      <span><strong>${roomCount}</strong> rooms</span>
+      <span class="${errorCount ? 'is-warn' : ''}"><strong>${errorCount}</strong> warn/error</span>
+    </div>
+    <div class="activity-layout">
+      <section class="activity-list">
+        ${events.length ? events.map(e => renderActivityItem(e)).join('') : '<div class="activity-empty">当前筛选条件下没有审计事件。</div>'}
+      </section>
+      <section class="activity-detail">
+        ${active ? renderActivityDetail(active) : '<div class="activity-empty">选择左侧事件查看结构化详情。</div>'}
+      </section>
+    </div>
+  `;
+
+  for (const [id, key] of [
+    ['activitySearch', 'q'],
+    ['activityAction', 'action'],
+    ['activityRoomId', 'roomId'],
+    ['activitySessionId', 'sessionId'],
+    ['activityTaskId', 'taskId'],
+    ['activityEntityType', 'entityType'],
+    ['activitySeverity', 'severity'],
+    ['activityStatus', 'status'],
+    ['activityLimit', 'limit'],
+  ]) {
+    const el = $('#' + id);
+    if (!el) continue;
+    const eventName = id === 'activitySearch' ? 'input' : 'change';
+    el.addEventListener(eventName, () => {
+      activityState.filters[key] = el.value.trim ? el.value.trim() : el.value;
+      if (key === 'q') renderActivityModal();
+      else refreshActivity();
+    });
+  }
+  $('#activityRefresh')?.addEventListener('click', refreshActivity);
+  $('#activityClearFilters')?.addEventListener('click', () => {
+    activityState.filters = { q: '', action: '', roomId: '', sessionId: '', taskId: '', entityType: '', severity: '', status: '', limit: 200 };
+    activityState.activeId = null;
+    refreshActivity();
+  });
+  $('#activityUseCurrentRoom')?.addEventListener('click', () => {
+    activityState.filters.roomId = roomState.activeId || '';
+    activityState.activeId = null;
+    refreshActivity();
+  });
+  root.querySelectorAll('[data-activity-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      activityState.activeId = Number(el.dataset.activityId) || el.dataset.activityId;
+      renderActivityModal();
+    });
+  });
+  root.querySelectorAll('[data-activity-open-room]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.activityOpenRoom;
+      closeActivityModal();
+      showRoomArea();
+      await loadRooms();
+      selectRoom(id);
+    });
+  });
+}
+
+function renderActivityItem(e) {
+  const active = String(e.id) === String(activityState.activeId);
+  const sev = safeClassToken(e.severity || 'info');
+  return `<button class="activity-item ${active ? 'is-active' : ''} sev-${sev}" data-activity-id="${escapeHtml(e.id)}">
+    <span class="activity-item-head">
+      <strong>${escapeHtml(activityTitle(e))}</strong>
+      <span>${activityTime(e.ts)}</span>
+    </span>
+    <span class="activity-item-meta">${escapeHtml(activityScopeLine(e))}</span>
+    <span class="activity-item-foot">
+      <span class="activity-severity ${sev}">${escapeHtml(e.severity || 'info')}</span>
+      ${e.status ? `<span>${escapeHtml(e.status)}</span>` : ''}
+      <span>${escapeHtml(e.actorType || 'system')}</span>
+    </span>
+  </button>`;
+}
+
+function renderActivityDetail(e) {
+  const details = JSON.stringify(e.details || {}, null, 2);
+  return `
+    <div class="activity-detail-grid">
+      <div class="k">ID</div><div class="v">${escapeHtml(e.id)}</div>
+      <div class="k">时间</div><div class="v">${activityTime(e.ts)}</div>
+      <div class="k">Action</div><div class="v">${escapeHtml(activityTitle(e))}</div>
+      <div class="k">严重度</div><div class="v"><span class="activity-severity ${safeClassToken(e.severity)}">${escapeHtml(e.severity || 'info')}</span></div>
+      <div class="k">状态</div><div class="v">${escapeHtml(e.status || '-')}</div>
+      <div class="k">Actor</div><div class="v">${escapeHtml(e.actorType || '-')} / ${escapeHtml(e.actorId || '-')}</div>
+      <div class="k">Entity</div><div class="v">${escapeHtml(e.entityType || '-')} / ${escapeHtml(e.entityId || '-')}</div>
+      <div class="k">Room</div><div class="v">${e.roomId ? `<code>${escapeHtml(e.roomId)}</code> <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-activity-open-room="${escapeHtml(e.roomId)}">打开房间</button>` : '-'}</div>
+      <div class="k">Session</div><div class="v">${e.sessionId ? `<code>${escapeHtml(e.sessionId)}</code>` : '-'}</div>
+      <div class="k">Task</div><div class="v">${e.taskId ? `<code>${escapeHtml(e.taskId)}</code>` : '-'}</div>
+    </div>
+    <pre class="activity-json"><code>${escapeHtml(details)}</code></pre>
+  `;
+}
+
+$('#btnActivity')?.addEventListener('click', () => openActivityModal());
+document.querySelectorAll('[data-close-activity]').forEach(el => el.addEventListener('click', closeActivityModal));
+
+// ========== 委派中心 ==========
+const delegationState = {
+  list: [],
+  activeId: null,
+  status: '',
+  sourceRoomId: '',
+};
+
+function delegationTime(ts) {
+  return activityTime(ts);
+}
+
+async function openDelegationModal(seed = {}) {
+  $('#delegationModal').style.display = 'flex';
+  if (seed.sourceRoomId) delegationState.sourceRoomId = seed.sourceRoomId;
+  await refreshDelegations();
+}
+function closeDelegationModal() { $('#delegationModal').style.display = 'none'; }
+
+function delegationParams() {
+  const params = new URLSearchParams();
+  if (delegationState.status) params.set('status', delegationState.status);
+  if (delegationState.sourceRoomId) params.set('sourceRoomId', delegationState.sourceRoomId);
+  params.set('limit', '200');
+  return params.toString();
+}
+
+async function refreshDelegations() {
+  const root = $('#delegationModalBody');
+  if (!root) return;
+  root.innerHTML = '<div class="muted small" style="padding:20px;">加载中…</div>';
+  try {
+    const qs = delegationParams();
+    const r = await api('/api/delegations' + (qs ? '?' + qs : ''));
+    delegationState.list = r.delegations || [];
+    if (!delegationState.activeId || !delegationState.list.some(d => d.id === delegationState.activeId)) {
+      delegationState.activeId = delegationState.list[0]?.id || null;
+    }
+    renderDelegationModal();
+  } catch (e) {
+    root.innerHTML = `<div class="muted small" style="padding:20px;color:var(--color-danger-alt);">加载失败：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderDelegationModal() {
+  const root = $('#delegationModalBody');
+  if (!root) return;
+  const list = delegationState.list || [];
+  const active = list.find(d => d.id === delegationState.activeId) || null;
+  const queuedCount = list.filter(d => d.status === 'queued').length;
+  const createdCount = list.filter(d => d.status === 'created').length;
+  const failedCount = list.filter(d => d.status === 'failed').length;
+  const currentRoomBtn = roomState.activeId
+    ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" id="delegationUseCurrentRoom">当前房间</button>`
+    : '';
+  root.innerHTML = `
+    <div class="delegation-toolbar">
+      <select id="delegationStatusFilter">
+        <option value="" ${delegationState.status === '' ? 'selected' : ''}>全部状态</option>
+        <option value="queued" ${delegationState.status === 'queued' ? 'selected' : ''}>queued</option>
+        <option value="created" ${delegationState.status === 'created' ? 'selected' : ''}>created</option>
+        <option value="failed" ${delegationState.status === 'failed' ? 'selected' : ''}>failed</option>
+        <option value="cancelled" ${delegationState.status === 'cancelled' ? 'selected' : ''}>cancelled</option>
+      </select>
+      <input id="delegationSourceRoom" type="text" placeholder="sourceRoomId" value="${escapeHtml(delegationState.sourceRoomId)}" />
+      ${currentRoomBtn}
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="delegationClearFilters">清空</button>
+      <button class="cxbtn cxbtn-primary cxbtn-sm" id="delegationRefresh">刷新</button>
+    </div>
+    <div class="delegation-stats">
+      <span><strong>${list.length}</strong> delegations</span>
+      <span><strong>${queuedCount}</strong> queued</span>
+      <span><strong>${createdCount}</strong> created</span>
+      <span class="${failedCount ? 'is-warn' : ''}"><strong>${failedCount}</strong> failed</span>
+    </div>
+    <div class="delegation-layout">
+      <section class="delegation-list">
+        ${list.length ? list.map(renderDelegationItem).join('') : '<div class="delegation-empty">当前筛选条件下没有委派记录。</div>'}
+      </section>
+      <section class="delegation-detail">
+        ${active ? renderDelegationDetail(active) : '<div class="delegation-empty">选择左侧委派查看详情。</div>'}
+      </section>
+    </div>
+  `;
+  $('#delegationStatusFilter')?.addEventListener('change', (e) => {
+    delegationState.status = e.target.value;
+    delegationState.activeId = null;
+    refreshDelegations();
+  });
+  $('#delegationSourceRoom')?.addEventListener('change', (e) => {
+    delegationState.sourceRoomId = e.target.value.trim();
+    delegationState.activeId = null;
+    refreshDelegations();
+  });
+  $('#delegationUseCurrentRoom')?.addEventListener('click', () => {
+    delegationState.sourceRoomId = roomState.activeId || '';
+    delegationState.activeId = null;
+    refreshDelegations();
+  });
+  $('#delegationClearFilters')?.addEventListener('click', () => {
+    delegationState.status = '';
+    delegationState.sourceRoomId = '';
+    delegationState.activeId = null;
+    refreshDelegations();
+  });
+  $('#delegationRefresh')?.addEventListener('click', refreshDelegations);
+  root.querySelectorAll('[data-delegation-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      delegationState.activeId = el.dataset.delegationId;
+      renderDelegationModal();
+    });
+  });
+  root.querySelectorAll('[data-delegation-execute]').forEach(btn => {
+    btn.addEventListener('click', () => executeDelegation(btn.dataset.delegationExecute));
+  });
+  root.querySelectorAll('[data-delegation-cancel]').forEach(btn => {
+    btn.addEventListener('click', () => cancelDelegation(btn.dataset.delegationCancel));
+  });
+  root.querySelectorAll('[data-delegation-autostart]').forEach(btn => {
+    btn.addEventListener('click', () => queueDelegationAutostart(btn.dataset.delegationAutostart));
+  });
+  root.querySelectorAll('[data-delegation-open-room]').forEach(btn => {
+    btn.addEventListener('click', () => openDelegationRoom(btn.dataset.delegationOpenRoom));
+  });
+}
+
+function renderDelegationItem(d) {
+  return `<button class="delegation-item ${d.id === delegationState.activeId ? 'is-active' : ''} status-${safeClassToken(d.status)}" data-delegation-id="${escapeHtml(d.id)}">
+    <span class="delegation-item-head">
+      <strong>${escapeHtml(d.title)}</strong>
+      <span>${delegationTime(d.updatedAt || d.createdAt)}</span>
+    </span>
+    <span class="delegation-item-meta">source:${escapeHtml(shortLineageValue(d.sourceRoomId))}${d.sourceTaskId ? ' · task:' + escapeHtml(d.sourceTaskId) : ''}</span>
+    <span class="delegation-item-foot">
+      <span class="delegation-status ${safeClassToken(d.status)}">${escapeHtml(d.status)}</span>
+      <span>${escapeHtml(d.targetMode)}</span>
+    </span>
+  </button>`;
+}
+
+function renderDelegationDetail(d) {
+  return `
+    <div class="delegation-detail-grid">
+      <div class="k">ID</div><div class="v">${escapeHtml(d.id)}</div>
+      <div class="k">状态</div><div class="v"><span class="delegation-status ${safeClassToken(d.status)}">${escapeHtml(d.status)}</span></div>
+      <div class="k">标题</div><div class="v">${escapeHtml(d.title)}</div>
+      <div class="k">模式</div><div class="v">${escapeHtml(d.targetMode)}</div>
+      <div class="k">源房间</div><div class="v"><code>${escapeHtml(d.sourceRoomId)}</code> <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-delegation-open-room="${escapeHtml(d.sourceRoomId)}">打开源房</button></div>
+      <div class="k">源任务</div><div class="v">${d.sourceTaskId ? `<code>${escapeHtml(d.sourceTaskId)}</code>` : '-'}</div>
+      <div class="k">目标房间</div><div class="v">${d.targetRoomId ? `<code>${escapeHtml(d.targetRoomId)}</code> <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-delegation-open-room="${escapeHtml(d.targetRoomId)}">打开目标房</button>` : '-'}</div>
+      <div class="k">创建时间</div><div class="v">${delegationTime(d.createdAt)}</div>
+      <div class="k">执行时间</div><div class="v">${d.executedAt ? delegationTime(d.executedAt) : '-'}</div>
+      ${d.error ? `<div class="k">错误</div><div class="v">${escapeHtml(d.error)}</div>` : ''}
+    </div>
+    <div class="delegation-instructions">${escapeHtml(d.instructions)}</div>
+    <div class="delegation-actions">
+      ${d.status === 'queued' || d.status === 'failed' ? `<button class="cxbtn cxbtn-primary" data-delegation-autostart="${escapeHtml(d.id)}">审批后自启动</button>` : ''}
+      ${d.status === 'queued' || d.status === 'failed' ? `<button class="cxbtn cxbtn-primary" data-delegation-execute="${escapeHtml(d.id)}">执行委派</button>` : ''}
+      ${d.status === 'queued' || d.status === 'failed' ? `<button class="cxbtn cxbtn-secondary" data-delegation-cancel="${escapeHtml(d.id)}">取消委派</button>` : ''}
+    </div>
+  `;
+}
+
+async function queueDelegationAutostart(id) {
+  if (!id) return;
+  try {
+    const r = await api(`/api/delegations/${encodeURIComponent(id)}/autostart`, {
+      method: 'POST',
+      body: JSON.stringify({
+        requireApproval: true,
+        autoStart: true,
+        budgetEstimate: { estimateCalls: 1 },
+      }),
+    });
+    const approvalHint = r.approval?.id ? `，审批 ${r.approval.id}` : '';
+    toast(`已加入 Autopilot 自启动队列${approvalHint}`, 'success', 2500);
+    await refreshDelegations();
+    if (r.approval?.status === 'pending') {
+      closeDelegationModal();
+      openApprovalModal({ status: 'pending' });
+    }
+  } catch (e) {
+    toast('加入自启动队列失败：' + e.message, 'error', 6000);
+    refreshDelegations();
+  }
+}
+
+async function executeDelegation(id) {
+  if (!id) return;
+  try {
+    const r = await api(`/api/delegations/${encodeURIComponent(id)}/execute`, { method: 'POST' });
+    delegationState.activeId = r.delegation?.id || id;
+    toast('委派已执行', 'success', 1500);
+    await refreshDelegations();
+    await loadRooms();
+  } catch (e) {
+    toast('执行委派失败：' + e.message, 'error', 6000);
+    refreshDelegations();
+  }
+}
+
+async function cancelDelegation(id) {
+  if (!id) return;
+  const reason = await promptModal({
+    title: '取消委派',
+    message: '填写取消原因，留空也可以。',
+    value: '',
+    placeholder: '取消原因',
+  });
+  if (reason === null) return;
+  try {
+    const r = await api(`/api/delegations/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+    delegationState.activeId = r.delegation?.id || id;
+    toast('委派已取消', 'success', 1500);
+    refreshDelegations();
+  } catch (e) {
+    toast('取消委派失败：' + e.message, 'error');
+  }
+}
+
+async function openDelegationRoom(id) {
+  if (!id) return;
+  closeDelegationModal();
+  showRoomArea();
+  await loadRooms();
+  selectRoom(id);
+}
+
+$('#btnDelegations')?.addEventListener('click', () => openDelegationModal());
+document.querySelectorAll('[data-close-delegation]').forEach(el => el.addEventListener('click', closeDelegationModal));
+
 $('#btnMcpNew')?.addEventListener('click', () => {
   mcpState.isNew = true;
   mcpState.activeName = null;
@@ -6292,6 +7237,7 @@ function closeReportModal() {
   reportState.lastResult = null;
   // 关 modal 视为放弃当前生成任务：清掉 activeJob + 超时定时器，避免事件到达时往隐藏 modal 里写
   if (reportState.activeJob?.timer) { clearTimeout(reportState.activeJob.timer); }
+  if (reportState.activeJob?.pollTimer) { clearTimeout(reportState.activeJob.pollTimer); }
   reportState.activeJob = null;
 }
 
@@ -6437,9 +7383,12 @@ async function runReport() {
   // 2) 注册到 reportState.activeJob，ws.onmessage 按 jobId 分发（WS 重连免疫）
   let jobId = null;
   let resolved = false;
+  let pollTimer = null;
 
   function cleanup() {
     if (reportState.activeJob?.timer) { clearTimeout(reportState.activeJob.timer); }
+    if (reportState.activeJob?.pollTimer) { clearTimeout(reportState.activeJob.pollTimer); }
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
     reportState.activeJob = null;
   }
 
@@ -6461,6 +7410,50 @@ async function runReport() {
     renderReportPreview(data);
   }
 
+  function reportDataFromJob(job) {
+    return {
+      content: job.content, path: job.path,
+      tokensIn: job.tokensIn, tokensOut: job.tokensOut,
+      elapsedMs: job.elapsedMs, truncated: job.truncated,
+    };
+  }
+
+  function updateJobMeta(text) {
+    const meta = $('#rpJobMeta');
+    if (meta) meta.textContent = text;
+  }
+
+  function scheduleReportPoll(delay = 2000) {
+    if (resolved || !jobId) return;
+    pollTimer = setTimeout(async () => {
+      pollTimer = null;
+      if (resolved || !jobId) return;
+      try {
+        const resp = await fetch(`/api/reports/${encodeURIComponent(jobId)}`);
+        const r = await resp.json().catch(() => ({}));
+        if (!resp.ok || !r.ok) {
+          if (resp.status === 404) fail('报告任务状态不存在，可能 panel 已重启或任务缓存过期');
+          else scheduleReportPoll(5000);
+          return;
+        }
+        const job = r.job || {};
+        if (job.status === 'done') {
+          succeed(reportDataFromJob(job));
+          return;
+        }
+        if (job.status === 'error') {
+          fail(job.error || 'unknown');
+          return;
+        }
+        updateJobMeta(`jobId: ${jobId}（${job.status || 'queued'}，WS + 轮询双通道等待 AI 返回）`);
+        scheduleReportPoll(2500);
+      } catch {
+        scheduleReportPoll(5000);
+      }
+    }, delay);
+    if (reportState.activeJob) reportState.activeJob.pollTimer = pollTimer;
+  }
+
   // 先连/确保 WS 已连
   ensureGlobalWs();
 
@@ -6472,8 +7465,7 @@ async function runReport() {
     const r = await resp.json();
     if (!resp.ok || r.error) { fail(r.error || `HTTP ${resp.status}`); return; }
     jobId = r.jobId;
-    const meta = $('#rpJobMeta');
-    if (meta) meta.textContent = `jobId: ${jobId}（已排队，等待 AI 返回）`;
+    updateJobMeta(`jobId: ${jobId}（已排队，WS + 轮询双通道等待 AI 返回）`);
   } catch (e) {
     fail('提交任务异常：' + e.message);
     return;
@@ -6496,7 +7488,9 @@ async function runReport() {
     },
     onError: (msg) => { fail(msg.error || 'unknown'); },
     timer: setTimeout(() => fail('超时 10 分钟未收到 AI 响应；可能 adapter 配置错或 LLM 卡了'), 10 * 60 * 1000),
+    pollTimer: null,
   };
+  scheduleReportPoll(500);
 }
 
 function renderReportPreview(r) {

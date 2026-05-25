@@ -56,6 +56,9 @@ import { registerKnowledgeRoutes } from './src/server/routes/knowledge.js';
 import { registerRoomTemplatesRoutes } from './src/server/routes/roomTemplates.js';
 // S18-2e2：rooms 5 个主 CRUD（list/create/get/delete/patch）— advanced endpoints 仍留 server.js
 import { registerRoomsRoutes } from './src/server/routes/rooms.js';
+import { registerVersionRoutes } from './src/server/routes/version.js';
+import { registerWatcherRoutes } from './src/server/routes/watcher.js';
+import { registerRoomAdaptersRoutes } from './src/server/routes/roomAdapters.js';
 // v0.81 真做：sessions 只读 endpoint 拆出
 import { registerSessionsReadonlyRoutes } from './src/server/routes/sessions-readonly.js';
 // B-005 v0.9：AI markdown 图片本地缓存
@@ -70,6 +73,12 @@ import { registerLicenseRoutes } from './src/server/routes/license.js';
 import { registerPaymentWebhookRoutes } from './src/server/routes/payment-webhooks.js';
 // v2.0 Task 4.1：SQLite 数据底座
 import { registerStorageRoutes } from './src/server/routes/storage.js';
+import { registerActivityRoutes } from './src/server/routes/activity.js';
+import { registerBudgetRoutes } from './src/server/routes/budgets.js';
+import { registerApprovalRoutes } from './src/server/routes/approvals.js';
+import { registerProjectContextRoutes } from './src/server/routes/projectContext.js';
+import { registerDelegationRoutes } from './src/server/routes/delegations.js';
+import { registerGovernanceRoutes } from './src/server/routes/governance.js';
 // v2.0 Task 4.2：向量索引
 import { registerEmbeddingsRoutes } from './src/server/routes/embeddings.js';
 // v2.0 Task 4.3：workspace 多空间隔离
@@ -82,6 +91,7 @@ import { registerAutoFillRoutes } from './src/server/routes/auto-fill.js';
 import { registerLemonSqueezyRoutes } from './src/server/routes/lemonsqueezy.js';
 import { archiveStore } from './src/archive/ArchiveStore.js';
 import { generateReport, defaultReportPath } from './src/report/RoomReporter.js';
+import { ReportJobStore } from './src/report/ReportJobStore.js';
 import { mcpStore } from './src/mcp/McpStore.js';
 import { skillStore } from './src/skills/SkillStore.js';
 import { knowledgeStore } from './src/knowledge/KnowledgeStore.js';
@@ -90,6 +100,15 @@ import { bulkheads } from './src/safety/Bulkhead.js';
 import { rateLimiters } from './src/safety/RateLimiter.js';
 import { autopilotStore } from './src/autopilot/AutopilotStore.js';
 import { AutopilotController } from './src/autopilot/AutopilotController.js';
+import { autopilotScheduleStore } from './src/autopilot/AutopilotScheduleStore.js';
+import { AutopilotScheduler } from './src/autopilot/AutopilotScheduler.js';
+import { makeDelegationAutostartHandler } from './src/autopilot/DelegationAutostart.js';
+import { budgetPolicyStore } from './src/budget/BudgetPolicyStore.js';
+import { delegationStore } from './src/delegation/DelegationStore.js';
+import { activityLog } from './src/audit/ActivityLog.js';
+import { approvalStore } from './src/approval/ApprovalStore.js';
+import { createDangerousCommandApproval, TerminalApprovalGate } from './src/approval/CommandApprovalGate.js';
+import { buildProjectContextBundle, formatProjectContextBundle, summarizeProjectContextBundle } from './src/context/ProjectContextBundle.js';
 import { ArenaDispatcher } from './src/room/ArenaDispatcher.js';
 import { SoloChatDispatcher } from './src/room/SoloChatDispatcher.js';
 import { ClaudeSpawnAdapter } from './src/room/ClaudeSpawnAdapter.js';
@@ -300,6 +319,8 @@ function saveData() {
       createdAt: s.createdAt,
       messages,
       handoffPrimed: s.handoffPrimed || false,
+      projectContextPrimed: s.projectContextPrimed || false,
+      projectContextSummary: s.projectContextSummary || null,
       parentSessionId: s.parentSessionId || null,
       chainDepth: s.chainDepth || 0,
       archived: s.archived || false,
@@ -352,6 +373,8 @@ function loadData() {
         messages: s.messages || [],
         clients: new Set(),
         handoffPrimed: s.handoffPrimed || false,
+        projectContextPrimed: s.projectContextPrimed || false,
+        projectContextSummary: s.projectContextSummary || null,
         parentSessionId: s.parentSessionId || null,
         chainDepth: s.chainDepth || 0,
         archived: s.archived || false,
@@ -426,6 +449,7 @@ function formatWritePreview(input) {
 
 // ============ v0.5 思维镜融合：每个 session 配 5 个机制实例 ============
 const sharedDetector = new DangerousPatternDetector(); // 无状态可共享
+const terminalApprovalGate = new TerminalApprovalGate({ detector: sharedDetector, approvalStore });
 
 function ensureGuard(s) {
   if (!s.guard) s.guard = new LoopGuard();
@@ -539,6 +563,32 @@ function sendMessageToClaude(session, userText) {
   // 判定：claudeSessionId 还没落定（新生）+ messages 里有 role=system 的接力 banner
   let payloadText = userText;
   let primedThisTurn = false;
+  if (!session.claudeSessionId && !session.projectContextPrimed) {
+    try {
+      const bundle = buildProjectContextBundle(session.cwd);
+      const prompt = formatProjectContextBundle(bundle);
+      if (prompt) {
+        payloadText =
+          `${prompt}\n\n--- 用户消息 ---\n${payloadText}`;
+        session.projectContextPrimed = true;
+        session.projectContextSummary = summarizeProjectContextBundle(bundle);
+        activityLog.recordSafe({
+          action: 'project_context.injected',
+          actorType: 'system',
+          sessionId: session.id,
+          entityType: 'session',
+          entityId: session.id,
+          details: session.projectContextSummary,
+        });
+        broadcastSession(session, { type: 'project_context_injected', summary: session.projectContextSummary });
+      } else {
+        session.projectContextPrimed = true;
+      }
+    } catch (e) {
+      console.warn('[project-context] session inject failed:', e.message);
+      session.projectContextPrimed = true;
+    }
+  }
   if (!session.claudeSessionId && !session.handoffPrimed) {
     const hasHandoffBanner = session.messages.some(m => m.role === 'system' && m.content && m.content.startsWith('🔁'));
     if (hasHandoffBanner) {
@@ -710,19 +760,33 @@ function sendMessageToClaude(session, userText) {
                   if (hits.length > 0) {
                     const worst = sharedDetector.worstSeverity(hits);
                     if (sharedDetector.shouldBlock(hits, session.guardLevel || 'standard')) {
+                      const approvalResult = createDangerousCommandApproval({
+                        command: c.input.command,
+                        detector: sharedDetector,
+                        approvalStore,
+                        guardLevel: session.guardLevel || 'standard',
+                        source: 'claude_bash',
+                        cwd: session.cwd,
+                        requesterType: 'session',
+                        requesterId: session.id,
+                        metadata: { claudeSessionId: session.claudeSessionId || null, sessionName: session.name || null },
+                      });
                       // CRITICAL/HIGH：立刻 kill + 警告
                       try { child.kill('SIGTERM'); } catch {}
                       const dangerEntry = {
                         blocked: true,
+                        approvalId: approvalResult.approval?.id || null,
                         severity: worst,
                         command: c.input.command.slice(0, 500),
                         hits: hits.map(h => ({ severity: h.rule.severity, category: h.rule.category, advice: h.rule.advice, snippet: h.snippet })),
                       };
                       recordDanger(session, dangerEntry);
+                      broadcastSession(session, { type: 'approval_required', approval: approvalResult.approval, ...dangerEntry });
                       broadcastSession(session, { type: 'danger_blocked', ...dangerEntry });
                       const dmsg = {
                         role: 'tool_use',
-                        content: `🛑 危险命令被拦截（${worst}）：${c.input.command.slice(0, 200)}\n` +
+                        content: `🛑 危险命令已暂停等待审批（${worst}）：${c.input.command.slice(0, 200)}\n` +
+                                 `审批 ID：${approvalResult.approval?.id || 'unknown'}\n` +
                                  hits.map(h => `  • [${h.rule.severity}] ${h.rule.category}: ${h.rule.advice}`).join('\n'),
                         ts: new Date().toISOString(),
                       };
@@ -901,121 +965,18 @@ function rebuildDispatcher() {
 rebuildAdapter();
 rebuildDispatcher();
 
-app.get('/api/watcher/config', requireOwnerToken, (req, res) => {
-  res.json({ ok: true, config: maskedConfig(watcherConfig) });
+registerWatcherRoutes(app, {
+  getWatcherConfig: () => watcherConfig,
+  setWatcherConfig: (next) => { watcherConfig = next; },
+  getWatcherAdapter: () => watcherAdapter,
+  getWatcherAdapterPool: () => watcherAdapterPool,
+  saveWatcherConfig,
+  maskedConfig,
+  rebuildAdapter,
+  rebuildDispatcher,
+  send500,
 });
-
-// v0.40 watcher providers 列表（per-session 选 watcher 用）
-app.get('/api/watcher/providers', requireOwnerToken, (req, res) => {
-  const providers = [];
-  const labels = {
-    claude:  '🟣 Claude（spawn CLI，零增量）',
-    codex:   '🟢 GPT (Codex)（spawn CLI，零增量）',
-    ollama:  '🔵 Ollama 本地（零成本，私有）',
-    minimax: '🟡 MiniMax API（按 token 计费）',
-  };
-  for (const id of watcherAdapterPool.keys()) {
-    providers.push({ id, displayName: labels[id] || id });
-  }
-  res.json({ ok: true, providers, defaultId: watcherConfig.provider || 'ollama' });
-});
-
-app.put('/api/watcher/config', requireOwnerToken, (req, res) => {
-  const incoming = req.body || {};
-  // 如果 apiKey 是脱敏后的（含 ...），保留原值不覆盖
-  if (typeof incoming.apiKey === 'string' && incoming.apiKey.includes('...')) {
-    delete incoming.apiKey;
-  }
-  // v0.51 T-19 fix: 字段白名单 + 类型/长度校验（防误填或注入异常字段）
-  const ALLOWED_PROVIDERS = new Set(['minimax', 'gemini', 'openai', 'ollama', 'custom']);
-  const clean = {};
-  if (typeof incoming.enabled === 'boolean') clean.enabled = incoming.enabled;
-  if (typeof incoming.autoMode === 'boolean') clean.autoMode = incoming.autoMode;
-  if (typeof incoming.perSessionDefault === 'boolean') clean.perSessionDefault = incoming.perSessionDefault;
-  if (typeof incoming.provider === 'string' && ALLOWED_PROVIDERS.has(incoming.provider)) clean.provider = incoming.provider;
-  if (typeof incoming.apiKey === 'string') {
-    if (incoming.apiKey.length > 2048) return res.status(400).json({ error: 'apiKey 过长（>2048）' });
-    clean.apiKey = incoming.apiKey;
-  }
-  if (typeof incoming.model === 'string') {
-    if (incoming.model.length > 200) return res.status(400).json({ error: 'model 过长' });
-    clean.model = incoming.model;
-  }
-  if (typeof incoming.baseUrl === 'string') {
-    if (incoming.baseUrl.length > 500) return res.status(400).json({ error: 'baseUrl 过长' });
-    // baseUrl 必须 http(s)://，避免 file:// / javascript:// 等异常协议
-    if (incoming.baseUrl && !/^https?:\/\//i.test(incoming.baseUrl)) {
-      return res.status(400).json({ error: 'baseUrl 必须 http(s)://' });
-    }
-    clean.baseUrl = incoming.baseUrl;
-  }
-  // 嵌套对象浅 merge 字段
-  if (incoming.rateLimit && typeof incoming.rateLimit === 'object') {
-    clean.rateLimit = { ...watcherConfig.rateLimit };
-    if (Number.isFinite(incoming.rateLimit.perSessionPerHour)) clean.rateLimit.perSessionPerHour = Math.max(0, Math.min(1000, incoming.rateLimit.perSessionPerHour | 0));
-    if (Number.isFinite(incoming.rateLimit.globalPerHour)) clean.rateLimit.globalPerHour = Math.max(0, Math.min(10000, incoming.rateLimit.globalPerHour | 0));
-  }
-  if (incoming.triggers && typeof incoming.triggers === 'object') {
-    clean.triggers = { ...watcherConfig.triggers };
-    if (Number.isFinite(incoming.triggers.minIntervalSec)) clean.triggers.minIntervalSec = Math.max(0, Math.min(3600, incoming.triggers.minIntervalSec | 0));
-    if (Number.isFinite(incoming.triggers.requireIdleSec)) clean.triggers.requireIdleSec = Math.max(0, Math.min(3600, incoming.triggers.requireIdleSec | 0));
-    if (typeof incoming.triggers.onlyOnResultSuccess === 'boolean') clean.triggers.onlyOnResultSuccess = incoming.triggers.onlyOnResultSuccess;
-  }
-  if (incoming.safety && typeof incoming.safety === 'object') {
-    clean.safety = { ...watcherConfig.safety };
-    if (typeof incoming.safety.dangerScanNextAction === 'boolean') clean.safety.dangerScanNextAction = incoming.safety.dangerScanNextAction;
-    if (typeof incoming.safety.blockOnDrift === 'boolean') clean.safety.blockOnDrift = incoming.safety.blockOnDrift;
-    if (Number.isFinite(incoming.safety.maxAutoPromptsPerSession)) clean.safety.maxAutoPromptsPerSession = Math.max(0, Math.min(1000, incoming.safety.maxAutoPromptsPerSession | 0));
-  }
-  watcherConfig = { ...watcherConfig, ...clean };
-  const r = saveWatcherConfig(watcherConfig);
-  if (!r.ok) return send500(res, new Error(r.error));
-  rebuildAdapter();
-  rebuildDispatcher();
-  res.json({ ok: true, config: maskedConfig(watcherConfig), adapterActive: !!watcherAdapter });
-});
-
-// 测试 adapter 连通性（dry-run）
-app.post('/api/watcher/test', requireOwnerToken, async (req, res) => {
-  if (!watcherAdapter) return res.json({ ok: false, error: '监视者未启用或未配置 API key' });
-  try {
-    const verdict = await watcherAdapter.judge({
-      id: 'test',
-      name: '连通性测试',
-      cwd: '/tmp',
-      mainGoal: '测试 watcher 是否可达',
-      messages: [
-        { role: 'user', content: '请帮我写一个 hello world Python 脚本', ts: new Date().toISOString() },
-        { role: 'assistant', content: '好的：\n```python\nprint("Hello, World!")\n```\n已完成。', ts: new Date().toISOString() },
-      ],
-      runState: 'completed',
-    });
-    res.json({ ok: true, verdict });
-  } catch (e) {
-    res.json({ ok: false, error: e.message });
-  }
-});
-
-// v0.30 fix: 动态版本号端点（前端 brand-subtitle 显示用）
-// v0.52: 优先级链 HANDOFF_NEW_CHAT.md → HANDOFF.md → package.json
-app.get('/api/version', (req, res) => {
-  let version = 'unknown';
-  let appName = 'Xike Lab';
-  try {
-    const pkg = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
-    version = pkg.version || version;
-    appName = pkg.productName || pkg.name || appName;
-  } catch {}
-  // v0.52: 优先从 HANDOFF_NEW_CHAT.md 解析（每轮 Sprint 后维护的接力文档）
-  for (const file of ['HANDOFF_NEW_CHAT.md', 'HANDOFF.md']) {
-    try {
-      const md = readFileSync(join(__dirname, file), 'utf-8');
-      const m = md.match(/v(0\.\d+)\b/);
-      if (m) { version = m[1]; break; }
-    } catch {}
-  }
-  res.json({ ok: true, version, appName });
-});
+registerVersionRoutes(app, { rootDir: __dirname });
 
 // 创建 session（I-01/B-01 修：加 cwd 路径合法性校验；v0.49 N-06: 字段长度限制；v0.51 R-13: 全局上限）
 const MAX_NAME_LEN = 200;
@@ -1076,6 +1037,8 @@ app.post('/api/sessions', requireOwnerToken, (req, res) => {
     messages: [],
     clients: new Set(),
     usage: { inputTokens: 0, outputTokens: 0 },  // I-05
+    projectContextPrimed: false,
+    projectContextSummary: null,
     // v0.5 思维镜融合
     mainGoal: (mainGoal && typeof mainGoal === 'string') ? mainGoal.trim() : null,
     runState: 'idle',
@@ -1089,6 +1052,7 @@ app.post('/api/sessions', requireOwnerToken, (req, res) => {
     createdAt: session.createdAt, busy: false,
     messages: [], claudeSessionId: null,
     usage: session.usage,
+    projectContextSummary: session.projectContextSummary,
   });
 });
 
@@ -1110,6 +1074,7 @@ app.get('/api/sessions', requireOwnerToken, (req, res) => {
       runState: s.runState || 'idle',
       model: s.model,
       totalUSD: s.costTracker ? s.costTracker.totalUSD() : 0,
+      projectContextSummary: s.projectContextSummary || null,
       watcherEnabled: !!s.watcherEnabled,
       // v0.51 R-14: 列表也返收藏数量，前端 state.sessions 缓存可同步 ★
       starredCount: Array.isArray(s.starredIndices) ? s.starredIndices.length : 0,
@@ -1181,6 +1146,8 @@ app.get('/api/sessions/:id', requireOwnerToken, (req, res) => {
     archived: !!s.archived,
     archivedAt: s.archivedAt || null,
     handoffPrimed: !!s.handoffPrimed,
+    projectContextPrimed: !!s.projectContextPrimed,
+    projectContextSummary: s.projectContextSummary || null,
     watcherEnabled: !!s.watcherEnabled,
     watcherProviderId: s.watcherProviderId || null,
     watcherHistory: (s.watcherHistory || []).slice(-20),
@@ -1310,6 +1277,16 @@ registerLicenseRoutes(app);
 registerPaymentWebhookRoutes(app);
 // v2.0 Task 4.1：SQLite storage
 registerStorageRoutes(app);
+// 本地结构化审计事件查询
+registerActivityRoutes(app);
+// 本地预算策略 / 预警 / hard stop
+registerBudgetRoutes(app);
+// 危险操作人工审批队列
+registerApprovalRoutes(app);
+// 本地项目上下文 bundle 预览
+registerProjectContextRoutes(app, { safeResolveFsPath });
+// 本地治理状态聚合
+registerGovernanceRoutes(app);
 // v2.0 Task 4.2：embeddings / 向量索引
 registerEmbeddingsRoutes(app);
 // v2.0 Task 4.3：workspace 多空间
@@ -1542,23 +1519,109 @@ metricsStore.attachBroadcast(broadcastGlobal);
 breakers.attachBroadcast(broadcastGlobal);
 
 // v0.56 Sprint 15-R4：Autopilot Controller（依赖 forwardRoom = self-call POST /api/rooms/forward）
+async function forwardRoomFromAutopilot({ sourceRoomId, targetMode, autoStart, name, autopilotHops, claimedBy }) {
+  const PORT_LOCAL = process.env.PORT || 51735;
+  const ownerToken = getOrCreateOwnerToken();
+  const resp = await fetch(`http://127.0.0.1:${PORT_LOCAL}/api/rooms/forward`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(ownerToken ? { 'X-Panel-Owner-Token': ownerToken } : {}) },
+    body: JSON.stringify({ sourceRoomId, targetMode, autoStart, name }),
+  });
+  const r = await resp.json();
+  if (!resp.ok || !r.ok || !r.newRoomId) throw new Error(r.error || `HTTP ${resp.status}`);
+  // 标记 autopilot 链路 + claim
+  try { roomStore.update(r.newRoomId, { autopilotHops, claimedBy }); } catch {}
+  return { newRoomId: r.newRoomId };
+}
+
+async function startRoomFromAutopilot({ room, delegation, job }) {
+  if (!room?.id) throw new Error('startRoomFromAutopilot requires room');
+  if (room.status === 'running') return { started: false, reason: 'already_running', roomId: room.id };
+  const mode = room.mode || 'debate';
+  const topic = room.topic || delegation?.instructions || delegation?.title || '';
+  if (!topic) throw new Error('delegation target room has empty topic');
+  let dispatcher;
+  let errorType;
+  if (mode === 'squad') {
+    dispatcher = squadDispatcher;
+    errorType = 'squad_error';
+  } else if (mode === 'arena') {
+    dispatcher = arenaDispatcher;
+    errorType = 'arena_error';
+  } else if (mode === 'debate') {
+    dispatcher = debateDispatcher;
+    errorType = 'debate_error';
+  } else {
+    return { started: false, reason: `${mode}_room`, roomId: room.id };
+  }
+  dispatcher.start(room.id, topic).catch(e => {
+    console.warn(`delegation autostart ${mode} failed:`, e.message);
+    try {
+      broadcastRoom(room.id, { type: errorType, error: e.message || 'delegation autostart failed', jobId: job?.id });
+      roomStore.setStatus(room.id, 'error');
+    } catch {}
+  });
+  roomStore.update(room.id, {
+    claimedBy: `autopilot:${job?.id || 'delegation'}`,
+    autostartedBy: job?.id || null,
+  });
+  broadcastGlobal({
+    type: 'delegation_autostart',
+    jobId: job?.id,
+    delegationId: delegation?.id,
+    targetRoomId: room.id,
+    targetMode: mode,
+    message: `Autopilot 已启动委派房：${room.name || room.id}`,
+  });
+  return { started: true, roomId: room.id, mode };
+}
+
 const autopilotController = new AutopilotController({
   roomStore,
-  forwardRoom: async ({ sourceRoomId, targetMode, autoStart, name, autopilotHops, claimedBy }) => {
-    const PORT_LOCAL = process.env.PORT || 51735;
-    const resp = await fetch(`http://127.0.0.1:${PORT_LOCAL}/api/rooms/forward`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceRoomId, targetMode, autoStart, name }),
-    });
-    const r = await resp.json();
-    if (!resp.ok || !r.ok || !r.newRoomId) throw new Error(r.error || `HTTP ${resp.status}`);
-    // 标记 autopilot 链路 + claim
-    try { roomStore.update(r.newRoomId, { autopilotHops, claimedBy }); } catch {}
-    return { newRoomId: r.newRoomId };
-  },
+  forwardRoom: forwardRoomFromAutopilot,
   broadcastGlobal,
 });
+const autopilotScheduler = new AutopilotScheduler({
+  store: autopilotScheduleStore,
+  isEnabled: () => autopilotStore.isEnabled(),
+  handlers: {
+    noop: async (job) => ({ ok: true, jobId: job.id }),
+    notify: async (job) => {
+      const message = job.payload?.message || `Autopilot schedule ${job.id} matched`;
+      autopilotStore.log({
+        type: 'schedule_notify',
+        jobId: job.id,
+        scheduleId: job.scheduleId,
+        roomId: job.roomId,
+        message,
+      });
+      broadcastGlobal({ type: 'autopilot_schedule_notify', jobId: job.id, scheduleId: job.scheduleId, message });
+      return { ok: true, message };
+    },
+    forward: async (job) => {
+      const sourceRoomId = job.payload?.sourceRoomId || job.roomId;
+      const targetMode = job.payload?.targetMode || job.targetId || job.targetType;
+      if (!sourceRoomId || !targetMode) throw new Error('forward job requires sourceRoomId and targetMode');
+      return forwardRoomFromAutopilot({
+        sourceRoomId,
+        targetMode,
+        autoStart: job.payload?.autoStart !== false,
+        name: job.payload?.name,
+        autopilotHops: Number(job.payload?.autopilotHops || 0) + 1,
+        claimedBy: `autopilot:${job.id}`,
+      });
+    },
+    start_delegation: makeDelegationAutostartHandler({
+      delegationStore,
+      approvalStore,
+      budgetStore: budgetPolicyStore,
+      roomStore,
+      safeResolveFsPath,
+      startRoom: startRoomFromAutopilot,
+    }),
+  },
+});
+autopilotScheduler.start();
 setInterval(() => { try { autopilotController._gc(); } catch {} }, 60_000);
 
 // v0.47 阶段 2：检测 ccr (claude-code-router) 是否在 PATH（不强制依赖）
@@ -1825,6 +1888,8 @@ const { mcpClientManager } = registerMcpRoutes(app, { mcpStore });
 // v0.54 Sprint 9 + v0.55 Sprint 14 F1：改异步 job（修 Load failed —— Safari fetch >60s 超时报"Load failed"）
 // body: { adapterId?, model?, outputPath?, autoPath?: boolean }
 // 立即返 { ok, jobId, status:'queued' }，后台跑 generateReport，完成 broadcastGlobal report_done / report_error
+const reportJobs = new ReportJobStore({ ttlMs: 60 * 60 * 1000, maxJobs: 50 });
+
 app.post('/api/rooms/:id/report', requireOwnerToken, (req, res) => {
   const r = roomStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'room not found' });
@@ -1847,26 +1912,67 @@ app.post('/api/rooms/:id/report', requireOwnerToken, (req, res) => {
 
   // 立返 jobId（202 Accepted），后台跑
   const jobId = 'rpt-' + randomUUID().slice(0, 12);
+  reportJobs.create({ jobId, roomId: r.id, adapterId, model, outputPath });
+  activityLog.recordSafe({
+    action: 'report.queued',
+    actorType: 'user',
+    roomId: r.id,
+    entityType: 'report_job',
+    entityId: jobId,
+    status: 'queued',
+    details: { adapterId, model: model || '', outputPath: outputPath || null, roomName: r.name, roomMode: r.mode },
+  });
   res.status(202).json({ ok: true, jobId, status: 'queued' });
 
   // fire-and-forget
   (async () => {
     const startedAt = Date.now();
+    reportJobs.update(jobId, { status: 'running', startedAt: new Date(startedAt).toISOString() });
+    activityLog.recordSafe({
+      action: 'report.running',
+      actorType: 'system',
+      roomId: r.id,
+      entityType: 'report_job',
+      entityId: jobId,
+      status: 'running',
+      details: { adapterId, model: model || '' },
+    });
     try {
       const result = await generateReport({ room: r, adapter, model, outputPath });
       if (!result.ok) {
+        const job = reportJobs.update(jobId, {
+          status: 'error',
+          error: result.error,
+          elapsedMs: result.elapsedMs || (Date.now() - startedAt),
+        });
+        activityLog.recordSafe({
+          action: 'report.error',
+          actorType: 'system',
+          roomId: r.id,
+          entityType: 'report_job',
+          entityId: jobId,
+          status: 'error',
+          severity: 'error',
+          details: {
+            error: result.error,
+            elapsedMs: result.elapsedMs || (Date.now() - startedAt),
+            adapterId,
+            model: model || '',
+          },
+        });
         broadcastGlobal({
           type: 'report_error',
           jobId,
           roomId: r.id,
-          error: result.error,
-          elapsedMs: result.elapsedMs || (Date.now() - startedAt),
+          error: job?.error || result.error,
+          elapsedMs: job?.elapsedMs || result.elapsedMs || (Date.now() - startedAt),
         });
         return;
       }
       try {
         metricsStore.record({
           roomId: r.id, roomMode: 'report', roomName: r.name,
+          projectId: r.cwd,
           turn: 'report:' + r.mode,
           adapter: adapter.id || adapterId, model: model || '',
           latencyMs: result.elapsedMs,
@@ -1874,28 +1980,96 @@ app.post('/api/rooms/:id/report', requireOwnerToken, (req, res) => {
           success: true, errorKind: null,
         });
       } catch {}
-      broadcastGlobal({
-        type: 'report_done',
-        jobId,
-        roomId: r.id,
+      const job = reportJobs.update(jobId, {
+        status: 'done',
         content: result.content,
         path: result.path,
         tokensIn: result.tokensIn,
         tokensOut: result.tokensOut,
         elapsedMs: result.elapsedMs,
         truncated: result.truncated,
-        assertionFailed: result.assertionFailed || [],   // v0.70.2-t2
+        sourceContentChars: result.sourceContentChars,
+        sourceContentLimit: result.sourceContentLimit,
+        reportStrategy: result.reportStrategy,
+        chunkCount: result.chunkCount,
+        omittedChars: result.omittedChars,
+        retryReason: result.retryReason,
+        assertionFailed: result.assertionFailed || [],
+      });
+      activityLog.recordSafe({
+        action: 'report.done',
+        actorType: 'system',
+        roomId: r.id,
+        entityType: 'report_job',
+        entityId: jobId,
+        status: 'done',
+        details: {
+          adapterId,
+          model: model || '',
+          path: result.path || null,
+          tokensIn: result.tokensIn || 0,
+          tokensOut: result.tokensOut || 0,
+          elapsedMs: result.elapsedMs || 0,
+          reportStrategy: result.reportStrategy || null,
+          chunkCount: result.chunkCount || 0,
+        },
+      });
+      broadcastGlobal({
+        type: 'report_done',
+        jobId,
+        roomId: r.id,
+        content: job?.content || result.content,
+        path: job?.path || result.path,
+        tokensIn: job?.tokensIn || result.tokensIn,
+        tokensOut: job?.tokensOut || result.tokensOut,
+        elapsedMs: job?.elapsedMs || result.elapsedMs,
+        truncated: job?.truncated ?? result.truncated,
+        sourceContentChars: job?.sourceContentChars ?? result.sourceContentChars,
+        sourceContentLimit: job?.sourceContentLimit ?? result.sourceContentLimit,
+        reportStrategy: job?.reportStrategy ?? result.reportStrategy,
+        chunkCount: job?.chunkCount ?? result.chunkCount,
+        omittedChars: job?.omittedChars ?? result.omittedChars,
+        retryReason: job?.retryReason ?? result.retryReason,
+        assertionFailed: job?.assertionFailed || result.assertionFailed || [],   // v0.70.2-t2
       });
     } catch (e) {
+      const job = reportJobs.update(jobId, {
+        status: 'error',
+        error: e.message || String(e),
+        elapsedMs: Date.now() - startedAt,
+      });
+      activityLog.recordSafe({
+        action: 'report.error',
+        actorType: 'system',
+        roomId: r.id,
+        entityType: 'report_job',
+        entityId: jobId,
+        status: 'error',
+        severity: 'error',
+        details: {
+          error: e.message || String(e),
+          elapsedMs: Date.now() - startedAt,
+          adapterId,
+          model: model || '',
+        },
+      });
       broadcastGlobal({
         type: 'report_error',
         jobId,
         roomId: r.id,
-        error: e.message || String(e),
-        elapsedMs: Date.now() - startedAt,
+        error: job?.error || e.message || String(e),
+        elapsedMs: job?.elapsedMs || (Date.now() - startedAt),
       });
     }
   })();
+});
+
+app.get('/api/reports/:jobId', requireOwnerToken, (req, res) => {
+  const jobId = String(req.params.jobId || '');
+  if (!/^rpt-[a-f0-9-]{8,40}$/i.test(jobId)) return res.status(400).json({ ok: false, error: 'jobId 非法' });
+  const job = reportJobs.get(jobId);
+  if (!job) return res.status(404).json({ ok: false, error: 'report job not found' });
+  res.json({ ok: true, job });
 });
 
 // v0.53 Sprint 3.5：清理老 metrics 文件
@@ -1987,52 +2161,16 @@ app.get('/api/health/processes', requireOwnerToken, (req, res) => {
   }
 });
 
-// v0.52 房间 adapter 池配置（minimax / gemini / gemini-openai / gemini-cli / customs[]）
-app.get('/api/room-adapters', requireOwnerToken, (req, res) => {
-  res.json({
-    ok: true,
-    config: maskRoomAdaptersConfig(roomAdaptersConfig),
-    geminiCliAvailable: HAS_GEMINI_CLI,
-  });
-});
-
-app.put('/api/room-adapters', requireOwnerToken, async (req, res) => {
-  const r = cleanRoomAdaptersConfig(req.body || {}, roomAdaptersConfig);
-  if (!r.ok) return res.status(422).json({ error: r.error });
-  // v1.5 Task 3.2 — Free tier adapter limit 3
-  try {
-    const lm = await import('./src/license/LicenseManager.js');
-    if (!lm.hasFeature('adapters-unlimited')) {
-      const enabledCount = Object.values(r.config || {}).filter(c => c && c.apiKey && c.apiKey.trim()).length;
-      if (enabledCount > 3) {
-        return res.status(402).json({
-          error: `Free 层最多 3 个 adapter（当前 ${enabledCount}）`,
-          tier: lm.getCurrentTier(),
-          feature: 'adapters-unlimited',
-          upgradeUrl: 'https://panel.app/pricing',
-        });
-      }
-    }
-  } catch {}
-  const save = saveRoomAdaptersConfig(r.config);
-  if (!save.ok) return send500(res, new Error(save.error));
-  roomAdaptersConfig = r.config;
-  rebuildRoomAdapters();
-  res.json({
-    ok: true,
-    config: maskRoomAdaptersConfig(roomAdaptersConfig),
-    geminiCliAvailable: HAS_GEMINI_CLI,
-    activeProviders: [...roomAdapterPool.keys()],
-  });
-});
-
-// 列出当前可在房成员里选的 adapter id + displayName（前端下拉用）
-app.get('/api/room-adapters/providers', requireOwnerToken, (req, res) => {
-  const providers = [];
-  for (const [id, adapter] of roomAdapterPool.entries()) {
-    providers.push({ id, displayName: adapter.displayName || id });
-  }
-  res.json({ ok: true, providers });
+registerRoomAdaptersRoutes(app, {
+  getRoomAdaptersConfig: () => roomAdaptersConfig,
+  setRoomAdaptersConfig: (next) => { roomAdaptersConfig = next; },
+  cleanRoomAdaptersConfig,
+  maskRoomAdaptersConfig,
+  saveRoomAdaptersConfig,
+  rebuildRoomAdapters,
+  roomAdapterPool,
+  hasGeminiCli: HAS_GEMINI_CLI,
+  send500,
 });
 
 // v0.52 W1：plugin registry（通用 CLI Wrapper 雏形，独立于 roomAdapterPool）
@@ -2131,6 +2269,7 @@ app.post('/api/plugins/:id/exec', requireOwnerToken, async (req, res) => {
     try {
       metricsStore.record({
         roomId: '', roomMode: 'plugin', roomName: entry.manifest.displayName || id,
+        projectId: safeCwd || '',
         turn: `plugin:${id}.${commandId}`,
         adapter: id, model: model || '',
         latencyMs: Date.now() - startedAt,
@@ -2143,6 +2282,7 @@ app.post('/api/plugins/:id/exec', requireOwnerToken, async (req, res) => {
     try {
       metricsStore.record({
         roomId: '', roomMode: 'plugin', roomName: entry.manifest.displayName || id,
+        projectId: safeCwd || '',
         turn: `plugin:${id}.${commandId}`,
         adapter: id, model: model || '',
         latencyMs: Date.now() - startedAt,
@@ -2154,7 +2294,7 @@ app.post('/api/plugins/:id/exec', requireOwnerToken, async (req, res) => {
   }
 });
 
-// S18-2e2：rooms 5 个主 CRUD (list/create/get/delete/patch) 提取到 src/server/routes/rooms.js
+// S18-2e2/P3：rooms 主 CRUD + search 提取到 src/server/routes/rooms.js
 const MAX_ROOMS = 500;   // v0.51 S-04 / v0.52 200→500（保留在 server.js 用作 const 注入到 rooms.js）
 registerRoomsRoutes(app, {
   roomStore, safeResolveFsPath, safeSlice, roomAdapterPool,
@@ -2162,6 +2302,8 @@ registerRoomsRoutes(app, {
   roomWsClients, MAX_ROOMS,
 });
 
+// 跨房间本地任务委派队列（依赖 roomStore + roomAdapterPool）
+registerDelegationRoutes(app, { roomStore, roomAdapterPool, safeResolveFsPath });
 
 // 启动 debate / squad（按 room.mode 调对应 dispatcher）
 app.post('/api/rooms/:id/debate', requireOwnerToken, async (req, res) => {
@@ -3046,6 +3188,8 @@ app.post('/api/sessions/:id/handoff', requireOwnerToken, (req, res) => {
     archived: false,
     archivedAt: null,
     handoffPrimed: false,
+    projectContextPrimed: false,
+    projectContextSummary: null,
   };
   sessions.set(newId, newSession);
   debouncedSave();
@@ -3320,91 +3464,6 @@ app.post('/api/rooms/quick', requireOwnerToken, async (req, res) => {
   }
 });
 
-// v0.53 Sprint 3.5：跨房搜索（搜 name/topic/finalConsensus/turn.content/conversation/task.attempts.content）
-app.get('/api/rooms/search', requireOwnerToken, (req, res) => {
-  const q = req.query.q;
-  if (!q || typeof q !== 'string' || !q.trim()) return res.status(400).json({ error: 'q required' });
-  if (q.length > 200) return res.status(400).json({ error: 'q 过长（>200）' });
-  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 30));
-  const includeArchived = req.query.includeArchived === '1';
-  const needle = q.toLowerCase();
-  const perRoomCap = Math.max(3, Math.ceil(limit / 4));
-  const hardCap = limit * 5;
-  const hits = [];
-
-  function pushHit(room, where, snippet, extra = {}) {
-    const lc = String(snippet || '').toLowerCase();
-    const idx = lc.indexOf(needle);
-    if (idx < 0) return false;
-    const s = String(snippet);
-    const start = Math.max(0, idx - 60);
-    const end = Math.min(s.length, idx + needle.length + 60);
-    hits.push({
-      roomId: room.id,
-      roomName: room.name,
-      mode: room.mode,
-      where,
-      snippet: (start > 0 ? '…' : '') + s.slice(start, end) + (end < s.length ? '…' : ''),
-      updatedAt: room.updatedAt || room.createdAt,
-      ...extra,
-    });
-    return true;
-  }
-
-  const allRooms = includeArchived
-    ? [...roomStore.list(), ...roomStore.listArchived()]
-    : roomStore.list();
-
-  outer: for (const room of allRooms) {
-    let perRoomHits = 0;
-    // 1) name / topic / finalConsensus
-    for (const field of ['name', 'topic', 'finalConsensus']) {
-      if (pushHit(room, field, room[field])) perRoomHits++;
-      if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
-    }
-    if (perRoomHits >= perRoomCap || hits.length >= hardCap) {
-      if (hits.length >= hardCap) break outer;
-      continue;
-    }
-    // 2) rounds[].turns[].content（debate / arena / squad）
-    for (const r of (room.rounds || [])) {
-      for (const t of (r.turns || [])) {
-        if (pushHit(room, `turn:${r.kind}`, t.content, { speaker: t.speaker })) perRoomHits++;
-        if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
-      }
-      if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
-    }
-    if (perRoomHits >= perRoomCap || hits.length >= hardCap) {
-      if (hits.length >= hardCap) break outer;
-      continue;
-    }
-    // 3) conversation[].content（chat）
-    for (const c of (room.conversation || [])) {
-      if (pushHit(room, `chat:${c.from}`, c.content)) perRoomHits++;
-      if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
-    }
-    if (perRoomHits >= perRoomCap || hits.length >= hardCap) {
-      if (hits.length >= hardCap) break outer;
-      continue;
-    }
-    // 4) taskList[].title/desc + attempts[].content + reviews[].reasoning（squad）
-    for (const task of (room.taskList || [])) {
-      if (pushHit(room, `task:${task.id}.title`, task.title)) perRoomHits++;
-      if (pushHit(room, `task:${task.id}.desc`, task.desc)) perRoomHits++;
-      for (const at of (task.attempts || [])) {
-        if (pushHit(room, `task:${task.id}.attempt`, at.content)) perRoomHits++;
-        if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
-      }
-      if (perRoomHits >= perRoomCap || hits.length >= hardCap) break;
-    }
-    if (hits.length >= hardCap) break outer;
-  }
-
-  hits.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-  const finalHits = hits.slice(0, limit);
-  res.json({ ok: true, query: q, count: finalHits.length, total: hits.length, hits: finalHits });
-});
-
 // ============ v0.50 导出 session 为 markdown（F2）============
 app.get('/api/sessions/:id/export', requireOwnerToken, (req, res) => {
   const s = sessions.get(req.params.id);
@@ -3542,6 +3601,8 @@ app.post('/api/sessions/:id/fork', requireOwnerToken, (req, res) => {
     messages: copiedMessages,
     clients: new Set(),
     handoffPrimed: false,
+    projectContextPrimed: false,
+    projectContextSummary: null,
     parentSessionId: s.id,
     chainDepth: (s.chainDepth || 0) + 1,
     archived: false,
@@ -3610,7 +3671,7 @@ app.post('/api/term', requireOwnerToken, (req, res) => {
       }
       terminals.delete(termId);
     });
-    terminals.set(termId, { term, clients, cwd: workDir, shell: shellBin, createdAt: new Date().toISOString() });
+    terminals.set(termId, { term, clients, cwd: workDir, shell: shellBin, createdAt: new Date().toISOString(), approvalInputBuffer: '' });
     res.json({ ok: true, termId, cwd: workDir, shell: shellBin, pid: term.pid });
   } catch (e) {
     res.status(500).json({ error: 'pty spawn failed: ' + e.message });
@@ -3640,7 +3701,7 @@ app.delete('/api/term/:id', requireOwnerToken, (req, res) => {
 // 注：/api/* fallback 404 已移到所有 /api/* 路由之后（防止拦截新加端点）
 // ============ v0.56 Sprint 15-R4：Autopilot 控制 API ============
 // S18-2d：6 个 routes 提取到 src/server/routes/autopilot.js
-registerAutopilotRoutes(app, { autopilotStore });
+registerAutopilotRoutes(app, { autopilotStore, scheduleStore: autopilotScheduleStore, scheduler: autopilotScheduler });
 
 // ============ v0.56 Sprint 15：Resilience（CircuitBreaker / Bulkhead / RateLimiter）状态 ============
 app.get('/api/safety/status', requireOwnerToken, (req, res) => {
@@ -3797,7 +3858,12 @@ app.post('/v1/chat/completions', requireOwnerToken, async (req, res) => {
           id: completionId, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: body.model,
           choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
         });
-        const result = await adapter.chat(messages, { model: modelName, cwd: homedir(), onProgress });
+        const result = await adapter.chat(messages, {
+          model: modelName,
+          cwd: homedir(),
+          onProgress,
+          budgetContext: { projectId: homedir(), adapterId },
+        });
         clearInterval(heartbeat);
         // 如果 adapter 整体 reply 比 onProgress 累积更长，补发剩余
         const fullReply = (result && result.reply) || '';
@@ -3822,6 +3888,7 @@ app.post('/v1/chat/completions', requireOwnerToken, async (req, res) => {
         try {
           metricsStore.record({
             roomId: '', roomMode: 'openai-api-stream', roomName: `v1/chat:${adapterId}`,
+            projectId: homedir(),
             turn: 'v1-stream', adapter: adapterId, model: modelName,
             latencyMs: Date.now() - startedAt,
             tokensIn: result.tokensIn || 0, tokensOut: result.tokensOut || 0,
@@ -3841,13 +3908,18 @@ app.post('/v1/chat/completions', requireOwnerToken, async (req, res) => {
     // ===== 非 streaming 路径 =====
     let result;
     try {
-      result = await adapter.chat(messages, { model: modelName, cwd: homedir() });
+      result = await adapter.chat(messages, {
+        model: modelName,
+        cwd: homedir(),
+        budgetContext: { projectId: homedir(), adapterId },
+      });
     } catch (e) {
       return res.status(502).json({ error: { message: `adapter error: ${e.message}`, type: 'upstream_error' } });
     }
     try {
       metricsStore.record({
         roomId: '', roomMode: 'openai-api', roomName: `v1/chat:${adapterId}`,
+        projectId: homedir(),
         turn: 'v1-completion', adapter: adapterId, model: modelName,
         latencyMs: Date.now() - startedAt,
         tokensIn: result.tokensIn || 0, tokensOut: result.tokensOut || 0,
@@ -3963,7 +4035,29 @@ server.on('upgrade', (req, socket, head) => {
         try {
           const obj = JSON.parse(raw.toString());
           if (obj.type === 'input' && typeof obj.data === 'string') {
-            t.term.write(obj.data);
+            const decision = terminalApprovalGate.processInput(t, obj.data, {
+              source: 'terminal',
+              cwd: t.cwd,
+              requesterType: 'terminal',
+              requesterId: termId,
+              metadata: { shell: t.shell, termId },
+            });
+            if (decision.allowed) {
+              t.term.write(decision.data);
+            } else {
+              try { t.term.write(decision.data || '\u0003'); } catch {}
+              const msg = `\r\n\x1b[31m[approval required]\x1b[0m 危险命令已暂停：${decision.command}\r\napprovalId=${decision.approval?.id || 'unknown'}\r\n`;
+              try { t.term.write(msg); } catch {}
+              try {
+                ws.send(JSON.stringify({
+                  type: 'approval_required',
+                  approval: decision.approval,
+                  command: decision.command,
+                  hits: decision.hits,
+                  severity: decision.worstSeverity,
+                }));
+              } catch {}
+            }
           } else if (obj.type === 'resize' && obj.cols && obj.rows) {
             t.term.resize(Math.max(20, Math.min(500, obj.cols | 0)), Math.max(5, Math.min(200, obj.rows | 0)));
           }

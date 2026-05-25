@@ -6,6 +6,9 @@
   "author": "hxx",
   "main": "electron-main.js",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
@@ -91,6 +94,7 @@
       "main": "electron-main.js"
     },
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.developer-tools",
       "target": [
         {
