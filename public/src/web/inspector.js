@@ -53,7 +53,9 @@ export function initInspectorToggle() {
   const apply = () => {
     const hidden = localStorage.getItem(KEY) === '1';
     document.body.classList.toggle('inspector-hidden', hidden);
-    btn.textContent = hidden ? '⇤' : '⇥';
+    const icon = btn.querySelector('.nav-icon');
+    if (icon) icon.textContent = hidden ? '⇤' : '⇥';
+    else btn.textContent = hidden ? '⇤' : '⇥';
     btn.title = hidden ? '展开右侧 inspector 面板' : '折叠右侧 inspector 面板';
   };
   apply();

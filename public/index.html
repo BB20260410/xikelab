@@ -32,25 +32,40 @@
         <div class="brand-subtitle" id="brandSubtitle">多会话管理 · v…</div>
       </div>
     </div>
-    <div class="brand-actions">
-      <button class="theme-toggle" id="btnOverview" title="所有房状态汇总 + token 趋势 + adapter 性能横比 + 资源健康（v0.53 Sprint 3）" aria-label="打开总览面板">📊</button>
-      <button class="theme-toggle" id="btnTerminal" title="在 panel 内打开真终端（PTY，可跑 claude / git / 任意命令）" aria-label="打开内嵌终端">💻</button>
-      <button class="theme-toggle" id="btnRooms" title="多 AI 聊天室：Claude/GPT/MiniMax 协同 debate 出最优方案" aria-label="打开聊天室">💬</button>
-      <button class="theme-toggle" id="btnAgentRegistry" title="Agent 图谱：查看角色、任务标签和 Skill 绑定" aria-label="打开 Agent 图谱">🧠</button>
-      <button class="theme-toggle" id="btnCodebaseCenter" title="Codebase Center：本地代码索引查询与上下文证据" aria-label="打开 Codebase Center">⌘</button>
-      <button class="theme-toggle" id="btnPlugins" title="通用 CLI Plugin 中心：装 PraisonAI / iOS 工具链 / AutoGen 等任意 CLI（v0.52 W2）" aria-label="打开 Plugin 中心">🧩</button>
-      <button class="theme-toggle" id="btnRoomAdapters" title="配置房间 adapter：MiniMax / Gemini API / Gemini CLI / 自定义 OpenAI 兼容" aria-label="配置 adapter">⚙️</button>
-      <button class="theme-toggle" id="btnWebhooks" title="🔔 Webhook 出站推送：房间完成/失败/暂停时推 Discord/Slack/自定义 URL" aria-label="配置 Webhook">🔔</button>
-      <button class="theme-toggle" id="btnArchive" title="📂 聊天归档：每次房间完成自动写 markdown 到目录，按时间/房名分类" aria-label="配置归档">📂</button>
-      <button class="theme-toggle" id="btnMcp" title="🔌 MCP 服务器：让房成员调用任意 MCP server 的 tool（filesystem / github / playwright / 自定义）" aria-label="配置 MCP">🔌</button>
-      <button class="theme-toggle" id="btnAutopilot" title="🤖 Autopilot 自驾：房完成/出错时按规则自动 forward / notify（默认关）" aria-label="配置 Autopilot">🤖</button>
-      <button class="theme-toggle" id="btnApprovals" title="审批中心：查看并处理危险命令、预算覆盖等人工确认事项" aria-label="打开审批中心">🛡</button>
-      <button class="theme-toggle" id="btnActivity" title="审计时间线：查看 AI 输出、工具调用、审批、预算和错误事件" aria-label="打开审计时间线">📜</button>
-      <button class="theme-toggle" id="btnDelegations" title="委派中心：管理跨房间任务委派队列" aria-label="打开委派中心">🧭</button>
-      <button class="theme-toggle" id="btnLoginClaude" title="在外部 Terminal 跑 claude /login（OAuth 浏览器跳转）" aria-label="登录 Claude Code">🔐</button>
-      <button class="theme-toggle" id="themeToggle" title="切换暗/亮主题 (⌘D)" aria-label="切换暗亮主题">🌓</button>
-      <button class="theme-toggle" id="btnInspectorToggle" title="折叠/展开右侧 inspector 面板" aria-label="折叠右侧面板">⇥</button>
-    </div>
+    <nav class="brand-actions" aria-label="侧边栏功能导航">
+      <section class="brand-action-group" aria-label="工作台">
+        <div class="brand-action-title">工作台</div>
+        <div class="brand-action-grid">
+          <button class="theme-toggle nav-action" id="btnOverview" title="所有房状态汇总 + token 趋势 + adapter 性能横比 + 资源健康（v0.53 Sprint 3）" aria-label="打开总览面板"><span class="nav-icon">📊</span><span class="nav-label">总览</span></button>
+          <button class="theme-toggle nav-action" id="btnTerminal" title="在 panel 内打开真终端（PTY，可跑 claude / git / 任意命令）" aria-label="打开内嵌终端"><span class="nav-icon">💻</span><span class="nav-label">终端</span></button>
+          <button class="theme-toggle nav-action" id="btnRooms" title="多 AI 聊天室：Claude/GPT/MiniMax 协同 debate 出最优方案" aria-label="打开聊天室"><span class="nav-icon">💬</span><span class="nav-label">房间</span></button>
+          <button class="theme-toggle nav-action" id="btnAgentRegistry" title="Agent 图谱：查看角色、任务标签和 Skill 绑定" aria-label="打开 Agent 图谱"><span class="nav-icon">🧠</span><span class="nav-label">Agent</span></button>
+          <button class="theme-toggle nav-action" id="btnCodebaseCenter" title="Codebase Center：本地代码索引查询与上下文证据" aria-label="打开 Codebase Center"><span class="nav-icon">⌘</span><span class="nav-label">代码</span></button>
+        </div>
+      </section>
+      <section class="brand-action-group" aria-label="治理">
+        <div class="brand-action-title">治理</div>
+        <div class="brand-action-grid">
+          <button class="theme-toggle nav-action" id="btnApprovals" title="审批中心：查看并处理危险命令、预算覆盖等人工确认事项" aria-label="打开审批中心"><span class="nav-icon">🛡</span><span class="nav-label">审批</span></button>
+          <button class="theme-toggle nav-action" id="btnActivity" title="审计时间线：查看 AI 输出、工具调用、审批、预算和错误事件" aria-label="打开审计时间线"><span class="nav-icon">📜</span><span class="nav-label">审计</span></button>
+          <button class="theme-toggle nav-action" id="btnDelegations" title="委派中心：管理跨房间任务委派队列" aria-label="打开委派中心"><span class="nav-icon">🧭</span><span class="nav-label">委派</span></button>
+          <button class="theme-toggle nav-action" id="btnAutopilot" title="🤖 Autopilot 自驾：房完成/出错时按规则自动 forward / notify（默认关）" aria-label="配置 Autopilot"><span class="nav-icon">🤖</span><span class="nav-label">自驾</span></button>
+        </div>
+      </section>
+      <section class="brand-action-group" aria-label="系统">
+        <div class="brand-action-title">系统</div>
+        <div class="brand-action-grid">
+          <button class="theme-toggle nav-action" id="btnPlugins" title="通用 CLI Plugin 中心：装 PraisonAI / iOS 工具链 / AutoGen 等任意 CLI（v0.52 W2）" aria-label="打开 Plugin 中心"><span class="nav-icon">🧩</span><span class="nav-label">插件</span></button>
+          <button class="theme-toggle nav-action" id="btnRoomAdapters" title="配置房间 adapter：MiniMax / Gemini API / Gemini CLI / 自定义 OpenAI 兼容" aria-label="配置 adapter"><span class="nav-icon">⚙️</span><span class="nav-label">模型</span></button>
+          <button class="theme-toggle nav-action" id="btnWebhooks" title="🔔 Webhook 出站推送：房间完成/失败/暂停时推 Discord/Slack/自定义 URL" aria-label="配置 Webhook"><span class="nav-icon">🔔</span><span class="nav-label">推送</span></button>
+          <button class="theme-toggle nav-action" id="btnArchive" title="📂 聊天归档：每次房间完成自动写 markdown 到目录，按时间/房名分类" aria-label="配置归档"><span class="nav-icon">📂</span><span class="nav-label">归档</span></button>
+          <button class="theme-toggle nav-action" id="btnMcp" title="🔌 MCP 服务器：让房成员调用任意 MCP server 的 tool（filesystem / github / playwright / 自定义）" aria-label="配置 MCP"><span class="nav-icon">🔌</span><span class="nav-label">MCP</span></button>
+          <button class="theme-toggle nav-action" id="btnLoginClaude" title="在外部 Terminal 跑 claude /login（OAuth 浏览器跳转）" aria-label="登录 Claude Code"><span class="nav-icon">🔐</span><span class="nav-label">登录</span></button>
+          <button class="theme-toggle nav-action" id="themeToggle" title="切换暗/亮主题 (⌘D)" aria-label="切换暗亮主题"><span class="nav-icon">🌓</span><span class="nav-label">主题</span></button>
+          <button class="theme-toggle nav-action" id="btnInspectorToggle" title="折叠/展开右侧 inspector 面板" aria-label="折叠右侧面板"><span class="nav-icon">⇥</span><span class="nav-label">右栏</span></button>
+        </div>
+      </section>
+    </nav>
 
     <button class="btn-new" id="btnNew">
       <span class="plus">＋</span> 新建会话
