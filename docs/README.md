@@ -19,6 +19,7 @@
 - [PLUGIN_GUIDE.md](./PLUGIN_GUIDE.md) — Plugin 开发
 - [QUICK_API.md](./QUICK_API.md) — API 速查
 - [local-governance-learning-record.md](./local-governance-learning-record.md) — Paperclip 学习沉淀的本地治理能力记录
+- [xikelab-agent-skill-registry.md](./xikelab-agent-skill-registry.md) — Agent/Skill Registry、Agent Run、工程上下文分派、Code Evidence、Codebase Index、Symbol Graph 与权限治理
 
 ## 🛠 部署 / 运维
 
