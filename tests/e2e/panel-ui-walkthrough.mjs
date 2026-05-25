@@ -59,7 +59,7 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
     const title = await page.title();
     track('1. 首页加载', title === 'Xike Lab', `title="${title}"`);
 
-    const topBtns = ['btnOverview','btnTerminal','btnRooms','btnPlugins','btnRoomAdapters','btnWebhooks','btnArchive','btnMcp','btnAutopilot','btnApprovals','btnActivity','btnDelegations'];
+    const topBtns = ['btnOverview','btnTerminal','btnRooms','btnAgentRegistry','btnCodebaseCenter','btnPlugins','btnRoomAdapters','btnWebhooks','btnArchive','btnMcp','btnAutopilot','btnApprovals','btnActivity','btnDelegations'];
     for (const id of topBtns) {
       const btn = await page.$(`#${id}`);
       const visible = btn ? await btn.isVisible() : false;
@@ -74,7 +74,7 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       track(`3. window.Panel${k}`, v);
     }
 
-    const modalsToTest = ['btnRoomAdapters','btnWebhooks','btnArchive','btnAutopilot','btnApprovals','btnActivity','btnDelegations','btnMcp'];
+    const modalsToTest = ['btnAgentRegistry','btnCodebaseCenter','btnRoomAdapters','btnWebhooks','btnArchive','btnAutopilot','btnApprovals','btnActivity','btnDelegations','btnMcp'];
     for (const id of modalsToTest) {
       await page.click(`#${id}`);
       await page.waitForTimeout(300);
@@ -85,6 +85,130 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       const allClosed = await page.evaluate(() => [...document.querySelectorAll('.modal')].every(m => m.style.display !== 'flex'));
       track(`4. ESC 关 ${id}`, allClosed);
     }
+
+    await page.click('#btnCodebaseCenter');
+    await page.waitForSelector('#codebaseQueryInput', { timeout: 3000 });
+    await page.fill('#codebaseQueryInput', 'Agent 图谱入口 DOM handler');
+    await page.click('#codebaseQueryBtn');
+    await page.waitForFunction(() => {
+      const text = document.querySelector('.codebase-results')?.textContent || '';
+      return text.includes('public/app.js') && text.includes('intent:agent-ui-handler');
+    }, null, { timeout: 8000 });
+    const codebaseQueryUi = await page.evaluate(() => ({
+      cards: document.querySelectorAll('.codebase-result-card').length,
+      hasPath: (document.querySelector('.codebase-results')?.textContent || '').includes('public/app.js'),
+      hasReason: (document.querySelector('.codebase-results')?.textContent || '').includes('intent:agent-ui-handler'),
+      addButtons: document.querySelectorAll('[data-codebase-add]').length,
+    }));
+    track('4a. Codebase Center query results',
+      codebaseQueryUi.cards > 0 && codebaseQueryUi.hasPath && codebaseQueryUi.hasReason && codebaseQueryUi.addButtons > 0);
+    await page.click('[data-codebase-add="0"]');
+    await page.click('#codebaseOpenDispatch');
+    await page.waitForSelector('#agentPreviewFiles', { timeout: 5000 });
+    const dispatchFromCodebase = await page.evaluate(() => ({
+      files: document.querySelector('#agentPreviewFiles')?.value || '',
+      text: document.querySelector('#agentPreviewText')?.value || '',
+    }));
+    track('4a. Codebase result adds to Dispatch Preview',
+      dispatchFromCodebase.files.includes('public/app.js') && dispatchFromCodebase.text.includes('Agent 图谱入口'));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+
+    await page.click('#btnAgentRegistry');
+    await page.waitForSelector('#agentPreviewFiles', { timeout: 3000 });
+    const agentCenterTabs = await page.$$eval('[data-agent-tab]', els => els.map(el => el.textContent.trim()));
+    track('4a. Agent Center tabs present',
+      ['Profiles', 'Dispatch', 'Runs', 'Policies'].every(label => agentCenterTabs.includes(label)),
+      agentCenterTabs.join(','));
+    await page.click('[data-agent-tab="runs"]');
+    await page.waitForSelector('#agentRunsRefresh', { timeout: 3000 });
+    const agentRunsUi = await page.evaluate(() => ({
+      status: !!document.querySelector('#agentRunStatusFilter'),
+      room: !!document.querySelector('#agentRunRoomFilter'),
+      profile: !!document.querySelector('#agentRunProfileFilter'),
+      detail: !!document.querySelector('.agent-run-detail'),
+    }));
+    track('4a. Agent Runs tab controls',
+      agentRunsUi.status && agentRunsUi.room && agentRunsUi.profile && agentRunsUi.detail);
+    await page.click('[data-agent-tab="policies"]');
+    await page.waitForSelector('.agent-policy-editor', { timeout: 3000 });
+    track('4a. Agent Policies tab editors', (await page.$$('.agent-policy-editor')).length > 0);
+    await page.click('[data-agent-tab="dispatch"]');
+    await page.waitForSelector('#agentPreviewFiles', { timeout: 3000 });
+    await page.fill('#agentPreviewText', '继续推进这一块');
+    await page.click('#agentPreviewLoadChanged');
+    await page.waitForFunction(() => {
+      const value = document.querySelector('#agentPreviewFiles')?.value || '';
+      const info = document.querySelector('#agentPreviewFilesInfo')?.textContent || '';
+      return value.includes('public/app.js') && info.includes('changed files');
+    }, null, { timeout: 5000 });
+    const changedFilesLoaded = await page.evaluate(() => ({
+      value: document.querySelector('#agentPreviewFiles')?.value || '',
+      info: document.querySelector('#agentPreviewFilesInfo')?.textContent || '',
+    }));
+    track('4a. Agent preview loads git changes', changedFilesLoaded.value.includes('public/app.js') && changedFilesLoaded.info.includes('changed files'));
+    await page.click('#agentPreviewRun');
+    await page.waitForSelector('.agent-code-context', { timeout: 5000 });
+    await page.waitForSelector('.agent-code-evidence', { timeout: 5000 });
+    const agentCodeContextPreview = await page.evaluate(() => ({
+      hasFilesInput: !!document.querySelector('#agentPreviewFiles'),
+      hasCodeContext: !!document.querySelector('.agent-code-context'),
+      hasCodeEvidence: !!document.querySelector('.agent-code-evidence'),
+      previewText: document.querySelector('#agentPreviewResult')?.textContent || '',
+    }));
+    track('4a. Agent preview code context',
+      agentCodeContextPreview.hasFilesInput
+        && agentCodeContextPreview.hasCodeContext
+        && agentCodeContextPreview.hasCodeEvidence
+        && agentCodeContextPreview.previewText.includes('Code Context'));
+    await page.click('#agentPreviewLoadCodebase');
+    await page.waitForFunction(() => {
+      const value = document.querySelector('#agentPreviewFiles')?.value || '';
+      const info = document.querySelector('#agentPreviewFilesInfo')?.textContent || '';
+      return value.includes('src/agents') && info.includes('focus files');
+    }, null, { timeout: 5000 });
+    await page.click('#agentPreviewRun');
+    await page.waitForSelector('.agent-codebase-map', { timeout: 5000 });
+    await page.waitForSelector('.agent-symbol-graph', { timeout: 5000 });
+    const agentCodebaseMapPreview = await page.evaluate(() => ({
+      files: document.querySelector('#agentPreviewFiles')?.value || '',
+      info: document.querySelector('#agentPreviewFilesInfo')?.textContent || '',
+      previewText: document.querySelector('#agentPreviewResult')?.textContent || '',
+      hasSymbolGraph: !!document.querySelector('.agent-symbol-graph'),
+    }));
+    track('4a. Agent preview codebase map',
+      agentCodebaseMapPreview.files.includes('src/agents')
+        && agentCodebaseMapPreview.info.includes('focus files')
+        && agentCodebaseMapPreview.previewText.includes('Codebase Map')
+        && agentCodebaseMapPreview.hasSymbolGraph);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+
+    await page.click('#btnActivity');
+    await page.waitForSelector('#activityDiagnosticCode', { timeout: 3000 });
+    const activityAgentControls = await page.evaluate(() => ({
+      presets: [...document.querySelectorAll('[data-activity-preset]')].map(el => el.textContent.trim()),
+      agentProfile: !!document.querySelector('#activityAgentProfileId'),
+      skill: !!document.querySelector('#activitySkillName'),
+      diagnostic: !!document.querySelector('#activityDiagnosticCode'),
+      toggle: !!document.querySelector('#activityAgentOnly'),
+    }));
+    track('4a. Activity Agent/Skill filters present',
+      activityAgentControls.presets.includes('Agent/Skill')
+        && activityAgentControls.presets.includes('诊断')
+        && activityAgentControls.agentProfile
+        && activityAgentControls.skill
+        && activityAgentControls.diagnostic
+        && activityAgentControls.toggle);
+    await page.click('[data-activity-preset="diagnostics"]');
+    await page.waitForTimeout(300);
+    const diagnosticsPreset = await page.evaluate(() => ({
+      action: document.querySelector('#activityAction')?.value,
+      agentOnly: document.querySelector('#activityAgentOnly')?.checked,
+    }));
+    track('4a. Activity diagnostics preset', diagnosticsPreset.action === 'agent.skill_diagnostics' && diagnosticsPreset.agentOnly === true);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
 
     await page.keyboard.press('Meta+k');
     await page.waitForTimeout(150);

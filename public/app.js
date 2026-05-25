@@ -2734,6 +2734,7 @@ function renderRoomDebate(room) {
   }
   updateRoomStatusChip(room.status);
   renderRoomMembers(room);
+  renderRoomSkillBindings(room);
   // v0.41/v0.48 按 mode 切换视图
   const isSquad = room.mode === 'squad';
   const isChat = room.mode === 'chat';
@@ -2886,9 +2887,104 @@ async function refreshRoomProviders() {
 }
 refreshRoomProviders();
 
+let roomAgentProfilesCache = [];
+let roomAgentProfilesLoaded = false;
+async function refreshRoomAgentProfiles() {
+  if (roomAgentProfilesLoaded) return;
+  roomAgentProfilesLoaded = true;
+  try {
+    const r = await api('/api/agent-registry');
+    if (r?.ok && Array.isArray(r.profiles)) {
+      roomAgentProfilesCache = r.profiles.map((profile) => ({
+        id: profile.id,
+        title: profile.title || profile.id,
+      }));
+    }
+  } catch {
+    roomAgentProfilesLoaded = false;
+  }
+}
+
+let roomSkillsCache = [];
+let roomSkillsLoaded = false;
+async function refreshRoomSkills() {
+  if (roomSkillsLoaded) return;
+  roomSkillsLoaded = true;
+  try {
+    const r = await fetch('/api/skills').then(x => x.json());
+    if (r?.ok && Array.isArray(r.skills)) {
+      roomSkillsCache = r.skills
+        .filter(skill => skill.enabled !== false)
+        .map(skill => ({
+          name: skill.name,
+          displayName: skill.displayName || skill.name,
+          description: skill.description || '',
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+  } catch {
+    roomSkillsLoaded = false;
+  }
+}
+
+function renderRoomSkillBindings(room) {
+  const root = $('#roomSkillBindings');
+  if (!root) return;
+  if (!roomSkillsLoaded) {
+    root.innerHTML = '<span class="room-skill-label">Skills</span><span class="room-skill-empty">加载中…</span>';
+    refreshRoomSkills().then(() => {
+      if (roomState.activeRoom?.id === room?.id) renderRoomSkillBindings(roomState.activeRoom);
+    });
+    return;
+  }
+  const active = new Set(Array.isArray(room?.skills) ? room.skills : []);
+  if (roomSkillsCache.length === 0) {
+    root.innerHTML = '<span class="room-skill-label">Skills</span><span class="room-skill-empty">暂无可绑定 Skill</span>';
+    return;
+  }
+  root.innerHTML = `
+    <span class="room-skill-label">Skills</span>
+    <div class="room-skill-chip-list">
+      ${roomSkillsCache.map(skill => `
+        <label class="room-skill-chip ${active.has(skill.name) ? 'is-active' : ''}" title="${escapeHtml(skill.description)}">
+          <input type="checkbox" value="${escapeHtml(skill.name)}" ${active.has(skill.name) ? 'checked' : ''} />
+          <span>${escapeHtml(skill.name)}</span>
+        </label>
+      `).join('')}
+    </div>
+  `;
+  root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.addEventListener('change', () => updateRoomSkillsFromControls(root));
+  });
+}
+
+async function updateRoomSkillsFromControls(root = $('#roomSkillBindings')) {
+  if (!roomState.activeId || !root) return;
+  const skills = [...root.querySelectorAll('input[type="checkbox"]:checked')]
+    .map(input => input.value)
+    .filter(Boolean);
+  const u = await fetch(`/api/rooms/${roomState.activeId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skills }),
+  }).then(x => x.json());
+  if (u.ok) {
+    roomState.activeRoom = u.room;
+    renderRoomSkillBindings(u.room);
+  } else {
+    toast('Skill 绑定失败：' + (u.error || ''), 'error');
+    if (roomState.activeRoom) renderRoomSkillBindings(roomState.activeRoom);
+  }
+}
+
 function renderRoomMembers(room) {
   const wrap = $('#roomMembers');
   if (!wrap) return;
+  if (!roomAgentProfilesLoaded) {
+    refreshRoomAgentProfiles().then(() => {
+      if (roomState.activeRoom?.id === room?.id) renderRoomMembers(roomState.activeRoom);
+    });
+  }
   wrap.innerHTML = '';
   for (const [idx, m] of (room.members || []).entries()) {
     const chip = document.createElement('div');
@@ -2936,6 +3032,26 @@ function renderRoomMembers(room) {
     select.placeholder = '默认';
     select.title = '模型名（自由输入，预置清单仅作提示）';
     select.addEventListener('change', () => updateMember(idx, { model: select.value.trim() }));
+    let agentSel = null;
+    if (roomAgentProfilesCache.length > 0) {
+      agentSel = document.createElement('select');
+      agentSel.title = '绑定 Xike Agent Profile（默认按角色自动匹配）';
+      agentSel.className = 'room-member-agent';
+      const auto = document.createElement('option');
+      auto.value = '';
+      auto.textContent = 'auto profile';
+      agentSel.appendChild(auto);
+      const currentAgentProfileId = m.agentProfileId || m.profileId || m.agentId || '';
+      for (const profile of roomAgentProfilesCache) {
+        const o = document.createElement('option');
+        o.value = profile.id;
+        o.textContent = profile.id;
+        o.title = profile.title;
+        if (profile.id === currentAgentProfileId) o.selected = true;
+        agentSel.appendChild(o);
+      }
+      agentSel.addEventListener('change', () => updateMember(idx, { agentProfileId: agentSel.value }));
+    }
     const toggleBtn = document.createElement('button');
     toggleBtn.className = 'room-member-toggle';
     toggleBtn.textContent = m.enabled === false ? '✓' : '✕';
@@ -2945,6 +3061,7 @@ function renderRoomMembers(room) {
     chip.innerHTML = `${roleBadge}<span>${escapeHtml(m.displayName)}</span>`;
     chip.appendChild(adapterSel);
     chip.appendChild(select);
+    if (agentSel) chip.appendChild(agentSel);
     chip.appendChild(dataList);
     chip.appendChild(toggleBtn);
     // v0.52 移除按钮（让用户能精简成员）
@@ -2976,7 +3093,10 @@ async function updateMember(idx, patch) {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ members }),
   }).then(x => x.json());
-  if (u.ok) renderRoomMembers(u.room);
+  if (u.ok) {
+    roomState.activeRoom = u.room;
+    renderRoomMembers(u.room);
+  }
 }
 
 async function removeMember(idx) {
@@ -2990,7 +3110,10 @@ async function removeMember(idx) {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ members }),
   }).then(x => x.json());
-  if (u.ok) renderRoomMembers(u.room);
+  if (u.ok) {
+    roomState.activeRoom = u.room;
+    renderRoomMembers(u.room);
+  }
 }
 
 async function addRoomMember() {
@@ -3016,7 +3139,10 @@ async function addRoomMember() {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ members }),
   }).then(x => x.json());
-  if (u.ok) renderRoomMembers(u.room);
+  if (u.ok) {
+    roomState.activeRoom = u.room;
+    renderRoomMembers(u.room);
+  }
   else toast('加成员失败：' + (u.error || ''), 'error');
 }
 
@@ -6588,6 +6714,1045 @@ async function deleteAutopilotRule(id) {
 $('#btnAutopilot')?.addEventListener('click', openAutopilotModal);
 document.querySelectorAll('[data-close-autopilot]').forEach(el => el.addEventListener('click', closeAutopilotModal));
 
+// ========== Agent 图谱 ==========
+const agentRegistryState = {
+  activeTab: 'dispatch',
+  snapshot: null,
+  classification: null,
+  text: '重构多 Agent 架构，并用浏览器测试预算治理和审批流程。',
+  affectedFiles: 'src/agents/AgentSkillRegistry.js\npublic/app.js\ntests/unit/agent-skill-registry.test.js',
+  changedFilesInfo: null,
+  codeContextEvidence: [],
+  codeContextGraph: null,
+  codebaseMap: null,
+  memberRole: 'dev',
+  runs: [],
+  runsLoading: false,
+  runTimeline: null,
+  runError: '',
+  activeRunId: '',
+  runFilters: {
+    status: '',
+    roomId: '',
+    agentProfileId: '',
+  },
+};
+const AGENT_POLICY_OPTIONS = {
+  budgetTier: ['low', 'standard', 'high', 'restricted'],
+  commandGuard: ['standard', 'strict'],
+  approvalPolicy: [
+    'read_only',
+    'plan_changes_only',
+    'dangerous_commands',
+    'architecture_changes',
+    'final_decision',
+    'release_and_destructive_actions',
+    'asset_export_changes',
+  ],
+  auditLevel: ['standard', 'full'],
+};
+
+async function openAgentRegistryModal() {
+  $('#agentRegistryModal').style.display = 'flex';
+  await refreshAgentRegistry();
+}
+function closeAgentRegistryModal() { $('#agentRegistryModal').style.display = 'none'; }
+
+async function refreshAgentRegistry() {
+  const root = $('#agentRegistryModalBody');
+  if (!root) return;
+  root.innerHTML = '<div class="muted small" style="padding:20px;">加载中…</div>';
+  try {
+    agentRegistryState.snapshot = await api('/api/agent-registry');
+    renderAgentRegistryModal();
+  } catch (e) {
+    root.innerHTML = `<div class="muted small" style="padding:20px;color:var(--color-danger-alt);">加载失败：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderAgentRegistryModal() {
+  const root = $('#agentRegistryModalBody');
+  const snapshot = agentRegistryState.snapshot;
+  if (!root || !snapshot) return;
+  root.innerHTML = `
+    ${renderAgentRegistrySummary(snapshot)}
+    ${renderAgentRegistryTabs()}
+    <div class="agent-registry-panel">
+      ${renderAgentRegistryActiveTab(snapshot)}
+    </div>
+  `;
+  bindAgentRegistryModalEvents();
+}
+
+function renderAgentRegistrySummary(snapshot) {
+  const missing = snapshot.missingSkillNames || [];
+  return `<div class="agent-registry-summary">
+    <span><strong>${snapshot.counts?.profiles || 0}</strong> profiles</span>
+    <span><strong>${snapshot.counts?.rules || 0}</strong> dispatch rules</span>
+    <span><strong>${snapshot.counts?.installedSkills || 0}</strong> installed skills</span>
+    <span class="${missing.length ? 'is-warn' : ''}"><strong>${missing.length}</strong> missing bindings</span>
+    <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentRegistryRefresh">刷新</button>
+  </div>`;
+}
+
+function renderAgentRegistryTabs() {
+  const tabs = [
+    ['profiles', 'Profiles'],
+    ['dispatch', 'Dispatch'],
+    ['runs', 'Runs'],
+    ['policies', 'Policies'],
+  ];
+  return `<div class="agent-registry-tabs" role="tablist">
+    ${tabs.map(([id, label]) => `<button class="agent-registry-tab ${agentRegistryState.activeTab === id ? 'is-active' : ''}" data-agent-tab="${id}" type="button">${label}</button>`).join('')}
+  </div>`;
+}
+
+function renderAgentRegistryActiveTab(snapshot) {
+  if (agentRegistryState.activeTab === 'profiles') return renderAgentProfilesTab(snapshot);
+  if (agentRegistryState.activeTab === 'runs') return renderAgentRunsTab();
+  if (agentRegistryState.activeTab === 'policies') return renderAgentPoliciesTab(snapshot);
+  return renderAgentDispatchTab(snapshot);
+}
+
+function renderAgentProfilesTab(snapshot) {
+  const profiles = snapshot.profiles || [];
+  return `<section class="agent-registry-section">
+    <h3>Profiles</h3>
+    <div class="agent-profile-grid">
+      ${profiles.map(profile => renderAgentProfileCard(profile, { showPolicyEditor: false })).join('') || '<div class="agent-empty">No profiles.</div>'}
+    </div>
+  </section>`;
+}
+
+function renderAgentDispatchTab(snapshot) {
+  const rules = snapshot.rules || [];
+  return `<div class="agent-registry-layout agent-registry-layout-dispatch">
+    <section class="agent-registry-rules">
+      <h3>Dispatch Rules</h3>
+      <div class="agent-rule-list">
+        ${rules.map(renderAgentRule).join('') || '<div class="agent-empty">No dispatch rules.</div>'}
+      </div>
+    </section>
+    <section class="agent-registry-lab">
+      <h3>Dispatch Preview</h3>
+      <div class="agent-preview-form">
+        <select id="agentPreviewRole" aria-label="预演角色">
+          ${['pm', 'dev', 'qa', 'architect', 'judge', 'shipper', 'designer', 'observer'].map(role => `<option value="${role}" ${agentRegistryState.memberRole === role ? 'selected' : ''}>${role}</option>`).join('')}
+        </select>
+        <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentPreviewLoadChanged">当前变更</button>
+        <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentPreviewLoadCodebase">工程地图</button>
+        <button class="cxbtn cxbtn-primary cxbtn-sm" id="agentPreviewRun">预演分派</button>
+      </div>
+      <textarea id="agentPreviewText" rows="5" placeholder="输入一个任务，查看会命中哪些 tag、profile 和 skill">${escapeHtml(agentRegistryState.text)}</textarea>
+      <textarea id="agentPreviewFiles" rows="4" placeholder="可选：粘贴受影响文件路径，每行一个；用于观察工程上下文如何影响分派">${escapeHtml(agentRegistryState.affectedFiles)}</textarea>
+      <div id="agentPreviewFilesInfo" class="agent-preview-files-info">${renderAgentChangedFilesInfo(agentRegistryState.changedFilesInfo)}</div>
+      <div id="agentPreviewResult" class="agent-preview-result">
+        ${agentRegistryState.classification ? renderAgentClassification(agentRegistryState.classification) : '<div class="agent-empty">输入任务后点击预演。</div>'}
+      </div>
+    </section>
+  </div>`;
+}
+
+function renderAgentPoliciesTab(snapshot) {
+  const profiles = snapshot.profiles || [];
+  return `<section class="agent-registry-section">
+    <h3>Policies</h3>
+    <div class="agent-profile-grid">
+      ${profiles.map(profile => renderAgentProfileCard(profile, { showPolicyEditor: true })).join('') || '<div class="agent-empty">No policies.</div>'}
+    </div>
+  </section>`;
+}
+
+function bindAgentRegistryModalEvents() {
+  const root = $('#agentRegistryModalBody');
+  $('#agentRegistryRefresh')?.addEventListener('click', refreshAgentRegistry);
+  document.querySelectorAll('[data-agent-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => setAgentRegistryTab(btn.dataset.agentTab));
+  });
+  $('#agentPreviewRole')?.addEventListener('change', (e) => {
+    agentRegistryState.memberRole = e.target.value;
+  });
+  $('#agentPreviewText')?.addEventListener('input', (e) => {
+    agentRegistryState.text = e.target.value;
+  });
+  $('#agentPreviewFiles')?.addEventListener('input', (e) => {
+    agentRegistryState.affectedFiles = e.target.value;
+    agentRegistryState.changedFilesInfo = null;
+    agentRegistryState.codeContextEvidence = [];
+    agentRegistryState.codeContextGraph = null;
+    agentRegistryState.codebaseMap = null;
+    const info = $('#agentPreviewFilesInfo');
+    if (info) info.innerHTML = '';
+  });
+  $('#agentPreviewLoadChanged')?.addEventListener('click', (e) => loadAgentChangedFiles(e.currentTarget));
+  $('#agentPreviewLoadCodebase')?.addEventListener('click', (e) => loadAgentCodebaseMap(e.currentTarget));
+  $('#agentPreviewRun')?.addEventListener('click', runAgentPreview);
+  root.querySelectorAll('[data-agent-policy-save]').forEach((btn) => {
+    btn.addEventListener('click', () => saveAgentPolicy(btn.dataset.agentPolicySave, btn));
+  });
+  root.querySelectorAll('[data-agent-policy-reset]').forEach((btn) => {
+    btn.addEventListener('click', () => resetAgentPolicy(btn.dataset.agentPolicyReset, btn));
+  });
+  bindAgentRunsEvents(root);
+}
+
+function setAgentRegistryTab(tab) {
+  agentRegistryState.activeTab = tab || 'dispatch';
+  renderAgentRegistryModal();
+  if (agentRegistryState.activeTab === 'runs' && !agentRegistryState.runsLoading && agentRegistryState.runs.length === 0) {
+    refreshAgentRuns();
+  }
+}
+
+function renderAgentRunsTab() {
+  const f = agentRegistryState.runFilters;
+  const runs = agentRegistryState.runs || [];
+  const active = agentRegistryState.runTimeline?.run || runs.find(run => run.id === agentRegistryState.activeRunId) || null;
+  return `<section class="agent-registry-section agent-runs-section">
+    <div class="agent-runs-toolbar">
+      <select id="agentRunStatusFilter" aria-label="Run status">
+        ${['', 'queued', 'running', 'succeeded', 'failed', 'deferred', 'cancelled'].map(status => `<option value="${status}" ${f.status === status ? 'selected' : ''}>${status || 'all status'}</option>`).join('')}
+      </select>
+      <input id="agentRunRoomFilter" type="text" placeholder="roomId" value="${escapeHtml(f.roomId)}" />
+      <input id="agentRunProfileFilter" type="text" placeholder="agentProfileId" value="${escapeHtml(f.agentProfileId)}" />
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentRunsClear">清空</button>
+      <button class="cxbtn cxbtn-primary cxbtn-sm" id="agentRunsRefresh">${agentRegistryState.runsLoading ? '加载中…' : '刷新 Runs'}</button>
+    </div>
+    ${agentRegistryState.runError ? `<div class="agent-empty error">${escapeHtml(agentRegistryState.runError)}</div>` : ''}
+    <div class="agent-runs-layout">
+      <div class="agent-run-list">
+        ${runs.length ? runs.map(renderAgentRunRow).join('') : `<div class="agent-empty">${agentRegistryState.runsLoading ? '加载中…' : '暂无 Agent Run。'}</div>`}
+      </div>
+      <div class="agent-run-detail">
+        ${active ? renderAgentRunDetail(active, agentRegistryState.runTimeline) : '<div class="agent-empty">选择一个 run 查看 timeline、messages 和 tool results。</div>'}
+      </div>
+    </div>
+  </section>`;
+}
+
+function agentRunMetricText(run = {}) {
+  const d = run.details || {};
+  const tokens = (Number(d.tokensIn) || 0) + (Number(d.tokensOut) || 0);
+  const parts = [];
+  if (tokens) parts.push(`${fmtBigInt(tokens)} tok`);
+  if (Number(d.estCostUSD)) parts.push(fmtUSD(Number(d.estCostUSD)));
+  if (Number(d.latencyMs)) parts.push(fmtMs(Number(d.latencyMs)));
+  return parts.join(' · ') || '-';
+}
+
+function agentRunDiagnosticsCount(run = {}) {
+  return Array.isArray(run.details?.diagnostics) ? run.details.diagnostics.length : 0;
+}
+
+function renderAgentRunRow(run) {
+  const active = agentRegistryState.activeRunId === run.id;
+  const diagnostics = agentRunDiagnosticsCount(run);
+  return `<button class="agent-run-row ${active ? 'is-active' : ''}" data-agent-run-id="${escapeHtml(run.id)}" type="button">
+    <span class="agent-run-status status-${escapeHtml(run.status || 'unknown')}">${escapeHtml(run.status || '-')}</span>
+    <strong>${escapeHtml(run.taskId || run.sourceType || run.id)}</strong>
+    <em>${escapeHtml(run.agentProfileId || '-')} · ${escapeHtml(run.roomId || '-')}</em>
+    <span>${escapeHtml(agentRunMetricText(run))}${diagnostics ? ` · ${diagnostics} diagnostics` : ''}</span>
+    <small>${activityTime(run.updatedAt || run.createdAt)}</small>
+  </button>`;
+}
+
+function renderAgentRunDetail(run, timeline = null) {
+  const messages = timeline?.messages || [];
+  const toolResults = timeline?.toolResults || [];
+  const activityEvents = timeline?.activityEvents || [];
+  const diagnostics = run.details?.diagnostics || [];
+  return `<div class="agent-run-detail-inner">
+    <div class="agent-run-detail-head">
+      <div>
+        <span class="agent-run-status status-${escapeHtml(run.status || 'unknown')}">${escapeHtml(run.status || '-')}</span>
+        <strong>${escapeHtml(run.id)}</strong>
+      </div>
+      <span>${escapeHtml(agentRunMetricText(run))}</span>
+    </div>
+    <div class="agent-run-meta-grid">
+      <div><b>Room</b><code>${escapeHtml(run.roomId || '-')}</code></div>
+      <div><b>Profile</b><code>${escapeHtml(run.agentProfileId || '-')}</code></div>
+      <div><b>Adapter</b><code>${escapeHtml(run.adapterId || '-')}</code></div>
+      <div><b>Model</b><code>${escapeHtml(run.modelId || '-')}</code></div>
+      <div><b>Approval</b><code>${escapeHtml(run.approvalId || run.details?.approvalId || '-')}</code></div>
+      <div><b>Delegation</b><code>${escapeHtml(run.delegationId || run.details?.delegationId || '-')}</code></div>
+    </div>
+    <div class="agent-run-actions">
+      ${run.approvalId || run.details?.approvalId ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-approval="${escapeHtml(run.approvalId || run.details?.approvalId)}">打开审批</button>` : ''}
+      ${run.delegationId || run.details?.delegationId ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-delegation="${escapeHtml(run.delegationId || run.details?.delegationId)}">打开委派</button>` : ''}
+      <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-activity="${escapeHtml(run.id)}">Activity</button>
+    </div>
+    ${diagnostics.length ? `<div class="agent-run-block"><h4>Diagnostics</h4>${diagnostics.slice(0, 6).map(item => `<div class="agent-run-line"><strong>${escapeHtml(item.code || 'diagnostic')}</strong><span>${escapeHtml(item.message || '')}</span></div>`).join('')}</div>` : ''}
+    <div class="agent-run-block"><h4>Messages</h4>${messages.length ? messages.slice(-12).map(renderAgentRunMessage).join('') : '<div class="agent-empty">No messages.</div>'}</div>
+    <div class="agent-run-block"><h4>Tool Results</h4>${toolResults.length ? toolResults.slice(-8).map(renderAgentRunToolResult).join('') : '<div class="agent-empty">No tool results.</div>'}</div>
+    <div class="agent-run-block"><h4>Activity</h4>${activityEvents.length ? activityEvents.slice(-10).map(renderAgentRunActivity).join('') : '<div class="agent-empty">No related activity loaded.</div>'}</div>
+  </div>`;
+}
+
+function renderAgentRunMessage(message) {
+  return `<div class="agent-run-line">
+    <strong>${escapeHtml(message.kind || message.role || 'message')}</strong>
+    <span>${escapeHtml(message.summary || message.content || JSON.stringify(message.payload || {}).slice(0, 180))}</span>
+  </div>`;
+}
+
+function renderAgentRunToolResult(result) {
+  return `<div class="agent-run-line">
+    <strong>${escapeHtml(result.toolName || 'tool')}</strong>
+    <span>${escapeHtml(result.status || '-')}${result.outputSummary ? ` · ${escapeHtml(result.outputSummary)}` : ''}${Number(result.costUsd) ? ` · ${fmtUSD(Number(result.costUsd))}` : ''}</span>
+  </div>`;
+}
+
+function renderAgentRunActivity(event) {
+  return `<div class="agent-run-line">
+    <strong>${escapeHtml(event.action || event.tag || 'activity')}</strong>
+    <span>${escapeHtml(event.status || '')} ${activityTime(event.ts || event.createdAt)}</span>
+  </div>`;
+}
+
+function bindAgentRunsEvents(root) {
+  if (!root) return;
+  $('#agentRunStatusFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.status = e.target.value;
+    refreshAgentRuns();
+  });
+  $('#agentRunRoomFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.roomId = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunProfileFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.agentProfileId = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunsClear')?.addEventListener('click', () => {
+    agentRegistryState.runFilters = { status: '', roomId: '', agentProfileId: '' };
+    refreshAgentRuns();
+  });
+  $('#agentRunsRefresh')?.addEventListener('click', () => refreshAgentRuns());
+  root.querySelectorAll('[data-agent-run-id]').forEach((btn) => {
+    btn.addEventListener('click', () => loadAgentRunDetail(btn.dataset.agentRunId));
+  });
+  root.querySelectorAll('[data-agent-run-approval]').forEach((btn) => {
+    btn.addEventListener('click', () => openApprovalModal(btn.dataset.agentRunApproval));
+  });
+  root.querySelectorAll('[data-agent-run-delegation]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (typeof delegationState !== 'undefined') delegationState.activeId = btn.dataset.agentRunDelegation;
+      openDelegationModal();
+    });
+  });
+  root.querySelectorAll('[data-agent-run-activity]').forEach((btn) => {
+    btn.addEventListener('click', () => openActivityModal({ agentOnly: true, entityType: 'agent_run', entityId: btn.dataset.agentRunActivity }));
+  });
+}
+
+async function refreshAgentRuns() {
+  agentRegistryState.runsLoading = true;
+  agentRegistryState.runError = '';
+  renderAgentRegistryModal();
+  try {
+    const params = new URLSearchParams();
+    params.set('limit', '80');
+    const f = agentRegistryState.runFilters;
+    if (f.status) params.set('status', f.status);
+    if (f.roomId) params.set('roomId', f.roomId);
+    if (f.agentProfileId) params.set('agentProfileId', f.agentProfileId);
+    const result = await api('/api/agent-runs?' + params.toString());
+    agentRegistryState.runs = result.runs || [];
+    if (!agentRegistryState.activeRunId || !agentRegistryState.runs.some(run => run.id === agentRegistryState.activeRunId)) {
+      agentRegistryState.activeRunId = agentRegistryState.runs[0]?.id || '';
+      agentRegistryState.runTimeline = null;
+    }
+  } catch (e) {
+    agentRegistryState.runError = e.message || '加载 Agent Runs 失败';
+    agentRegistryState.runs = [];
+  } finally {
+    agentRegistryState.runsLoading = false;
+    renderAgentRegistryModal();
+  }
+}
+
+async function loadAgentRunDetail(id) {
+  if (!id) return;
+  agentRegistryState.activeRunId = id;
+  agentRegistryState.runTimeline = null;
+  renderAgentRegistryModal();
+  try {
+    const timeline = await api(`/api/agent-runs/${encodeURIComponent(id)}`);
+    let activityEvents = [];
+    try {
+      const exported = await api(`/api/agent-runs/${encodeURIComponent(id)}/export?format=json`);
+      activityEvents = exported.export?.activityEvents || [];
+    } catch {}
+    agentRegistryState.runTimeline = { ...timeline, activityEvents };
+  } catch (e) {
+    agentRegistryState.runError = e.message || '加载 Agent Run 失败';
+  }
+  renderAgentRegistryModal();
+}
+
+function renderAgentProfileCard(profile, { showPolicyEditor = false } = {}) {
+  const coverage = profile.skillCoverage || [];
+  const installed = coverage.filter(skill => skill.installed && skill.enabled).length;
+  return `
+    <article class="agent-profile-card ${profile.governanceOverridden ? 'is-policy-overridden' : ''}" data-agent-profile-id="${escapeHtml(profile.id)}">
+      <div class="agent-profile-head">
+        <strong>${escapeHtml(profile.title || profile.id)}</strong>
+        <code>${escapeHtml(profile.id)}</code>
+      </div>
+      <div class="agent-profile-meta">${(profile.roles || []).map(role => `<span>${escapeHtml(role)}</span>`).join('')}</div>
+      ${renderAgentGovernance(profile.governance, { overridden: profile.governanceOverridden })}
+      ${showPolicyEditor ? renderAgentPolicyEditor(profile) : ''}
+      <p>${escapeHtml(profile.mission || '')}</p>
+      <div class="agent-skill-strip" title="${installed}/${coverage.length} bound skills installed">
+        ${coverage.map(skill => `<span class="${skill.installed && skill.enabled ? 'ok' : 'missing'}">${escapeHtml(skill.name)}</span>`).join('') || '<span class="missing">no skills</span>'}
+      </div>
+    </article>
+  `;
+}
+
+function renderAgentRule(rule) {
+  return `
+    <div class="agent-rule-row">
+      <div>
+        <strong>${escapeHtml(rule.tag)}</strong>
+        <span>${escapeHtml(rule.agentId)}</span>
+      </div>
+      <div class="agent-rule-keywords">${(rule.keywords || []).slice(0, 10).map(k => `<span>${escapeHtml(k)}</span>`).join('')}</div>
+    </div>
+  `;
+}
+
+function renderAgentGovernance(policy, options = {}) {
+  if (!policy) return '';
+  return `<div class="agent-governance-strip">
+    ${options.overridden ? '<span class="agent-policy-override">local override</span>' : ''}
+    <span>budget ${escapeHtml(policy.budgetTier || 'standard')}</span>
+    <span>guard ${escapeHtml(policy.commandGuard || 'standard')}</span>
+    <span>approval ${escapeHtml(policy.approvalPolicy || 'dangerous_commands')}</span>
+    <span>audit ${escapeHtml(policy.auditLevel || 'standard')}</span>
+  </div>`;
+}
+
+function renderAgentPolicyEditor(profile) {
+  const policy = profile.governance || {};
+  const select = (field, label) => `
+    <label>
+      <span>${label}</span>
+      <select data-agent-policy-field="${field}">
+        ${(AGENT_POLICY_OPTIONS[field] || []).map(value => `<option value="${escapeHtml(value)}" ${(policy[field] || '') === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}
+      </select>
+    </label>
+  `;
+  return `
+    <div class="agent-policy-editor" data-agent-policy-editor="${escapeHtml(profile.id)}">
+      ${select('budgetTier', 'Budget')}
+      ${select('commandGuard', 'Guard')}
+      ${select('approvalPolicy', 'Approval')}
+      ${select('auditLevel', 'Audit')}
+      <div class="agent-policy-actions">
+        <button class="cxbtn cxbtn-secondary cxbtn-sm" data-agent-policy-reset="${escapeHtml(profile.id)}" ${profile.governanceOverridden ? '' : 'disabled'}>重置</button>
+        <button class="cxbtn cxbtn-primary cxbtn-sm" data-agent-policy-save="${escapeHtml(profile.id)}">保存策略</button>
+      </div>
+    </div>
+  `;
+}
+
+function getAgentPolicyEditor(profileId) {
+  const id = window.CSS?.escape ? CSS.escape(profileId) : String(profileId).replace(/["\\]/g, '\\$&');
+  return document.querySelector(`[data-agent-policy-editor="${id}"]`);
+}
+
+function readAgentPolicyEditor(profileId) {
+  const editor = getAgentPolicyEditor(profileId);
+  if (!editor) throw new Error('policy editor not found');
+  const governance = {};
+  editor.querySelectorAll('[data-agent-policy-field]').forEach((field) => {
+    governance[field.dataset.agentPolicyField] = field.value;
+  });
+  governance.budgetScope = 'agent_profile';
+  return governance;
+}
+
+async function saveAgentPolicy(profileId, button = null) {
+  try {
+    if (button) button.disabled = true;
+    const governance = readAgentPolicyEditor(profileId);
+    await api(`/api/agent-registry/profiles/${encodeURIComponent(profileId)}/governance`, {
+      method: 'PUT',
+      body: JSON.stringify({ governance }),
+    });
+    agentRegistryState.classification = null;
+    toast('Agent 治理策略已保存', 'success', 1600);
+    await refreshAgentRegistry();
+  } catch (e) {
+    toast('保存失败：' + e.message, 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function resetAgentPolicy(profileId, button = null) {
+  try {
+    if (button) button.disabled = true;
+    await api(`/api/agent-registry/profiles/${encodeURIComponent(profileId)}/governance`, {
+      method: 'DELETE',
+    });
+    agentRegistryState.classification = null;
+    toast('Agent 治理策略已重置', 'success', 1600);
+    await refreshAgentRegistry();
+  } catch (e) {
+    toast('重置失败：' + e.message, 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function runAgentPreview() {
+  const root = $('#agentPreviewResult');
+  const text = ($('#agentPreviewText')?.value || '').trim();
+  const affectedFilesText = ($('#agentPreviewFiles')?.value || '').trim();
+  const role = $('#agentPreviewRole')?.value || 'dev';
+  agentRegistryState.text = text;
+  agentRegistryState.affectedFiles = affectedFilesText;
+  agentRegistryState.memberRole = role;
+  if (!text) {
+    root.innerHTML = '<div class="agent-empty">先输入任务文本。</div>';
+    return;
+  }
+  root.innerHTML = '<div class="muted small">预演中…</div>';
+  try {
+    const result = await api('/api/agent-registry/classify', {
+      method: 'POST',
+      body: JSON.stringify({
+        text,
+        codeContext: {
+          affectedFiles: parseAgentPreviewFiles(affectedFilesText),
+          evidence: agentRegistryState.codeContextEvidence || [],
+          symbolGraph: agentRegistryState.codeContextGraph || {},
+        },
+        member: { adapterId: 'preview', role, displayName: `Preview ${role}` },
+        room: { name: 'Agent Preview', topic: text, skills: [] },
+      }),
+    });
+    agentRegistryState.classification = result;
+    root.innerHTML = renderAgentClassification(result);
+  } catch (e) {
+    root.innerHTML = `<div class="agent-empty error">预演失败：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function agentPreviewCwd() {
+  return roomState?.activeRoom?.cwd || state.activeCwd || '';
+}
+
+function renderAgentChangedFilesInfo(info = null) {
+  if (!info) return '';
+  if (info.error) return `<span class="error">${escapeHtml(info.error)}</span>`;
+  const tags = Array.isArray(info.tags) && info.tags.length
+    ? ` · ${info.tags.slice(0, 5).map(tag => `${escapeHtml(tag.tag)}:${escapeHtml(tag.score)}`).join(' ')}`
+    : '';
+  const evidence = info.evidenceSummary && info.evidenceSummary.fileCount
+    ? ` · ${escapeHtml(info.evidenceSummary.symbolCount || 0)} symbols · ${escapeHtml(info.evidenceSummary.anchorCount || 0)} anchors`
+    : '';
+  if (info.mode === 'codebase-map') {
+    return `<span>${escapeHtml(info.count || 0)} focus files from ${escapeHtml(info.scannedFileCount || 0)} scanned${tags}${evidence}</span>`;
+  }
+  return `<span>${escapeHtml(info.count || 0)} changed files${tags}${evidence}</span>`;
+}
+
+async function loadAgentChangedFiles(button = null) {
+  try {
+    if (button) button.disabled = true;
+    const cwd = agentPreviewCwd();
+    const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
+    const result = await api('/api/agent-registry/changed-files' + qs);
+    const paths = (result.files || []).map(file => file.path).filter(Boolean);
+    agentRegistryState.affectedFiles = paths.join('\n');
+    agentRegistryState.codeContextEvidence = result.codeContextEvidence || [];
+    agentRegistryState.codeContextGraph = result.codeContextGraph || null;
+    agentRegistryState.codebaseMap = null;
+    agentRegistryState.changedFilesInfo = {
+      count: paths.length,
+      tags: result.codeContextSignals?.tags || [],
+      evidenceSummary: result.codeContextEvidenceSummary || null,
+    };
+    const input = $('#agentPreviewFiles');
+    if (input) input.value = agentRegistryState.affectedFiles;
+    const info = $('#agentPreviewFilesInfo');
+    if (info) info.innerHTML = renderAgentChangedFilesInfo(agentRegistryState.changedFilesInfo);
+  } catch (e) {
+    agentRegistryState.codeContextEvidence = [];
+    agentRegistryState.codeContextGraph = null;
+    agentRegistryState.changedFilesInfo = { error: e.message || '读取当前变更失败' };
+    const info = $('#agentPreviewFilesInfo');
+    if (info) info.innerHTML = renderAgentChangedFilesInfo(agentRegistryState.changedFilesInfo);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function loadAgentCodebaseMap(button = null) {
+  try {
+    if (button) button.disabled = true;
+    const cwd = agentPreviewCwd();
+    const query = ($('#agentPreviewText')?.value || '').trim();
+    const params = new URLSearchParams();
+    if (cwd) params.set('cwd', cwd);
+    if (query) params.set('q', query);
+    params.set('limit', '24');
+    const result = await api('/api/agent-registry/codebase-map?' + params.toString());
+    const map = result || {};
+    const paths = (map.focusFiles || []).map(file => file.path).filter(Boolean);
+    agentRegistryState.affectedFiles = paths.join('\n');
+    agentRegistryState.codeContextEvidence = map.evidence || [];
+    agentRegistryState.codeContextGraph = map.symbolGraph || null;
+    agentRegistryState.codebaseMap = map;
+    agentRegistryState.changedFilesInfo = {
+      mode: 'codebase-map',
+      count: paths.length,
+      scannedFileCount: map.scannedFileCount || 0,
+      tags: map.codeContextSignals?.tags || [],
+      evidenceSummary: map.evidenceSummary || null,
+    };
+    const input = $('#agentPreviewFiles');
+    if (input) input.value = agentRegistryState.affectedFiles;
+    const info = $('#agentPreviewFilesInfo');
+    if (info) info.innerHTML = renderAgentChangedFilesInfo(agentRegistryState.changedFilesInfo);
+  } catch (e) {
+    agentRegistryState.codeContextEvidence = [];
+    agentRegistryState.codeContextGraph = null;
+    agentRegistryState.codebaseMap = null;
+    agentRegistryState.changedFilesInfo = { error: e.message || '构建工程地图失败' };
+    const info = $('#agentPreviewFilesInfo');
+    if (info) info.innerHTML = renderAgentChangedFilesInfo(agentRegistryState.changedFilesInfo);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function parseAgentPreviewFiles(text) {
+  return String(text || '')
+    .split(/[\n,]+/)
+    .map(line => line.replace(/^[ MADRCU?!]{1,3}\s+/, '').trim())
+    .filter(Boolean)
+    .slice(0, 40);
+}
+
+function renderAgentClassification(result) {
+  const matches = result.matches || [];
+  return `
+    <div class="agent-preview-profile">
+      <strong>${escapeHtml(result.profile?.title || 'No profile')}</strong>
+      <code>${escapeHtml(result.profile?.id || '-')}</code>
+    </div>
+    ${renderAgentGovernance(result.governance || result.profile?.governance, { overridden: result.profile?.governanceOverridden })}
+    <div class="agent-match-list">
+      ${matches.length ? matches.map(match => `
+        <div class="agent-match-row">
+          <strong>${escapeHtml(match.tag)}</strong>
+          <span>${escapeHtml(match.agentId)} · score ${escapeHtml(match.score)}${match.codeScore ? ` · code ${escapeHtml(match.codeScore)}` : ''}</span>
+          <em>${renderAgentMatchEvidence(match)}</em>
+        </div>
+      `).join('') : '<div class="agent-empty">没有命中 tag，会走角色 fallback。</div>'}
+    </div>
+    ${renderAgentCodeContext(result.codeContextSignals)}
+    ${renderAgentCodebaseMap(agentRegistryState.codebaseMap)}
+    ${renderAgentSymbolGraph(result.codeContextGraph || agentRegistryState.codeContextGraph, result.codeContextGraphSummary || agentRegistryState.codebaseMap?.symbolGraphSummary)}
+    ${renderAgentCodeEvidence(result.codeContextEvidence, result.codeContextEvidenceSummary)}
+    <div class="agent-preview-skills">
+      <div><b>Installed</b> ${renderAgentSkillBindingPills(result.installedSkillBindings, result.installedSkillNames, 'ok')}</div>
+      <div><b>Missing</b> ${(result.missingSkillNames || []).map(s => `<span class="missing">${escapeHtml(s)}</span>`).join('') || '<span class="ok">none</span>'}</div>
+    </div>
+    ${renderAgentSkillDiagnostics(result.skillDiagnostics)}
+    <pre class="agent-prompt-preview"><code>${escapeHtml(result.promptPreview || '')}</code></pre>
+  `;
+}
+
+function renderAgentMatchEvidence(match) {
+  const text = [];
+  if ((match.matched || []).length) text.push(`text: ${(match.matched || []).join(', ')}`);
+  if ((match.contextReasons || []).length) text.push(`code: ${(match.contextReasons || []).join(', ')}`);
+  if ((match.contextPaths || []).length) text.push(`files: ${(match.contextPaths || []).slice(0, 3).join(', ')}`);
+  return escapeHtml(text.join(' · ') || 'no keyword detail');
+}
+
+function renderAgentCodeContext(codeContextSignals = null) {
+  const tags = Array.isArray(codeContextSignals?.tags) ? codeContextSignals.tags : [];
+  if (tags.length === 0) return '';
+  return `<div class="agent-code-context">
+    <div class="agent-code-context-head">
+      <strong>Code Context</strong>
+      <span>${escapeHtml(codeContextSignals.signalFileCount || 0)}/${escapeHtml(codeContextSignals.fileCount || 0)} files signaled</span>
+    </div>
+    <div class="agent-code-context-list">
+      ${tags.slice(0, 6).map(tag => `
+        <div class="agent-code-context-row">
+          <strong>${escapeHtml(tag.tag)}</strong>
+          <span>score ${escapeHtml(tag.score)} · ${(tag.reasons || []).slice(0, 3).map(escapeHtml).join(', ') || 'path signal'}</span>
+          <em>${(tag.paths || []).slice(0, 4).map(escapeHtml).join(', ')}</em>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
+}
+
+function renderAgentCodebaseMap(map = null) {
+  if (!map || !Array.isArray(map.focusFiles) || map.focusFiles.length === 0) return '';
+  const edges = Array.isArray(map.graph?.edges) ? map.graph.edges : [];
+  const files = map.focusFiles.slice(0, 8);
+  return `<div class="agent-codebase-map">
+    <div class="agent-code-context-head">
+      <strong>Codebase Map</strong>
+      <span>${escapeHtml(map.scannedFileCount || 0)} scanned · ${escapeHtml(map.focusFileCount || files.length)} focus · ${escapeHtml(map.graph?.edgeCount || 0)} edges</span>
+    </div>
+    <div class="agent-codebase-focus">
+      ${files.map(file => `<div class="agent-codebase-focus-row">
+        <strong>${escapeHtml(file.path)}</strong>
+        <span>score ${escapeHtml(file.score || 0)} · ${(file.reasons || []).slice(0, 4).map(escapeHtml).join(', ') || 'project priority'}</span>
+      </div>`).join('')}
+    </div>
+    ${edges.length ? `<div class="agent-codebase-edges">
+      ${edges.slice(0, 8).map(edge => `<span>${escapeHtml(edge.from)} → ${escapeHtml(edge.to)}</span>`).join('')}
+    </div>` : ''}
+  </div>`;
+}
+
+function renderAgentSymbolGraph(graph = null, summary = null) {
+  const data = graph || {};
+  const definitions = Array.isArray(data.definitions) ? data.definitions : [];
+  const refs = Array.isArray(data.references) ? data.references : [];
+  const routes = Array.isArray(data.routes) ? data.routes : [];
+  const usages = Array.isArray(data.routeUsages) ? data.routeUsages : [];
+  if (definitions.length === 0 && routes.length === 0) return '';
+  const meta = summary || data;
+  const topDefinitions = definitions
+    .slice()
+    .sort((a, b) => ((b.referenceCount || 0) + (b.callCount || 0)) - ((a.referenceCount || 0) + (a.callCount || 0)) || String(a.name).localeCompare(String(b.name)))
+    .slice(0, 6);
+  return `<div class="agent-symbol-graph">
+    <div class="agent-code-context-head">
+      <strong>Symbol Graph</strong>
+      <span>${escapeHtml(meta.definitionCount || definitions.length)} defs · ${escapeHtml(meta.referenceCount || refs.length)} refs · ${escapeHtml(meta.callCount || refs.filter(item => item.kind === 'call').length)} calls · ${escapeHtml(meta.routeUsageCount || usages.length)} route uses</span>
+    </div>
+    <div class="agent-symbol-list">
+      ${topDefinitions.map(item => `<div class="agent-symbol-row">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span>${escapeHtml(item.type || 'symbol')} · ${escapeHtml(item.path)}:${escapeHtml(item.line)}</span>
+        <em>${escapeHtml(item.referenceCount || 0)} refs · ${escapeHtml(item.callCount || 0)} calls</em>
+      </div>`).join('')}
+    </div>
+    ${routes.length ? `<div class="agent-symbol-routes">
+      ${routes.slice(0, 6).map(item => `<span>${escapeHtml(item.route)} · ${escapeHtml(item.usageCount || 0)} uses</span>`).join('')}
+    </div>` : ''}
+  </div>`;
+}
+
+function renderAgentCodeEvidence(evidence = [], summary = null) {
+  const list = Array.isArray(evidence) ? evidence : [];
+  const meta = summary || {};
+  const visible = list.filter(file => (file.symbols || []).length || (file.anchors || []).length || (file.imports || []).length).slice(0, 6);
+  if (visible.length === 0) return '';
+  const parserCounts = meta.parserCounts && typeof meta.parserCounts === 'object' ? meta.parserCounts : {};
+  const parserText = Object.entries(parserCounts)
+    .filter(([, count]) => Number(count) > 0)
+    .slice(0, 3)
+    .map(([parser, count]) => `${parser}:${count}`)
+    .join(' · ');
+  return `<div class="agent-code-evidence">
+    <div class="agent-code-context-head">
+      <strong>Code Evidence</strong>
+      <span>${escapeHtml(meta.symbolCount || 0)} symbols · ${escapeHtml(meta.anchorCount || 0)} anchors · ${escapeHtml(meta.importCount || 0)} imports · ${escapeHtml(meta.referenceCount || 0)} refs${parserText ? ` · ${escapeHtml(parserText)}` : ''}</span>
+    </div>
+    <div class="agent-code-evidence-list">
+      ${visible.map(file => {
+        const symbols = (file.symbols || []).slice(0, 5).map(item => `${item.name}:${item.line}`);
+        const anchors = (file.anchors || []).slice(0, 4).map(item => `${item.kind}:${item.name}:${item.line}`);
+        const imports = (file.imports || []).slice(0, 4).map(item => item.source);
+        const parser = file.parser ? `/${file.parser}` : '';
+        return `<div class="agent-code-evidence-row">
+          <strong>${escapeHtml(file.path)}</strong>
+          <span>${escapeHtml(`${file.language || 'text'}${parser}`)} · ${(symbols.length ? `symbols ${symbols.join(', ')}` : 'no symbols')}</span>
+          <em>${escapeHtml([anchors.length ? `anchors ${anchors.join(', ')}` : '', imports.length ? `imports ${imports.join(', ')}` : ''].filter(Boolean).join(' · ') || 'no anchors')}</em>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function renderAgentSkillBindingPills(bindings = [], fallbackNames = [], cls = 'ok') {
+  const list = Array.isArray(bindings) && bindings.length > 0
+    ? bindings
+    : (fallbackNames || []).map(name => ({ name, sources: [] }));
+  if (list.length === 0) return '<span class="missing">none</span>';
+  return list.map((binding) => {
+    const sources = Array.isArray(binding.sources) ? binding.sources.filter(Boolean) : [];
+    const sourceText = sources.join(' + ');
+    return `<span class="${cls}" title="${escapeHtml(sourceText || 'source unknown')}">${escapeHtml(binding.name)}${sourceText ? `<em>${escapeHtml(sourceText)}</em>` : ''}</span>`;
+  }).join('');
+}
+
+function renderAgentSkillDiagnostics(diagnostics = []) {
+  const list = Array.isArray(diagnostics) ? diagnostics : [];
+  if (list.length === 0) return '';
+  return `<div class="agent-skill-diagnostics">
+    ${list.map((item) => `
+      <div class="agent-skill-diagnostic ${escapeHtml(item.severity || 'info')}">
+        <strong>${escapeHtml(item.code || 'skill_diagnostic')}</strong>
+        <span>${escapeHtml(item.message || '')}</span>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+$('#btnAgentRegistry')?.addEventListener('click', openAgentRegistryModal);
+document.querySelectorAll('[data-close-agent-registry]').forEach(el => el.addEventListener('click', closeAgentRegistryModal));
+
+// ========== Codebase Center ==========
+const codebaseCenterState = {
+  status: null,
+  results: [],
+  query: 'Agent 图谱入口 DOM handler',
+  error: '',
+  loading: false,
+  cwd: '',
+  lastResult: null,
+};
+
+function codebaseCenterCwd() {
+  return codebaseCenterState.cwd || agentPreviewCwd() || state.activeCwd || '';
+}
+
+async function openCodebaseCenterModal() {
+  codebaseCenterState.cwd = codebaseCenterCwd();
+  if (!codebaseCenterState.query && agentRegistryState.text) codebaseCenterState.query = agentRegistryState.text;
+  $('#codebaseCenterModal').style.display = 'flex';
+  renderCodebaseCenter();
+  await refreshCodebaseStatus();
+}
+
+function closeCodebaseCenterModal() {
+  $('#codebaseCenterModal').style.display = 'none';
+}
+
+function codebaseStatusText(status = null) {
+  if (!status || !status.indexedAt) return 'not indexed';
+  const parts = [
+    `${status.scannedFileCount || 0} scanned`,
+    `${status.focusFileCount || 0} focus`,
+  ];
+  if (status.evidenceSummary?.symbolCount) parts.push(`${status.evidenceSummary.symbolCount} symbols`);
+  if (status.symbolGraphSummary?.routeUsageCount) parts.push(`${status.symbolGraphSummary.routeUsageCount} route uses`);
+  return parts.join(' · ');
+}
+
+function renderCodebaseCenter() {
+  const root = $('#codebaseCenterBody');
+  if (!root) return;
+  const status = codebaseCenterState.status;
+  const results = codebaseCenterState.results || [];
+  root.innerHTML = `
+    <div class="codebase-center-head">
+      <label>
+        <span>Project</span>
+        <input id="codebaseCenterCwd" type="text" value="${escapeHtml(codebaseCenterCwd())}" placeholder="留空 = 当前 panel cwd" />
+      </label>
+      <div class="codebase-index-status">
+        <strong>${escapeHtml(status?.ok === false ? 'error' : 'ready')}</strong>
+        <span>${escapeHtml(codebaseStatusText(status))}</span>
+        <em>${status?.indexedAt ? escapeHtml(activityTime(status.indexedAt)) : '-'}</em>
+      </div>
+    </div>
+    <div class="codebase-query-bar">
+      <input id="codebaseQueryInput" type="search" value="${escapeHtml(codebaseCenterState.query)}" placeholder="查询代码问题，例如：RoomAdapter 在哪里处理预算？" />
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="codebaseRebuildBtn">${codebaseCenterState.loading === 'rebuild' ? '重建中…' : 'Rebuild'}</button>
+      <button class="cxbtn cxbtn-primary cxbtn-sm" id="codebaseQueryBtn">${codebaseCenterState.loading === 'query' ? '查询中…' : 'Query'}</button>
+    </div>
+    ${codebaseCenterState.error ? `<div class="agent-empty error">${escapeHtml(codebaseCenterState.error)}</div>` : ''}
+    <div class="codebase-result-actions">
+      <span>${escapeHtml(results.length)} results</span>
+      <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="codebaseAddAll" ${results.length ? '' : 'disabled'}>添加结果到 Dispatch Preview</button>
+      <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="codebaseOpenDispatch">打开 Dispatch Preview</button>
+    </div>
+    <div class="codebase-results">
+      ${results.length ? results.map(renderCodebaseResult).join('') : `<div class="agent-empty">${codebaseCenterState.loading ? '等待索引结果…' : '输入问题后查询本地代码索引。'}</div>`}
+    </div>
+  `;
+  bindCodebaseCenterEvents(root);
+}
+
+function renderCodebaseResult(item, idx) {
+  const symbols = Array.isArray(item.symbols) ? item.symbols : [];
+  const routes = Array.isArray(item.routes) ? item.routes : [];
+  return `<article class="codebase-result-card">
+    <div class="codebase-result-title">
+      <strong>${escapeHtml(item.path || '-')}<span>:${escapeHtml(item.line || 1)}</span></strong>
+      <em>score ${escapeHtml(item.score || 0)} · ${escapeHtml(item.parser || 'unknown')}</em>
+    </div>
+    <div class="codebase-result-meta">
+      <span>${escapeHtml(item.kind || 'file')}</span>
+      ${item.anchor ? `<span>${escapeHtml(item.anchor)}</span>` : ''}
+    </div>
+    ${item.text ? `<pre class="codebase-result-snippet"><code>${escapeHtml(item.text)}</code></pre>` : ''}
+    <div class="codebase-result-reasons">
+      ${(item.reason || []).slice(0, 9).map(reason => `<span>${escapeHtml(reason)}</span>`).join('')}
+    </div>
+    ${symbols.length || routes.length ? `<div class="codebase-result-evidence">
+      ${symbols.slice(0, 5).map(symbol => `<span>${escapeHtml(symbol.name)}:${escapeHtml(symbol.line || 1)}</span>`).join('')}
+      ${routes.slice(0, 5).map(route => `<span>${escapeHtml(route.name || route.route || route.kind)}</span>`).join('')}
+    </div>` : ''}
+    <div class="codebase-result-footer">
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" data-codebase-add="${idx}">添加到 Dispatch Preview</button>
+    </div>
+  </article>`;
+}
+
+function bindCodebaseCenterEvents(root) {
+  $('#codebaseCenterCwd')?.addEventListener('change', (e) => {
+    codebaseCenterState.cwd = e.target.value.trim();
+    refreshCodebaseStatus();
+  });
+  $('#codebaseQueryInput')?.addEventListener('input', (e) => {
+    codebaseCenterState.query = e.target.value;
+  });
+  $('#codebaseQueryInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runCodebaseQuery();
+  });
+  $('#codebaseRebuildBtn')?.addEventListener('click', rebuildCodebaseIndex);
+  $('#codebaseQueryBtn')?.addEventListener('click', runCodebaseQuery);
+  $('#codebaseAddAll')?.addEventListener('click', () => addCodebaseResultsToDispatch(codebaseCenterState.results));
+  $('#codebaseOpenDispatch')?.addEventListener('click', openDispatchPreviewFromCodebase);
+  root.querySelectorAll('[data-codebase-add]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.codebaseAdd);
+      const item = codebaseCenterState.results[idx];
+      addCodebaseResultsToDispatch(item ? [item] : []);
+    });
+  });
+}
+
+async function refreshCodebaseStatus() {
+  try {
+    const params = new URLSearchParams();
+    const cwd = codebaseCenterCwd();
+    if (cwd) params.set('cwd', cwd);
+    const result = await api('/api/codebase-index/status' + (params.toString() ? '?' + params.toString() : ''));
+    codebaseCenterState.status = result.status || null;
+    codebaseCenterState.error = '';
+  } catch (e) {
+    codebaseCenterState.error = e.message || '读取 Codebase Index 状态失败';
+  }
+  renderCodebaseCenter();
+}
+
+async function rebuildCodebaseIndex() {
+  codebaseCenterState.loading = 'rebuild';
+  codebaseCenterState.error = '';
+  renderCodebaseCenter();
+  try {
+    const result = await api('/api/codebase-index/rebuild', {
+      method: 'POST',
+      body: JSON.stringify({
+        cwd: codebaseCenterCwd(),
+        query: codebaseCenterState.query,
+        focusLimit: 24,
+      }),
+    });
+    codebaseCenterState.status = result.status || null;
+    codebaseCenterState.lastResult = result.map || null;
+    toast('Codebase Index 已重建', 'success', 1600);
+  } catch (e) {
+    codebaseCenterState.error = e.message || '重建 Codebase Index 失败';
+  } finally {
+    codebaseCenterState.loading = false;
+    renderCodebaseCenter();
+  }
+}
+
+async function runCodebaseQuery() {
+  const query = (codebaseCenterState.query || '').trim();
+  if (!query) {
+    codebaseCenterState.error = '请输入查询问题。';
+    renderCodebaseCenter();
+    return;
+  }
+  codebaseCenterState.loading = 'query';
+  codebaseCenterState.error = '';
+  renderCodebaseCenter();
+  try {
+    const result = await api('/api/codebase-index/query', {
+      method: 'POST',
+      body: JSON.stringify({
+        cwd: codebaseCenterCwd(),
+        query,
+        maxResults: 20,
+        focusLimit: 24,
+      }),
+    });
+    codebaseCenterState.results = result.results || [];
+    codebaseCenterState.status = result.status || codebaseCenterState.status;
+    codebaseCenterState.lastResult = result;
+  } catch (e) {
+    codebaseCenterState.error = e.message || '查询 Codebase Index 失败';
+    codebaseCenterState.results = [];
+  } finally {
+    codebaseCenterState.loading = false;
+    renderCodebaseCenter();
+  }
+}
+
+function codebaseResultToEvidence(item) {
+  if (!item?.path) return null;
+  return {
+    path: item.path,
+    language: item.path.endsWith('.css') ? 'css' : item.path.endsWith('.html') ? 'html' : item.path.endsWith('.md') ? 'markdown' : 'javascript',
+    parser: item.parser || 'unknown',
+    symbols: Array.isArray(item.symbols) ? item.symbols : [],
+    imports: [],
+    anchors: Array.isArray(item.routes) ? item.routes : [],
+    snippets: item.text ? [{ line: item.line || 1, reason: (item.reason || []).slice(0, 3).join(', ') || 'codebase-query', text: item.text }] : [],
+    references: [],
+  };
+}
+
+function addCodebaseResultsToDispatch(items = []) {
+  const list = (items || []).filter(item => item?.path);
+  if (!list.length) return;
+  const existing = parseAgentPreviewFiles(agentRegistryState.affectedFiles);
+  const paths = [...new Set([...existing, ...list.map(item => item.path)])].slice(0, 40);
+  const evidenceByPath = new Map((agentRegistryState.codeContextEvidence || []).map(item => [item.path, item]));
+  for (const item of list) {
+    const evidence = codebaseResultToEvidence(item);
+    if (evidence) evidenceByPath.set(evidence.path, evidence);
+  }
+  agentRegistryState.affectedFiles = paths.join('\n');
+  agentRegistryState.codeContextEvidence = [...evidenceByPath.values()].slice(0, 24);
+  agentRegistryState.codeContextGraph = null;
+  agentRegistryState.codebaseMap = null;
+  agentRegistryState.changedFilesInfo = {
+    mode: 'codebase-query',
+    count: paths.length,
+    evidenceSummary: {
+      fileCount: agentRegistryState.codeContextEvidence.length,
+      symbolCount: agentRegistryState.codeContextEvidence.reduce((sum, file) => sum + (file.symbols || []).length, 0),
+      anchorCount: agentRegistryState.codeContextEvidence.reduce((sum, file) => sum + (file.anchors || []).length, 0),
+    },
+  };
+  if (codebaseCenterState.query) agentRegistryState.text = codebaseCenterState.query;
+  if ($('#agentRegistryModal')?.style.display === 'flex') renderAgentRegistryModal();
+  toast(`已添加 ${list.length} 条代码证据到 Dispatch Preview`, 'success', 1800);
+}
+
+async function openDispatchPreviewFromCodebase() {
+  codebaseCenterState.query = ($('#codebaseQueryInput')?.value || codebaseCenterState.query || '').trim();
+  closeCodebaseCenterModal();
+  agentRegistryState.activeTab = 'dispatch';
+  await openAgentRegistryModal();
+}
+
+$('#btnCodebaseCenter')?.addEventListener('click', openCodebaseCenterModal);
+document.querySelectorAll('[data-close-codebase-center]').forEach(el => el.addEventListener('click', closeCodebaseCenterModal));
+
 // ========== 本地审批中心 ==========
 const approvalState = {
   status: 'pending',
@@ -6769,8 +7934,13 @@ const activityState = {
     sessionId: '',
     taskId: '',
     entityType: '',
+    entityId: '',
     severity: '',
     status: '',
+    agentOnly: false,
+    agentProfileId: '',
+    skillName: '',
+    diagnosticCode: '',
     limit: 200,
   },
 };
@@ -6802,6 +7972,66 @@ function activityScopeLine(e) {
   if (e.entityType || e.entityId) parts.push(`${e.entityType || 'entity'}:${e.entityId || '-'}`);
   return parts.join(' · ') || 'global';
 }
+function activityAsArray(value) {
+  if (value === null || value === undefined || value === '') return [];
+  return Array.isArray(value) ? value : [value];
+}
+function activityCollectValues(value, out = []) {
+  if (value === null || value === undefined || value === '') return out;
+  if (Array.isArray(value)) {
+    value.forEach(item => activityCollectValues(item, out));
+    return out;
+  }
+  if (typeof value === 'object') {
+    if (value.name) out.push(value.name);
+    else if (value.id) out.push(value.id);
+    return out;
+  }
+  out.push(value);
+  return out;
+}
+function activityUniqueStrings(values) {
+  return [...new Set(activityCollectValues(values).map(v => String(v).trim()).filter(Boolean))];
+}
+function activityAgentProfileIds(e) {
+  const d = e.details || {};
+  const ids = [];
+  if (e.entityType === 'agent_profile' && e.entityId) ids.push(e.entityId);
+  ids.push(d.agentProfileId, d.profileId, d.agentProfile?.id, d.agent?.profileId);
+  return activityUniqueStrings(ids);
+}
+function activitySkillBindings(e) {
+  const d = e.details || {};
+  return [...activityAsArray(d.agentSkillBindings), ...activityAsArray(d.skillBindings)]
+    .filter(item => item && typeof item === 'object' && item.name);
+}
+function activitySkillNames(e) {
+  const d = e.details || {};
+  return activityUniqueStrings([
+    d.agentSkillNames,
+    d.skillNames,
+    d.skills,
+    d.agentSkillBindings,
+    d.skillBindings,
+  ]);
+}
+function activityDispatchTags(e) {
+  const d = e.details || {};
+  return activityUniqueStrings([d.agentDispatchTags, d.dispatchTags]);
+}
+function activityDiagnosticItems(e) {
+  const d = e.details || {};
+  return [...activityAsArray(d.diagnostics), ...activityAsArray(d.agentSkillDiagnostics)]
+    .map(item => (typeof item === 'string' ? { code: item } : item))
+    .filter(item => item && typeof item === 'object' && (item.code || item.message));
+}
+function isAgentActivityEvent(e) {
+  const action = String(e.action || '');
+  return action.startsWith('agent.')
+    || activityAgentProfileIds(e).length > 0
+    || activitySkillNames(e).length > 0
+    || activityDiagnosticItems(e).length > 0;
+}
 function filteredActivityEvents() {
   const q = (activityState.filters.q || '').trim().toLowerCase();
   if (!q) return activityState.events || [];
@@ -6810,7 +8040,11 @@ function filteredActivityEvents() {
 function activityApiParams() {
   const f = activityState.filters;
   const params = new URLSearchParams();
-  for (const key of ['action', 'roomId', 'sessionId', 'taskId', 'entityType', 'severity', 'status']) {
+  for (const key of ['action', 'roomId', 'sessionId', 'taskId', 'entityType', 'entityId', 'severity', 'status']) {
+    if (f[key]) params.set(key, f[key]);
+  }
+  if (f.agentOnly) params.set('agentOnly', '1');
+  for (const key of ['agentProfileId', 'skillName', 'diagnosticCode']) {
     if (f[key]) params.set(key, f[key]);
   }
   params.set('limit', String(Math.max(1, Math.min(1000, Number(f.limit) || 200))));
@@ -6822,6 +8056,12 @@ async function openActivityModal(seed = {}) {
   if (seed.roomId) activityState.filters.roomId = seed.roomId;
   if (seed.sessionId) activityState.filters.sessionId = seed.sessionId;
   if (seed.taskId) activityState.filters.taskId = seed.taskId;
+  if (seed.entityType) activityState.filters.entityType = seed.entityType;
+  if (seed.entityId) activityState.filters.entityId = seed.entityId;
+  if (seed.agentOnly) activityState.filters.agentOnly = true;
+  if (seed.agentProfileId) activityState.filters.agentProfileId = seed.agentProfileId;
+  if (seed.skillName) activityState.filters.skillName = seed.skillName;
+  if (seed.diagnosticCode) activityState.filters.diagnosticCode = seed.diagnosticCode;
   await refreshActivity();
 }
 function closeActivityModal() { $('#activityModal').style.display = 'none'; }
@@ -6852,18 +8092,36 @@ function renderActivityModal() {
   const errorCount = events.filter(e => ['error', 'warn', 'warning'].includes(String(e.severity || '').toLowerCase()) || String(e.status || '').toLowerCase().includes('error')).length;
   const roomCount = new Set(events.map(e => e.roomId).filter(Boolean)).size;
   const actionCount = new Set(events.map(e => e.action).filter(Boolean)).size;
+  const agentCount = events.filter(isAgentActivityEvent).length;
+  const diagnosticCount = events.reduce((sum, e) => sum + activityDiagnosticItems(e).length, 0);
   const currentRoomBtn = roomState.activeId
     ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" id="activityUseCurrentRoom">当前房间</button>`
     : '';
+  const allPresetActive = !activityState.filters.agentOnly
+    && !activityState.filters.action
+    && !activityState.filters.agentProfileId
+    && !activityState.filters.skillName
+    && !activityState.filters.diagnosticCode;
 
   root.innerHTML = `
+    <div class="activity-filter-presets">
+      <button class="cxbtn cxbtn-tertiary cxbtn-sm ${allPresetActive ? 'is-active' : ''}" data-activity-preset="all">全部</button>
+      <button class="cxbtn cxbtn-tertiary cxbtn-sm ${activityState.filters.agentOnly && !activityState.filters.action ? 'is-active' : ''}" data-activity-preset="agent">Agent/Skill</button>
+      <button class="cxbtn cxbtn-tertiary cxbtn-sm ${activityState.filters.action === 'agent.skill_diagnostics' || activityState.filters.diagnosticCode ? 'is-active' : ''}" data-activity-preset="diagnostics">诊断</button>
+      <button class="cxbtn cxbtn-tertiary cxbtn-sm ${activityState.filters.action === 'metrics.recorded' ? 'is-active' : ''}" data-activity-preset="metrics">Metrics</button>
+      ${currentRoomBtn}
+    </div>
     <div class="activity-toolbar">
-      <input id="activitySearch" type="search" placeholder="搜索 action / room / task / details" value="${escapeHtml(activityState.filters.q)}" />
+      <input class="activity-search-field" id="activitySearch" type="search" placeholder="搜索 action / room / task / details" value="${escapeHtml(activityState.filters.q)}" />
       <input id="activityAction" type="text" placeholder="action 精确过滤" value="${escapeHtml(activityState.filters.action)}" />
       <input id="activityRoomId" type="text" placeholder="roomId" value="${escapeHtml(activityState.filters.roomId)}" />
       <input id="activitySessionId" type="text" placeholder="sessionId" value="${escapeHtml(activityState.filters.sessionId)}" />
       <input id="activityTaskId" type="text" placeholder="taskId" value="${escapeHtml(activityState.filters.taskId)}" />
       <input id="activityEntityType" type="text" placeholder="entityType" value="${escapeHtml(activityState.filters.entityType)}" />
+      <input id="activityEntityId" type="text" placeholder="entityId" value="${escapeHtml(activityState.filters.entityId)}" />
+      <input id="activityAgentProfileId" type="text" placeholder="agentProfileId" value="${escapeHtml(activityState.filters.agentProfileId)}" />
+      <input id="activitySkillName" type="text" placeholder="skill" value="${escapeHtml(activityState.filters.skillName)}" />
+      <input id="activityDiagnosticCode" type="text" placeholder="diagnostic code" value="${escapeHtml(activityState.filters.diagnosticCode)}" />
       <select id="activitySeverity">
         <option value="" ${activityState.filters.severity === '' ? 'selected' : ''}>severity 全部</option>
         <option value="info" ${activityState.filters.severity === 'info' ? 'selected' : ''}>info</option>
@@ -6874,7 +8132,7 @@ function renderActivityModal() {
       <select id="activityLimit">
         ${[100, 200, 500, 1000].map(n => `<option value="${n}" ${Number(activityState.filters.limit) === n ? 'selected' : ''}>${n}</option>`).join('')}
       </select>
-      ${currentRoomBtn}
+      <label class="activity-toggle"><input id="activityAgentOnly" type="checkbox" ${activityState.filters.agentOnly ? 'checked' : ''} /><span>Agent/Skill</span></label>
       <button class="cxbtn cxbtn-secondary cxbtn-sm" id="activityClearFilters">清空</button>
       <button class="cxbtn cxbtn-primary cxbtn-sm" id="activityRefresh">刷新</button>
     </div>
@@ -6882,6 +8140,8 @@ function renderActivityModal() {
       <span><strong>${events.length}</strong> events</span>
       <span><strong>${actionCount}</strong> actions</span>
       <span><strong>${roomCount}</strong> rooms</span>
+      <span><strong>${agentCount}</strong> agent/skill</span>
+      <span class="${diagnosticCount ? 'is-warn' : ''}"><strong>${diagnosticCount}</strong> diagnostics</span>
       <span class="${errorCount ? 'is-warn' : ''}"><strong>${errorCount}</strong> warn/error</span>
     </div>
     <div class="activity-layout">
@@ -6901,6 +8161,10 @@ function renderActivityModal() {
     ['activitySessionId', 'sessionId'],
     ['activityTaskId', 'taskId'],
     ['activityEntityType', 'entityType'],
+    ['activityEntityId', 'entityId'],
+    ['activityAgentProfileId', 'agentProfileId'],
+    ['activitySkillName', 'skillName'],
+    ['activityDiagnosticCode', 'diagnosticCode'],
     ['activitySeverity', 'severity'],
     ['activityStatus', 'status'],
     ['activityLimit', 'limit'],
@@ -6914,11 +8178,32 @@ function renderActivityModal() {
       else refreshActivity();
     });
   }
-  $('#activityRefresh')?.addEventListener('click', refreshActivity);
-  $('#activityClearFilters')?.addEventListener('click', () => {
-    activityState.filters = { q: '', action: '', roomId: '', sessionId: '', taskId: '', entityType: '', severity: '', status: '', limit: 200 };
+  $('#activityAgentOnly')?.addEventListener('change', (e) => {
+    activityState.filters.agentOnly = e.target.checked;
     activityState.activeId = null;
     refreshActivity();
+  });
+  $('#activityRefresh')?.addEventListener('click', refreshActivity);
+  $('#activityClearFilters')?.addEventListener('click', () => {
+    activityState.filters = { q: '', action: '', roomId: '', sessionId: '', taskId: '', entityType: '', entityId: '', severity: '', status: '', agentOnly: false, agentProfileId: '', skillName: '', diagnosticCode: '', limit: 200 };
+    activityState.activeId = null;
+    refreshActivity();
+  });
+  root.querySelectorAll('[data-activity-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const preset = btn.dataset.activityPreset;
+      activityState.activeId = null;
+      if (preset === 'all') {
+        Object.assign(activityState.filters, { action: '', entityType: '', entityId: '', agentOnly: false, agentProfileId: '', skillName: '', diagnosticCode: '' });
+      } else if (preset === 'agent') {
+        Object.assign(activityState.filters, { action: '', agentOnly: true, diagnosticCode: '' });
+      } else if (preset === 'diagnostics') {
+        Object.assign(activityState.filters, { action: 'agent.skill_diagnostics', agentOnly: true });
+      } else if (preset === 'metrics') {
+        Object.assign(activityState.filters, { action: 'metrics.recorded', agentOnly: true, diagnosticCode: '' });
+      }
+      refreshActivity();
+    });
   });
   $('#activityUseCurrentRoom')?.addEventListener('click', () => {
     activityState.filters.roomId = roomState.activeId || '';
@@ -6945,18 +8230,80 @@ function renderActivityModal() {
 function renderActivityItem(e) {
   const active = String(e.id) === String(activityState.activeId);
   const sev = safeClassToken(e.severity || 'info');
+  const agentHint = renderActivityItemAgentHint(e);
   return `<button class="activity-item ${active ? 'is-active' : ''} sev-${sev}" data-activity-id="${escapeHtml(e.id)}">
     <span class="activity-item-head">
       <strong>${escapeHtml(activityTitle(e))}</strong>
       <span>${activityTime(e.ts)}</span>
     </span>
     <span class="activity-item-meta">${escapeHtml(activityScopeLine(e))}</span>
+    ${agentHint}
     <span class="activity-item-foot">
       <span class="activity-severity ${sev}">${escapeHtml(e.severity || 'info')}</span>
       ${e.status ? `<span>${escapeHtml(e.status)}</span>` : ''}
       <span>${escapeHtml(e.actorType || 'system')}</span>
     </span>
   </button>`;
+}
+
+function renderActivityItemAgentHint(e) {
+  if (!isAgentActivityEvent(e)) return '';
+  const profile = activityAgentProfileIds(e)[0];
+  const skillCount = activitySkillNames(e).length;
+  const diagnosticCount = activityDiagnosticItems(e).length;
+  const parts = [];
+  if (profile) parts.push(profile);
+  if (skillCount) parts.push(`${skillCount} skills`);
+  if (diagnosticCount) parts.push(`${diagnosticCount} diagnostics`);
+  return `<span class="activity-agent-hint">${parts.map(part => `<span>${escapeHtml(part)}</span>`).join('')}</span>`;
+}
+
+function renderActivityAgentPanel(e) {
+  if (!isAgentActivityEvent(e)) return '';
+  const profiles = activityAgentProfileIds(e);
+  const tags = activityDispatchTags(e);
+  const skills = activitySkillNames(e);
+  const bindings = activitySkillBindings(e);
+  const diagnostics = activityDiagnosticItems(e);
+  const profileText = profiles.join(', ') || '-';
+  const tagsHtml = tags.length
+    ? tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')
+    : '<span>-</span>';
+  const skillsHtml = skills.length
+    ? skills.map(name => {
+      const binding = bindings.find(item => item.name === name);
+      const sources = Array.isArray(binding?.sources) ? binding.sources.filter(Boolean) : [];
+      return `<span>${escapeHtml(name)}${sources.length ? `<em>${escapeHtml(sources.join('+'))}</em>` : ''}</span>`;
+    }).join('')
+    : '<span>-</span>';
+  const diagnosticsHtml = diagnostics.length
+    ? `<div class="activity-diagnostic-list">${diagnostics.map(item => {
+      const sev = safeClassToken(item.severity || 'warn');
+      const meta = [
+        item.count !== undefined && item.limit !== undefined ? `${item.count}/${item.limit}` : '',
+        Array.isArray(item.skills) && item.skills.length ? item.skills.join(', ') : '',
+      ].filter(Boolean).join(' · ');
+      return `<div class="activity-diagnostic-row ${sev}">
+        <strong>${escapeHtml(item.code || 'diagnostic')}</strong>
+        <span>${escapeHtml(item.message || meta || '-')}</span>
+        ${meta && item.message ? `<em>${escapeHtml(meta)}</em>` : ''}
+      </div>`;
+    }).join('')}</div>`
+    : '';
+  return `
+    <div class="activity-agent-panel">
+      <div class="activity-agent-panel-head">
+        <strong>Agent / Skill</strong>
+        <span>${diagnostics.length ? `${diagnostics.length} diagnostics` : 'no diagnostics'}</span>
+      </div>
+      <div class="activity-agent-grid">
+        <div class="k">Profile</div><div class="v"><code>${escapeHtml(profileText)}</code></div>
+        <div class="k">Tags</div><div class="v activity-chip-line">${tagsHtml}</div>
+        <div class="k">Skills</div><div class="v activity-chip-line">${skillsHtml}</div>
+      </div>
+      ${diagnosticsHtml}
+    </div>
+  `;
 }
 
 function renderActivityDetail(e) {
@@ -6974,6 +8321,7 @@ function renderActivityDetail(e) {
       <div class="k">Session</div><div class="v">${e.sessionId ? `<code>${escapeHtml(e.sessionId)}</code>` : '-'}</div>
       <div class="k">Task</div><div class="v">${e.taskId ? `<code>${escapeHtml(e.taskId)}</code>` : '-'}</div>
     </div>
+    ${renderActivityAgentPanel(e)}
     <pre class="activity-json"><code>${escapeHtml(details)}</code></pre>
   `;
 }

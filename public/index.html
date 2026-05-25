@@ -36,6 +36,8 @@
       <button class="theme-toggle" id="btnOverview" title="所有房状态汇总 + token 趋势 + adapter 性能横比 + 资源健康（v0.53 Sprint 3）" aria-label="打开总览面板">📊</button>
       <button class="theme-toggle" id="btnTerminal" title="在 panel 内打开真终端（PTY，可跑 claude / git / 任意命令）" aria-label="打开内嵌终端">💻</button>
       <button class="theme-toggle" id="btnRooms" title="多 AI 聊天室：Claude/GPT/MiniMax 协同 debate 出最优方案" aria-label="打开聊天室">💬</button>
+      <button class="theme-toggle" id="btnAgentRegistry" title="Agent 图谱：查看角色、任务标签和 Skill 绑定" aria-label="打开 Agent 图谱">🧠</button>
+      <button class="theme-toggle" id="btnCodebaseCenter" title="Codebase Center：本地代码索引查询与上下文证据" aria-label="打开 Codebase Center">⌘</button>
       <button class="theme-toggle" id="btnPlugins" title="通用 CLI Plugin 中心：装 PraisonAI / iOS 工具链 / AutoGen 等任意 CLI（v0.52 W2）" aria-label="打开 Plugin 中心">🧩</button>
       <button class="theme-toggle" id="btnRoomAdapters" title="配置房间 adapter：MiniMax / Gemini API / Gemini CLI / 自定义 OpenAI 兼容" aria-label="配置 adapter">⚙️</button>
       <button class="theme-toggle" id="btnWebhooks" title="🔔 Webhook 出站推送：房间完成/失败/暂停时推 Discord/Slack/自定义 URL" aria-label="配置 Webhook">🔔</button>
@@ -251,6 +253,7 @@
             <div class="room-members-wrap">
               <div class="room-members-label">👥 成员（点下拉切模型，✕ 关此成员）</div>
               <div class="room-members" id="roomMembers"></div>
+              <div class="room-skill-bindings" id="roomSkillBindings"></div>
             </div>
             <div class="room-topic-wrap">
               <div style="display:flex;align-items:center;gap:8px;">
@@ -468,6 +471,32 @@
     <div class="ins-content" data-content="files" style="display:none;">
       <div class="file-path" id="filePath">—</div>
       <div class="file-list" id="fileList"></div>
+    </div>
+
+    <div class="modal" id="agentRegistryModal" style="display:none;">
+      <div class="modal-bg" data-close-agent-registry></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>Agent 图谱</h2>
+          <button class="btn-icon" data-close-agent-registry aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="agent-registry-modal-body" id="agentRegistryModalBody">
+          <div class="muted small" style="padding:20px;">加载中…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="codebaseCenterModal" style="display:none;">
+      <div class="modal-bg" data-close-codebase-center></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>Codebase Center</h2>
+          <button class="btn-icon" data-close-codebase-center aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="codebase-center-modal-body" id="codebaseCenterBody">
+          <div class="muted small" style="padding:20px;">加载中…</div>
+        </div>
+      </div>
     </div>
 
     <!-- 项目详情 modal -->
