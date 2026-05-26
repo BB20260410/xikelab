@@ -161,16 +161,16 @@ async function requestWithApproval(path, opts = {}) {
   return { status: 'ok', httpStatus: r.status, body };
 }
 
-// 批准指定 approval 后带 approvalId 重发原请求（不改原 body 其它字段，后端校验 action/target 完全匹配）
+// 批准指定 approval 后带 approvalId 重发原请求
+// approvalId 走 X-Panel-Approval-Id header，不改原 body（避免污染配置类入口的 payload，
+// 后端 permissionApprovalIdFromRequest 同时读 header），后端校验 action/target 完全匹配。
 async function approveAndRetryRequest(approvalId, path, opts = {}) {
   if (!approvalId) throw new Error('缺少 approvalId');
   await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
     method: 'POST',
     body: JSON.stringify({ reason: '审批后重试原操作' }),
   });
-  let bodyObj = {};
-  if (opts.body) { try { bodyObj = JSON.parse(opts.body); } catch { bodyObj = {}; } }
-  const retryOpts = { ...opts, body: JSON.stringify({ ...bodyObj, approvalId }) };
+  const retryOpts = { ...opts, headers: { ...(opts.headers || {}), 'X-Panel-Approval-Id': approvalId } };
   return requestWithApproval(path, retryOpts);
 }
 
@@ -5172,22 +5172,41 @@ function setAdapterSaveStatus(text, kind) {
 async function saveRoomAdaptersFromModal() {
   const body = collectRoomAdaptersFromDOM();
   setAdapterSaveStatus('保存中…', '');
-  try {
-    const r = await fetch('/api/room-adapters', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(x => x.json());
-    if (r?.ok) {
-      setAdapterSaveStatus(`已保存。当前可用 adapter：${(r.activeProviders || []).join(' / ')}`, 'success');
-      await refreshRoomProviders();
-      // 若已开房间，刷新成员区让新 adapter 可选
-      if (roomState.activeId) {
-        const rr = await fetch(`/api/rooms/${roomState.activeId}`).then(x => x.json());
-        if (rr?.ok) renderRoomMembers(rr.room);
-      }
-    } else {
-      setAdapterSaveStatus('保存失败：' + (r?.error || 'unknown'), 'error');
+  const path = '/api/room-adapters';
+  const opts = { method: 'PUT', body: JSON.stringify(body) };
+  const onSaved = async (r) => {
+    setAdapterSaveStatus(`已保存。当前可用 adapter：${(r?.activeProviders || []).join(' / ')}`, 'success');
+    await refreshRoomProviders();
+    // 若已开房间，刷新成员区让新 adapter 可选
+    if (roomState.activeId) {
+      const rr = await fetch(`/api/rooms/${roomState.activeId}`).then(x => x.json());
+      if (rr?.ok) renderRoomMembers(rr.room);
     }
+  };
+  try {
+    const result = await requestWithApproval(path, opts);
+    if (result.status === 'ok') { await onSaved(result.body); return; }
+    if (result.status === 'approval_required') {
+      setAdapterSaveStatus('写入 provider 配置需人工批准', '');
+      openApprovalRetryModal({
+        approvalId: result.approvalId,
+        approval: result.approval,
+        permissionDecision: result.permissionDecision,
+        actionLabel: '写入 Provider 配置',
+        onApproveRetry: async () => {
+          const retry = await approveAndRetryRequest(result.approvalId, path, opts);
+          if (retry.status === 'ok') { await onSaved(retry.body); return true; }
+          if (retry.status === 'approval_required') { setAdapterSaveStatus('审批仍未生效，请重试', 'error'); return false; }
+          setAdapterSaveStatus('重试失败：' + (retry.error || retry.status), 'error'); return false;
+        },
+      });
+      return;
+    }
+    if (result.status === 'denied') {
+      setAdapterSaveStatus('写入被拒绝：' + (result.permissionDecision?.reason || 'permission denied'), 'error');
+      return;
+    }
+    setAdapterSaveStatus('保存失败：' + (result.error || 'unknown'), 'error');
   } catch (e) {
     setAdapterSaveStatus('保存异常：' + e.message, 'error');
   }

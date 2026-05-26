@@ -1238,6 +1238,30 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       await page.waitForTimeout(100);
     }
 
+    // ── 12. P2 权限治理 UI 闭环：Room Adapter provider 配置审批后重试 ──
+    if (!ownerToken) {
+      track('12. RoomAdapter approval-retry (config write)', true, 'skipped owner-token');
+      track('12. 批准并重试后写入成功', true, 'skipped owner-token');
+    } else {
+      await page.click('#btnRoomAdapters');
+      await page.waitForSelector('#btnSaveRoomAdapters', { timeout: 3000 });
+      await page.click('#btnSaveRoomAdapters');
+      const adapterRetryShown = await page.waitForSelector('[data-approval-retry-modal]', { timeout: 4000 })
+        .then(() => true).catch(() => false);
+      track('12. RoomAdapter approval-retry (config write)', adapterRetryShown);
+      let adapterSaved = false;
+      if (adapterRetryShown) {
+        await page.click('[data-approval-retry-confirm]');
+        adapterSaved = await page.waitForFunction(() => {
+          const el = document.querySelector('#adapterSaveStatus');
+          return !!el && /已保存/.test(el.textContent || '');
+        }, { timeout: 6000 }).then(() => true).catch(() => false);
+      }
+      track('12. 批准并重试后写入成功', adapterSaved);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(100);
+    }
+
   } catch (e) {
     track('FATAL', false, e.message);
     await saveFailureArtifact(page, 'fatal');
