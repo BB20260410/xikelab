@@ -7096,39 +7096,46 @@ async function viewMcpPrompts(name) {
 async function testMcp(name) {
   const toolsArea = $('#mcpToolsArea');
   if (toolsArea) toolsArea.innerHTML = window.UI.EmptyState({ kind: 'loading', icon: '🧪', text: '测试连接中（首次连 stdio 可能 5-15s）…' });
-  try {
-    const r = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}/test`, { method: 'POST' }).then(x => x.json());
-    if (r.ok) {
-      const tools = r.tools || [];
-      toolsArea.innerHTML = `
-        <div class="mcp-form-row">
-          <label>✓ 连接成功 · ${tools.length} tools · ${r.resourcesCount} resources · ${r.promptsCount} prompts</label>
-          <div class="mcp-tools-list">
-            ${tools.length === 0 ? '<div class="muted small">此 server 未声明 tool</div>' :
-              tools.map(t => `<div class="mcp-tool-item"><div class="tname">${escapeHtml(t.name)}</div>${t.description ? `<div class="tdesc">${escapeHtml(t.description.slice(0, 200))}</div>` : ''}</div>`).join('')}
-          </div>
+  const renderTools = async (body) => {
+    const tools = body?.tools || [];
+    toolsArea.innerHTML = `
+      <div class="mcp-form-row">
+        <label>✓ 连接成功 · ${tools.length} tools · ${body?.resourcesCount} resources · ${body?.promptsCount} prompts</label>
+        <div class="mcp-tools-list">
+          ${tools.length === 0 ? '<div class="muted small">此 server 未声明 tool</div>' :
+            tools.map(t => `<div class="mcp-tool-item"><div class="tname">${escapeHtml(t.name)}</div>${t.description ? `<div class="tdesc">${escapeHtml(t.description.slice(0, 200))}</div>` : ''}</div>`).join('')}
         </div>
-      `;
-      await refreshMcpList();
-    } else {
-      toolsArea.innerHTML = window.UI.EmptyState({ kind: 'error', icon: '❌', text: '连接失败：' + (r.error || 'unknown') });
-    }
-  } catch (e) {
-    toolsArea.innerHTML = window.UI.EmptyState({ kind: 'error', icon: '❌', text: '异常：' + (e.message || '') });
-  }
+      </div>
+    `;
+    await refreshMcpList();
+  };
+  const path = `/api/mcp/servers/${encodeURIComponent(name)}/test`;
+  const opts = { method: 'POST' };
+  const result = await requestWithApproval(path, opts);
+  await handleApprovalFlow(result, path, opts, {
+    actionLabel: '连接测试 MCP server',
+    onOk: async (r) => { await renderTools(r.body); },
+    onError: (r) => { toolsArea.innerHTML = window.UI.EmptyState({ kind: 'error', icon: '❌', text: '连接失败：' + (r.error || 'unknown') }); },
+    onDenied: (r) => { toolsArea.innerHTML = window.UI.EmptyState({ kind: 'error', icon: '❌', text: '测试被拒绝：' + (r.permissionDecision?.reason || 'denied') }); },
+  });
 }
 
 async function deleteMcp(name) {
   const ok = await confirmModal({ title: '删除 MCP server', message: `要删除「${name}」吗？相关连接会立即断开。`, confirmLabel: '删除', cancelLabel: '取消' });
   if (!ok) return;
-  try {
-    const r = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, { method: 'DELETE' }).then(x => x.json());
-    if (r.ok) {
-      toast('已删除', 'success', 1500);
-      mcpState.activeName = null;
-      await refreshMcpList();
-    } else { toast('删除失败：' + (r.error || 'unknown'), 'error'); }
-  } catch (e) { toast('删除失败：' + e.message, 'error'); }
+  const path = `/api/mcp/servers/${encodeURIComponent(name)}`;
+  const opts = { method: 'DELETE' };
+  const onDeleted = async () => {
+    toast('已删除', 'success', 1500);
+    mcpState.activeName = null;
+    await refreshMcpList();
+  };
+  const result = await requestWithApproval(path, opts);
+  await handleApprovalFlow(result, path, opts, {
+    actionLabel: '删除 MCP server',
+    onOk: async () => { await onDeleted(); },
+    onError: (r) => toast('删除失败：' + (r.error || 'unknown'), 'error'),
+  });
 }
 
 $('#btnMcp')?.addEventListener('click', openMcpModal);

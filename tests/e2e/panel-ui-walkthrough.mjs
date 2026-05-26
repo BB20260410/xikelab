@@ -1301,10 +1301,10 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       await page.evaluate(async () => {
         window.__watcherOk = false;
         const opts = { method: 'PUT', body: JSON.stringify({ provider: 'ollama', model: 'e2e-chain', autoMode: true, enabled: false }) };
-        const result = await requestWithApproval('/api/watcher/config', opts);
+        const result = await window.requestWithApproval('/api/watcher/config', opts);
         window.__watcherInitStatus = result.status;
         // 不 await：让弹窗交互在外部 playwright 点击驱动
-        window.__watcherFlow = handleApprovalFlow(result, '/api/watcher/config', opts, {
+        window.__watcherFlow = window.handleApprovalFlow(result, '/api/watcher/config', opts, {
           actionLabel: 'watcher e2e',
           onOk: () => { window.__watcherOk = true; },
         });
@@ -1324,6 +1324,25 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       const chainOk = await page.waitForFunction(() => window.__watcherOk === true, { timeout: 8000 })
         .then(() => true).catch(() => false);
       track('14. Watcher 双审批链式重试成功', chainOk);
+      await page.waitForTimeout(100);
+    }
+
+    // ── 15. P2 收尾：MCP delete 接入审批（验证审批弹窗出现，取消不实际删除）──
+    if (!ownerToken) {
+      track('15. MCP delete 触发审批弹窗', true, 'skipped owner-token');
+    } else {
+      await page.evaluate(async () => {
+        const path = '/api/mcp/servers/' + encodeURIComponent('e2e-del-' + Date.now());
+        const opts = { method: 'DELETE' };
+        const result = await window.requestWithApproval(path, opts);
+        window.__mcpDelStatus = result.status;
+        // 不 await，外部断言弹窗后取消
+        window.__mcpDelFlow = window.handleApprovalFlow(result, path, opts, { actionLabel: '删除 MCP server', onOk: () => {} });
+      });
+      const delStatus = await page.evaluate(() => window.__mcpDelStatus);
+      const delShown = await page.waitForSelector('[data-approval-retry-modal]', { timeout: 4000 }).then(() => true).catch(() => false);
+      track('15. MCP delete 触发审批弹窗', delStatus === 'approval_required' && delShown, `status=${delStatus}`);
+      if (delShown) await page.click('[data-approval-retry-cancel]');
       await page.waitForTimeout(100);
     }
 

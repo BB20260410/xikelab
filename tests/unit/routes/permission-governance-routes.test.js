@@ -228,4 +228,56 @@ describe('permission governance route integration', () => {
     expect(seen[0]).toMatchObject({ action: 'skill.plugin.configure', approvalId: 'approval-ok' });
     expect(storedBody).toEqual({ name: 'demo', command: 'node', args: ['server.js'] });
   });
+
+  it('gates MCP server delete before disconnecting and removing', () => {
+    const seen = [];
+    let deleted = false;
+    const { app, routes } = makeApp();
+    registerMcpRoutes(app, {
+      mcpStore: { list: () => [], get: () => ({ name: 'demo' }), delete: () => { deleted = true; return true; } },
+      permissionGovernance: approvalGovernance(seen),
+    });
+
+    const route = routes.find((r) => r.method === 'delete' && r.path === '/api/mcp/servers/:name');
+    const res = makeRes();
+    route.handlers[1]({ params: { name: 'demo' }, body: {} }, res);
+
+    expect(res.statusCode).toBe(202);
+    expect(seen[0]).toMatchObject({ action: 'skill.plugin.configure', target: expect.objectContaining({ operation: 'delete' }) });
+    expect(deleted).toBe(false);
+  });
+
+  it('allows MCP server delete to resume with an approved approval id', async () => {
+    const seen = [];
+    let deleted = false;
+    const { app, routes } = makeApp();
+    registerMcpRoutes(app, {
+      mcpStore: { list: () => [], get: () => ({ name: 'demo' }), delete: () => { deleted = true; return true; } },
+      permissionGovernance: approvalGovernance(seen),
+    });
+
+    const route = routes.find((r) => r.method === 'delete' && r.path === '/api/mcp/servers/:name');
+    const res = makeRes();
+    await route.handlers[1]({ params: { name: 'demo' }, body: { approvalId: 'approval-ok' } }, res);
+
+    expect(seen[0]).toMatchObject({ action: 'skill.plugin.configure', approvalId: 'approval-ok' });
+    expect(deleted).toBe(true);
+    expect(res.payload).toMatchObject({ ok: true });
+  });
+
+  it('gates MCP server test connection before spawning a child process', () => {
+    const seen = [];
+    const { app, routes } = makeApp();
+    registerMcpRoutes(app, {
+      mcpStore: { list: () => [] },
+      permissionGovernance: approvalGovernance(seen),
+    });
+
+    const route = routes.find((r) => r.method === 'post' && r.path === '/api/mcp/servers/:name/test');
+    const res = makeRes();
+    route.handlers[1]({ params: { name: 'demo' }, body: {} }, res);
+
+    expect(res.statusCode).toBe(202);
+    expect(seen[0]).toMatchObject({ action: 'skill.plugin.execute', target: expect.objectContaining({ operation: 'test' }) });
+  });
 });
