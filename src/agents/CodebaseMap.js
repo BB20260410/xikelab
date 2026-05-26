@@ -9,12 +9,13 @@ import {
 import { inferCodeContextSignals } from './CodeContextSignals.js';
 import { scorePathForCodebaseQuery, tokenizeCodebaseQuery } from './CodebaseQueryEngine.js';
 import { buildSymbolGraph, summarizeSymbolGraph } from './SymbolGraph.js';
+import { CODEBASE_LIMITS } from './codebaseLimits.js';
 
-const MAX_SCAN_FILES = 260;
-const MAX_FOCUS_FILES = 24;
-const MAX_FILE_BYTES = 500_000;
-const MAX_SNIPPET_CHARS = 220;
-const MAX_SCAN_MS = 1200;
+const MAX_SCAN_FILES = CODEBASE_LIMITS.maxScanFiles;
+const MAX_FOCUS_FILES = CODEBASE_LIMITS.maxFocusFiles;
+const MAX_FILE_BYTES = CODEBASE_LIMITS.maxFileBytes;
+const MAX_SNIPPET_CHARS = CODEBASE_LIMITS.maxSnippetChars;
+const MAX_SCAN_MS = CODEBASE_LIMITS.maxScanMs;
 const IGNORED_DIRS = new Set([
   '.git',
   '.idea',
@@ -387,5 +388,14 @@ export function buildCodebaseMap(cwd, { query = '', limit = MAX_FOCUS_FILES, fsA
     symbolGraph,
     symbolGraphSummary,
     codeContextSignals,
+    scanBudget: {
+      scannedFiles: candidates.length,
+      maxScanFiles: MAX_SCAN_FILES,
+      scanTruncated: candidates.length >= MAX_SCAN_FILES,
+      focusFiles: focusFiles.length,
+      maxFocusFiles: MAX_FOCUS_FILES,
+      maxFileBytes: MAX_FILE_BYTES,
+      maxScanMs: MAX_SCAN_MS,
+    },
   };
 }
