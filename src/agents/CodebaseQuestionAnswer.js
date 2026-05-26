@@ -123,7 +123,14 @@ export function buildCodebaseQuestionAnswer(queryResult = {}) {
     unresolvedReferenceCount: Math.max(unresolvedReferenceCount, Number(graphSummary.unresolvedReferenceCount) || 0),
     citationPathCount: citations.reduce((sum, item) => sum + item.citationPathCount, 0),
   };
+  // 结构级证据（引用/路由/类型/route-test）——纯文本或符号名命中不算，用于标记弱证据
+  const structuralEvidenceCount =
+    coverage.graphReferenceCount + coverage.routeUsageCount + coverage.typeImplementationCount + coverage.routeToTestChainCount;
+  const weakEvidence = confidence === 'low' || structuralEvidenceCount === 0;
   const limitations = limitationsFor({ confidence, coverage });
+  if (citations.length && structuralEvidenceCount === 0) {
+    limitations.push('No structural (reference/route/type) evidence — answer rests on name/text matches; verify citations before relying on it');
+  }
 
   if (!citations.length) {
     return {
@@ -132,6 +139,7 @@ export function buildCodebaseQuestionAnswer(queryResult = {}) {
       generatedBy: 'CodebaseIndexStore',
       question,
       confidence,
+      weakEvidence: true,
       answer: 'No indexed code evidence matched this question. Rebuild the local Codebase Index or narrow the question to a symbol, route, file, or UI element.',
       answerLines: [],
       citations: [],
@@ -151,7 +159,8 @@ export function buildCodebaseQuestionAnswer(queryResult = {}) {
     generatedBy: 'CodebaseIndexStore',
     question,
     confidence,
-    answer: `Most relevant local evidence points to ${top.label}${top.anchor ? ` (${top.anchor})` : ''}.${supportText} Use the citations below as the source of truth; this answer is a deterministic summary of indexed code evidence.${confidence === 'low' ? ' Evidence is currently insufficient for a complete implementation map.' : ''}`,
+    weakEvidence,
+    answer: `Most relevant local evidence points to ${top.label}${top.anchor ? ` (${top.anchor})` : ''}.${supportText} Use the citations below as the source of truth; this answer is a deterministic summary of indexed code evidence.${weakEvidence ? ' Evidence is weak (no structural or low-confidence matches); treat the citations as leads only, not a complete implementation map.' : ''}`,
     answerLines,
     citations,
     coverage,
