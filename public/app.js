@@ -161,16 +161,17 @@ async function requestWithApproval(path, opts = {}) {
   return { status: 'ok', httpStatus: r.status, body };
 }
 
-// 批准指定 approval 后带 approvalId 重发原请求
-// approvalId 走 X-Panel-Approval-Id header，不改原 body（避免污染配置类入口的 payload，
-// 后端 permissionApprovalIdFromRequest 同时读 header），后端校验 action/target 完全匹配。
-async function approveAndRetryRequest(approvalId, path, opts = {}) {
-  if (!approvalId) throw new Error('缺少 approvalId');
-  await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
+// 批准最新一个 approval 后带「全部已批准的 approvalId」重发原请求。
+// approvalId 走 X-Panel-Approval-Id header（逗号分隔，不改原 body，避免污染配置类入口 payload）；
+// 后端按 action/target 各自匹配对应 id，支持 watcher 这类同一请求内多重审批的链式批准。
+async function approveAndRetryRequest(approvalIds, path, opts = {}) {
+  const ids = (Array.isArray(approvalIds) ? approvalIds : [approvalIds]).filter(Boolean);
+  if (!ids.length) throw new Error('缺少 approvalId');
+  await api(`/api/approvals/${encodeURIComponent(ids[ids.length - 1])}/approve`, {
     method: 'POST',
     body: JSON.stringify({ reason: '审批后重试原操作' }),
   });
-  const retryOpts = { ...opts, headers: { ...(opts.headers || {}), 'X-Panel-Approval-Id': approvalId } };
+  const retryOpts = { ...opts, headers: { ...(opts.headers || {}), 'X-Panel-Approval-Id': ids.join(',') } };
   return requestWithApproval(path, retryOpts);
 }
 
@@ -180,59 +181,88 @@ function maskUrlForDisplay(url) {
   catch { return s.length > 40 ? s.slice(0, 40) + '…' : s; }
 }
 
-// 通用「需要审批」弹窗：展示 approval payload 摘要 + 批准并重试 + 打开审批中心
+// 通用「需要审批」弹窗：展示 approval payload 摘要，返回 Promise<'approve'|'cancel'>（纯展示+等待决定）
 function openApprovalRetryModal(opts = {}) {
-  const { approvalId, approval, permissionDecision, actionLabel, onApproveRetry } = opts;
+  const { approvalId, approval, permissionDecision, actionLabel } = opts;
   const payload = approval?.payload || permissionDecision?.approvalPayload || {};
   const target = payload.target || {};
   const action = payload.action || permissionDecision?.action || '-';
   const risk = payload.risk || permissionDecision?.risk || 'high';
   const reason = payload.reason || permissionDecision?.reason || '需要人工批准';
   const urlDisp = target.url ? maskUrlForDisplay(target.url) : '';
-  const overlay = document.createElement('div');
-  overlay.className = 'confirm-modal approval-retry-modal';
-  overlay.setAttribute('data-approval-retry-modal', approvalId || '');
-  overlay.innerHTML = `
-    <div class="confirm-modal-bg"></div>
-    <div class="confirm-modal-body">
-      <h3 class="confirm-modal-title">需要人工批准${actionLabel ? '：' + escapeHtml(actionLabel) : ''}</h3>
-      <div class="approval-retry-summary">
-        <div class="approval-retry-row"><span>操作</span><code>${escapeHtml(String(action))}</code></div>
-        ${target.operation ? `<div class="approval-retry-row"><span>动作</span><code>${escapeHtml(String(target.operation))}</code></div>` : ''}
-        ${urlDisp ? `<div class="approval-retry-row"><span>目标</span><code>${escapeHtml(urlDisp)}</code></div>` : ''}
-        <div class="approval-retry-row"><span>风险</span><code>${escapeHtml(String(risk))}</code></div>
-        <div class="approval-retry-row"><span>原因</span><span>${escapeHtml(String(reason))}</span></div>
-        <div class="approval-retry-row"><span>审批 ID</span><code>${escapeHtml(approvalId || '-')}</code></div>
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-modal approval-retry-modal';
+    overlay.setAttribute('data-approval-retry-modal', approvalId || '');
+    overlay.innerHTML = `
+      <div class="confirm-modal-bg"></div>
+      <div class="confirm-modal-body">
+        <h3 class="confirm-modal-title">需要人工批准${actionLabel ? '：' + escapeHtml(actionLabel) : ''}</h3>
+        <div class="approval-retry-summary">
+          <div class="approval-retry-row"><span>操作</span><code>${escapeHtml(String(action))}</code></div>
+          ${target.operation ? `<div class="approval-retry-row"><span>动作</span><code>${escapeHtml(String(target.operation))}</code></div>` : ''}
+          ${urlDisp ? `<div class="approval-retry-row"><span>目标</span><code>${escapeHtml(urlDisp)}</code></div>` : ''}
+          <div class="approval-retry-row"><span>风险</span><code>${escapeHtml(String(risk))}</code></div>
+          <div class="approval-retry-row"><span>原因</span><span>${escapeHtml(String(reason))}</span></div>
+          <div class="approval-retry-row"><span>审批 ID</span><code>${escapeHtml(approvalId || '-')}</code></div>
+        </div>
+        <div class="approval-retry-note">批准后将带 approvalId 重试同一操作（绑定原 action/target）；不会自动重放危险终端命令。</div>
+        <div class="confirm-modal-actions">
+          <button class="cxbtn cxbtn-tertiary" data-approval-retry-open-center>打开审批中心</button>
+          <button class="cxbtn cxbtn-secondary" data-approval-retry-cancel>取消</button>
+          <button class="cxbtn cxbtn-primary" data-approval-retry-confirm>批准并重试</button>
+        </div>
       </div>
-      <div class="approval-retry-note">批准后将带 approvalId 重试同一操作（绑定原 action/target）；不会自动重放危险终端命令。</div>
-      <div class="confirm-modal-actions">
-        <button class="cxbtn cxbtn-tertiary" data-approval-retry-open-center>打开审批中心</button>
-        <button class="cxbtn cxbtn-secondary" data-approval-retry-cancel>取消</button>
-        <button class="cxbtn cxbtn-primary" data-approval-retry-confirm>批准并重试</button>
-      </div>
-    </div>
-  `;
-  const close = () => overlay.remove();
-  overlay.querySelector('.confirm-modal-bg').addEventListener('click', close);
-  overlay.querySelector('[data-approval-retry-cancel]').addEventListener('click', close);
-  overlay.querySelector('[data-approval-retry-open-center]').addEventListener('click', () => {
-    close();
-    try { openApprovalModal?.(); } catch { /* 审批中心可能未加载 */ }
+    `;
+    let settled = false;
+    const finish = (decision) => { if (settled) return; settled = true; overlay.remove(); resolve(decision); };
+    overlay.querySelector('.confirm-modal-bg').addEventListener('click', () => finish('cancel'));
+    overlay.querySelector('[data-approval-retry-cancel]').addEventListener('click', () => finish('cancel'));
+    overlay.querySelector('[data-approval-retry-open-center]').addEventListener('click', () => {
+      finish('cancel');
+      try { openApprovalModal?.(); } catch { /* 审批中心可能未加载 */ }
+    });
+    overlay.querySelector('[data-approval-retry-confirm]').addEventListener('click', () => finish('approve'));
+    document.body.appendChild(overlay);
   });
-  overlay.querySelector('[data-approval-retry-confirm]').addEventListener('click', async () => {
-    const btn = overlay.querySelector('[data-approval-retry-confirm]');
-    btn.disabled = true; btn.textContent = '批准中…';
-    try {
-      const ok = await onApproveRetry?.();
-      if (ok !== false) close();
-      else { btn.disabled = false; btn.textContent = '批准并重试'; }
-    } catch (e) {
-      toast('批准重试失败：' + (e.message || e), 'error');
-      btn.disabled = false; btn.textContent = '批准并重试';
+}
+
+// 处理（可能多步的）审批后重试链：弹窗 → 批准 → 重试 → 若仍需审批则对下一个 approval 再弹，
+// 直到 ok / denied / error / 用户取消。支持 watcher 这类双重审批入口。单 approval 入口只循环一次。
+async function handleApprovalFlow(initialResult, path, opts, handlers = {}) {
+  const { actionLabel = '', onOk, onDenied, onError, maxSteps = 5 } = handlers;
+  let res = initialResult;
+  let step = 0;
+  const approvedIds = []; // 累积所有已批准的 approvalId，重试时全部带上（双重审批入口每步匹配各自的）
+  while (res && res.status === 'approval_required') {
+    step += 1;
+    if (step > maxSteps) {
+      toast('审批步骤过多，请到审批中心逐项处理', 'error', 5000);
+      return;
     }
-  });
-  document.body.appendChild(overlay);
-  return overlay;
+    const decision = await openApprovalRetryModal({
+      approvalId: res.approvalId,
+      approval: res.approval,
+      permissionDecision: res.permissionDecision,
+      actionLabel: step > 1 ? `${actionLabel}（第 ${step} 步审批）` : actionLabel,
+    });
+    if (decision !== 'approve') return; // 用户取消，静默
+    if (res.approvalId && !approvedIds.includes(res.approvalId)) approvedIds.push(res.approvalId);
+    try {
+      res = await approveAndRetryRequest(approvedIds, path, opts);
+    } catch (e) {
+      res = { status: 'error', error: e.message || String(e) };
+    }
+  }
+  if (!res) return;
+  if (res.status === 'ok') { if (onOk) await onOk(res); }
+  else if (res.status === 'denied') {
+    if (onDenied) onDenied(res);
+    else toast('操作被拒绝：' + (res.permissionDecision?.reason || 'permission denied'), 'error', 5000);
+  } else {
+    if (onError) onError(res);
+    else toast('操作失败：' + (res.error || res.status || 'unknown'), 'error');
+  }
 }
 
 // ─── v0.8 ConfirmModal（替代 confirm()）─────
@@ -1889,11 +1919,15 @@ function attachWatcherSectionHandlers() {
     const keyVal = $('#cfgWatcherKey').value;
     // 含 "..." 的脱敏值不覆盖原 key
     if (keyVal && !keyVal.includes('...')) body.apiKey = keyVal;
-    try {
-      const r = await api('/api/watcher/config', { method: 'PUT', body: JSON.stringify(body) });
-      if (r.ok) toast('监视者配置已保存' + (r.adapterActive ? '（adapter active）' : ''), 'success', 3000);
-      else toast('保存失败', 'error');
-    } catch (e) { toast('保存失败: ' + e.message, 'error'); }
+    // watcher config 是双重审批入口（provider.model_config.write + auto_accept.scope），走链式批准
+    const path = '/api/watcher/config';
+    const opts = { method: 'PUT', body: JSON.stringify(body) };
+    const result = await requestWithApproval(path, opts);
+    await handleApprovalFlow(result, path, opts, {
+      actionLabel: '写入监视者 Provider 配置',
+      onOk: (r) => toast('监视者配置已保存' + (r.body?.adapterActive ? '（adapter active）' : ''), 'success', 3000),
+      onError: (r) => toast('保存失败：' + (r.error || 'unknown'), 'error'),
+    });
   });
   $('#btnWatcherTest')?.addEventListener('click', async () => {
     toast('测试中…', 'info', 1500);
@@ -5185,28 +5219,13 @@ async function saveRoomAdaptersFromModal() {
   };
   try {
     const result = await requestWithApproval(path, opts);
-    if (result.status === 'ok') { await onSaved(result.body); return; }
-    if (result.status === 'approval_required') {
-      setAdapterSaveStatus('写入 provider 配置需人工批准', '');
-      openApprovalRetryModal({
-        approvalId: result.approvalId,
-        approval: result.approval,
-        permissionDecision: result.permissionDecision,
-        actionLabel: '写入 Provider 配置',
-        onApproveRetry: async () => {
-          const retry = await approveAndRetryRequest(result.approvalId, path, opts);
-          if (retry.status === 'ok') { await onSaved(retry.body); return true; }
-          if (retry.status === 'approval_required') { setAdapterSaveStatus('审批仍未生效，请重试', 'error'); return false; }
-          setAdapterSaveStatus('重试失败：' + (retry.error || retry.status), 'error'); return false;
-        },
-      });
-      return;
-    }
-    if (result.status === 'denied') {
-      setAdapterSaveStatus('写入被拒绝：' + (result.permissionDecision?.reason || 'permission denied'), 'error');
-      return;
-    }
-    setAdapterSaveStatus('保存失败：' + (result.error || 'unknown'), 'error');
+    if (result.status === 'approval_required') setAdapterSaveStatus('写入 provider 配置需人工批准', '');
+    await handleApprovalFlow(result, path, opts, {
+      actionLabel: '写入 Provider 配置',
+      onOk: async (r) => { await onSaved(r.body); },
+      onDenied: (r) => setAdapterSaveStatus('写入被拒绝：' + (r.permissionDecision?.reason || 'permission denied'), 'error'),
+      onError: (r) => setAdapterSaveStatus('保存失败：' + (r.error || 'unknown'), 'error'),
+    });
   } catch (e) {
     setAdapterSaveStatus('保存异常：' + e.message, 'error');
   }
@@ -6600,51 +6619,22 @@ async function saveWebhook(idOrNull) {
     await refreshWebhookList();
   };
   const result = await requestWithApproval(path, opts);
-  if (result.status === 'ok') { await onSaved(isNew ? '已创建' : '已保存', result.body); return; }
-  if (result.status === 'approval_required') {
-    openApprovalRetryModal({
-      approvalId: result.approvalId,
-      approval: result.approval,
-      permissionDecision: result.permissionDecision,
-      actionLabel: isNew ? '创建 Webhook' : '更新 Webhook',
-      onApproveRetry: async () => {
-        const retry = await approveAndRetryRequest(result.approvalId, path, opts);
-        if (retry.status === 'ok') { await onSaved(isNew ? '已批准并创建' : '已批准并保存', retry.body); return true; }
-        if (retry.status === 'approval_required') { toast('审批仍未生效，请稍后重试', 'error'); return false; }
-        toast('重试失败：' + (retry.error || retry.status), 'error'); return false;
-      },
-    });
-    return;
-  }
-  if (result.status === 'denied') {
-    toast('操作被拒绝：' + (result.permissionDecision?.reason || 'permission denied'), 'error', 5000);
-    return;
-  }
-  toast('保存失败：' + (result.error || 'unknown'), 'error');
+  await handleApprovalFlow(result, path, opts, {
+    actionLabel: isNew ? '创建 Webhook' : '更新 Webhook',
+    onOk: async (r) => { await onSaved(isNew ? '已创建' : '已保存', r.body); },
+    onError: (r) => toast('保存失败：' + (r.error || 'unknown'), 'error'),
+  });
 }
 
 async function testWebhookById(id) {
   const path = `/api/webhooks/${encodeURIComponent(id)}/test`;
   const opts = { method: 'POST' };
   const result = await requestWithApproval(path, opts);
-  if (result.status === 'ok') { toast('测试推送成功 ✓ 查看目标平台确认收到', 'success', 3000); await refreshWebhookList(); return; }
-  if (result.status === 'approval_required') {
-    openApprovalRetryModal({
-      approvalId: result.approvalId,
-      approval: result.approval,
-      permissionDecision: result.permissionDecision,
-      actionLabel: '发送测试推送',
-      onApproveRetry: async () => {
-        const retry = await approveAndRetryRequest(result.approvalId, path, opts);
-        if (retry.status === 'ok') { toast('已批准并完成测试推送 ✓', 'success', 3000); await refreshWebhookList(); return true; }
-        if (retry.status === 'approval_required') { toast('审批仍未生效，请稍后重试', 'error'); return false; }
-        toast('重试失败：' + (retry.error || retry.status), 'error'); return false;
-      },
-    });
-    return;
-  }
-  if (result.status === 'denied') { toast('测试被拒绝：' + (result.permissionDecision?.reason || 'permission denied'), 'error', 5000); return; }
-  toast('测试推送失败：' + (result.error || 'unknown'), 'error', 5000);
+  await handleApprovalFlow(result, path, opts, {
+    actionLabel: '发送测试推送',
+    onOk: async () => { toast('测试推送成功 ✓ 查看目标平台确认收到', 'success', 3000); await refreshWebhookList(); },
+    onError: (r) => toast('测试推送失败：' + (r.error || 'unknown'), 'error', 5000),
+  });
 }
 
 async function deleteWebhook(id) {
@@ -7053,27 +7043,11 @@ async function saveMcp(nameOrNull) {
     await refreshMcpList();
   };
   const result = await requestWithApproval(path, opts);
-  if (result.status === 'ok') { await onSaved(isNew ? '已创建' : '已保存', result.body); return; }
-  if (result.status === 'approval_required') {
-    openApprovalRetryModal({
-      approvalId: result.approvalId,
-      approval: result.approval,
-      permissionDecision: result.permissionDecision,
-      actionLabel: isNew ? '创建 MCP server' : '更新 MCP server',
-      onApproveRetry: async () => {
-        const retry = await approveAndRetryRequest(result.approvalId, path, opts);
-        if (retry.status === 'ok') { await onSaved(isNew ? '已批准并创建' : '已批准并保存', retry.body); return true; }
-        if (retry.status === 'approval_required') { toast('审批仍未生效，请重试', 'error'); return false; }
-        toast('重试失败：' + (retry.error || retry.status), 'error'); return false;
-      },
-    });
-    return;
-  }
-  if (result.status === 'denied') {
-    toast('操作被拒绝：' + (result.permissionDecision?.reason || 'permission denied'), 'error', 5000);
-    return;
-  }
-  toast('保存失败：' + (result.error || 'unknown'), 'error');
+  await handleApprovalFlow(result, path, opts, {
+    actionLabel: isNew ? '创建 MCP server' : '更新 MCP server',
+    onOk: async (r) => { await onSaved(isNew ? '已创建' : '已保存', r.body); },
+    onError: (r) => toast('保存失败：' + (r.error || 'unknown'), 'error'),
+  });
 }
 
 // B-013 v0.9：MCP resources 查看（goose-style "MCP 一等公民"）

@@ -64,6 +64,18 @@ function approvalMatchesActionTarget(approval, { action, target }) {
   return safeString(payload.action, 160) === action && stableJson(safeJson(payload.target)) === stableJson(safeJson(target));
 }
 
+// 解析多 approvalId：接受数组或逗号分隔字符串，去重去空
+function parseApprovalIds(v) {
+  if (!v) return [];
+  const arr = Array.isArray(v) ? v : String(v).split(',');
+  const out = [];
+  for (const s of arr) {
+    const t = safeString(s, 160);
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
 export class PermissionPolicy {
   constructor(input = {}) {
     this.shell = input.shell || 'ask_dangerous';
@@ -136,6 +148,7 @@ export class PermissionGovernance {
     const action = safeString(input.action, 160);
     const target = safeJson(input.target);
     const approvalId = safeString(input.approvalId || input.permissionApprovalId || input.resumeApprovalId, 160);
+    const approvalIds = parseApprovalIds(input.approvalIds);
     const context = {
       actorType: safeString(input.actorType || 'system', 80),
       actorId: safeString(input.actorId || input.requesterId, 160),
@@ -147,7 +160,9 @@ export class PermissionGovernance {
       risk: safeString(input.risk || 'low', 40),
     };
     let decision = this.classify({ ...context, action, target, details: input.details || {} });
-    if (decision.decision === 'ask' && approvalId) {
+    if (decision.decision === 'ask' && approvalIds.length) {
+      decision = this.resolveResumeApprovalMulti({ approvalIds, action, target, decision });
+    } else if (decision.decision === 'ask' && approvalId) {
       decision = this.resolveResumeApproval({ approvalId, action, target, decision });
     }
     if (decision.decision === 'ask') {
@@ -224,6 +239,46 @@ export class PermissionGovernance {
       approvalPayload: approval.payload || null,
       details: { resumeApprovalId: approvalId, approvalStatus: approval.status || null },
     };
+  }
+
+  // 多 approvalId 解析（用于 watcher 这类同一请求内多个独立权限检查的双重/多重审批入口）：
+  // 从列表中找到与「当前 action/target」匹配的那个 approval，按其状态决定。
+  // 与单 approvalId 不同：若列表中没有任何 id 匹配本 action/target，保持原 ask（让本 action 另建审批），
+  // 而非 deny —— 因为这些 id 可能属于同请求的其它权限检查，误 deny 会卡住链式批准。
+  resolveResumeApprovalMulti({ approvalIds, action, target, decision }) {
+    for (const id of approvalIds) {
+      const approval = this.approvalStore?.getApproval?.(id);
+      if (!approval) continue;
+      if (!approvalMatchesActionTarget(approval, { action, target })) continue;
+      if (approval.status === 'approved') {
+        return {
+          decision: 'allow',
+          reason: 'approved permission resumed',
+          risk: decision.risk || 'high',
+          approval,
+          approvalPayload: approval.payload || null,
+          details: { ...(decision.details || {}), resumeApprovalId: id, approvalStatus: approval.status, resumed: true },
+        };
+      }
+      if (approval.status === 'pending') {
+        return {
+          ...decision,
+          approval,
+          approvalPayload: approval.payload || null,
+          reason: 'approval is still pending',
+          details: { ...(decision.details || {}), resumeApprovalId: id, approvalStatus: approval.status },
+        };
+      }
+      return {
+        decision: 'deny',
+        reason: `approval ${approval.status || 'closed'}; permission resume denied`,
+        risk: 'high',
+        approval,
+        approvalPayload: approval.payload || null,
+        details: { resumeApprovalId: id, approvalStatus: approval.status || null },
+      };
+    }
+    return decision; // 无匹配：保持 ask，由本 action 另建/复用审批
   }
 
   classify({ action, target, cwd, risk }) {
@@ -396,4 +451,27 @@ export function permissionApprovalIdFromRequest(req) {
       header,
     160
   );
+}
+
+// 多 approvalId 版本：header X-Panel-Approval-Id 可逗号分隔，body/query 支持 approvalIds（数组/逗号）。
+// 用于 watcher 这类同一请求内多个独立权限检查的入口；其它单审批入口继续用 permissionApprovalIdFromRequest。
+export function permissionApprovalIdsFromRequest(req) {
+  const header = req?.get?.('X-Panel-Approval-Id') || req?.headers?.['x-panel-approval-id'] || '';
+  const ids = [];
+  const push = (v) => {
+    if (!v) return;
+    const arr = Array.isArray(v) ? v : String(v).split(',');
+    for (const s of arr) {
+      const t = safeString(s, 160);
+      if (t && !ids.includes(t)) ids.push(t);
+    }
+  };
+  push(req?.body?.approvalIds);
+  push(req?.body?.approvalId);
+  push(req?.body?.permissionApprovalId);
+  push(req?.query?.approvalIds);
+  push(req?.query?.approvalId);
+  push(req?.query?.permissionApprovalId);
+  push(header);
+  return ids;
 }

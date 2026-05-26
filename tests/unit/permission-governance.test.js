@@ -234,6 +234,46 @@ describe('PermissionGovernance', () => {
     });
   });
 
+  it('resolves the matching approval from a multi-id list and keeps unmatched checks as ask (chained approval)', () => {
+    const { governance, approvals } = makeGovernance();
+
+    // 第 1 步：provider 配置写入 ask → approval-1
+    const first = governance.evaluatePermission({
+      action: 'provider.model_config.write',
+      target: { section: 'watcher', provider: 'openai' },
+    });
+    expect(first).toMatchObject({ decision: 'ask', approval: { id: 'approval-1' } });
+    approvals.find((a) => a.id === 'approval-1').status = 'approved';
+
+    // 带 [approval-1] 重试 provider → allow
+    const providerResumed = governance.evaluatePermission({
+      action: 'provider.model_config.write',
+      approvalIds: ['approval-1'],
+      target: { section: 'watcher', provider: 'openai' },
+    });
+    expect(providerResumed).toMatchObject({ decision: 'allow', details: { resumed: true, resumeApprovalId: 'approval-1' } });
+
+    // 同请求第 2 个检查 auto_accept 带 [approval-1]（不匹配）→ 保持 ask 并新建 approval-2，而非 deny
+    const autoAsk = governance.evaluatePermission({
+      action: 'auto_accept.scope',
+      approvalIds: ['approval-1'],
+      risk: 'high',
+      target: { section: 'watcher', autoMode: true },
+    });
+    expect(autoAsk).toMatchObject({ decision: 'ask' });
+    expect(autoAsk.approval.id).toBe('approval-2');
+
+    // 批准 approval-2，带 [approval-1, approval-2] 重试 auto_accept → allow
+    approvals.find((a) => a.id === 'approval-2').status = 'approved';
+    const autoResumed = governance.evaluatePermission({
+      action: 'auto_accept.scope',
+      approvalIds: ['approval-1', 'approval-2'],
+      risk: 'high',
+      target: { section: 'watcher', autoMode: true },
+    });
+    expect(autoResumed).toMatchObject({ decision: 'allow', details: { resumed: true, resumeApprovalId: 'approval-2' } });
+  });
+
   it('does not create duplicate approvals when a pending approval id is retried', () => {
     const { governance, approvals } = makeGovernance();
 

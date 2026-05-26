@@ -1291,6 +1291,42 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       await page.waitForTimeout(100);
     }
 
+    // ── 14. P2 收尾：Watcher 双重审批链式重试（provider.model_config.write + auto_accept.scope）──
+    if (!ownerToken) {
+      track('14. Watcher 触发首个审批', true, 'skipped owner-token');
+      track('14. Watcher 第二步审批弹窗(链式)', true, 'skipped owner-token');
+      track('14. Watcher 双审批链式重试成功', true, 'skipped owner-token');
+    } else {
+      // 通过全局函数触发真实的 watcher 双审批请求 + 链式 flow（app.js 是非 module 全局脚本）
+      await page.evaluate(async () => {
+        window.__watcherOk = false;
+        const opts = { method: 'PUT', body: JSON.stringify({ provider: 'ollama', model: 'e2e-chain', autoMode: true, enabled: false }) };
+        const result = await requestWithApproval('/api/watcher/config', opts);
+        window.__watcherInitStatus = result.status;
+        // 不 await：让弹窗交互在外部 playwright 点击驱动
+        window.__watcherFlow = handleApprovalFlow(result, '/api/watcher/config', opts, {
+          actionLabel: 'watcher e2e',
+          onOk: () => { window.__watcherOk = true; },
+        });
+      });
+      const initStatus = await page.evaluate(() => window.__watcherInitStatus);
+      track('14. Watcher 触发首个审批', initStatus === 'approval_required', `status=${initStatus}`);
+      await page.waitForSelector('[data-approval-retry-modal]', { timeout: 4000 });
+      const firstId = await page.getAttribute('[data-approval-retry-modal]', 'data-approval-retry-modal');
+      await page.click('[data-approval-retry-confirm]');
+      // 第二个审批（auto_accept）应是不同 approvalId 的新弹窗
+      const secondShown = await page.waitForFunction((prev) => {
+        const m = document.querySelector('[data-approval-retry-modal]');
+        return !!m && m.getAttribute('data-approval-retry-modal') !== prev;
+      }, firstId, { timeout: 8000 }).then(() => true).catch(() => false);
+      track('14. Watcher 第二步审批弹窗(链式)', secondShown);
+      if (secondShown) await page.click('[data-approval-retry-confirm]');
+      const chainOk = await page.waitForFunction(() => window.__watcherOk === true, { timeout: 8000 })
+        .then(() => true).catch(() => false);
+      track('14. Watcher 双审批链式重试成功', chainOk);
+      await page.waitForTimeout(100);
+    }
+
   } catch (e) {
     track('FATAL', false, e.message);
     await saveFailureArtifact(page, 'fatal');

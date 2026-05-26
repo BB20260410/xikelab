@@ -103,7 +103,7 @@ describe('permission governance route integration', () => {
     route.handlers[1]({ body: { provider: 'openai', model: 'gpt-test', approvalId: 'pending-approval' } }, res);
 
     expect(res.statusCode).toBe(202);
-    expect(seen[0]).toMatchObject({ action: 'provider.model_config.write', approvalId: 'pending-approval' });
+    expect(seen[0]).toMatchObject({ action: 'provider.model_config.write', approvalIds: ['pending-approval'] });
     expect(saved).toBe(false);
 
     const testRoute = routes.find((r) => r.method === 'post' && r.path === '/api/watcher/test');
