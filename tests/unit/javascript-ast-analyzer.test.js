@@ -192,4 +192,27 @@ describe('JavaScriptAstAnalyzer', () => {
       expect.objectContaining({ name: 'ready', kind: 'member-reference' }),
     ]));
   });
+
+  it('captures callback registration and object property flow references', () => {
+    const out = analyzeJavaScriptAst({
+      path: 'wire.js',
+      text: [
+        "emitter.on('done', handleDone);",
+        'app.use(authMiddleware);',
+        "el.addEventListener('click', () => run());",
+        'const cfg = { handler: doWork, onError: () => {}, label: "x" };',
+      ].join('\n'),
+    });
+    expect(out.ok).toBe(true);
+    const refs = out.references;
+    const cb = refs.filter((r) => r.kind === 'callback-registration').map((r) => r.name);
+    expect(cb).toContain('on:done');
+    expect(cb).toContain('use');
+    expect(cb).toContain('addEventListener:click');
+    const flow = refs.filter((r) => r.kind === 'object-property-flow').map((r) => r.name);
+    expect(flow).toContain('handler');
+    expect(flow).toContain('onError');
+    // 非函数属性值不应记为数据流绑定
+    expect(flow).not.toContain('label');
+  });
 });

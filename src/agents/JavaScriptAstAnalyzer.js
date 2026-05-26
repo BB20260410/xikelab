@@ -9,6 +9,15 @@ const MAX_SNIPPETS = 24;
 const MAX_REFERENCES = 120;
 const ROUTE_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch']);
 const TEST_CALLS = new Set(['describe', 'it', 'test']);
+// 回调注册方法：x.on('e', fn) / app.use(fn) / el.addEventListener('e', fn) / bus.subscribe(fn) 等
+const REGISTRATION_METHODS = new Set([
+  'on', 'once', 'addlistener', 'addeventlistener', 'use', 'subscribe', 'handle', 'register', 'addhook',
+]);
+
+function argLooksLikeCallback(arg) {
+  if (!arg) return false;
+  return ['FunctionExpression', 'ArrowFunctionExpression', 'Identifier', 'MemberExpression', 'OptionalMemberExpression'].includes(arg.type);
+}
 
 function safeString(value, max = 4000) {
   if (value === undefined || value === null) return '';
@@ -613,6 +622,11 @@ export function analyzeJavaScriptAst({ path = '', text = '' } = {}) {
         const rawMethod = memberPropertyName(node.callee);
         const method = rawMethod.toLowerCase();
         addReference(references, lines, node.callee, rawMethod, 'member-call');
+        // 回调注册：emitter.on('evt', fn) / app.use(fn) / el.addEventListener('evt', fn)
+        if (REGISTRATION_METHODS.has(method) && (node.arguments || []).some(argLooksLikeCallback)) {
+          const evt = literalString(node.arguments?.[0]);
+          addReference(references, lines, node.callee, evt ? `${rawMethod}:${evt}` : rawMethod, 'callback-registration');
+        }
         const route = literalString(node.arguments?.[0]);
         if (ROUTE_METHODS.has(method) && route) {
           pushLimited(anchors, {
@@ -627,6 +641,14 @@ export function analyzeJavaScriptAst({ path = '', text = '' } = {}) {
 
     if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type) && !(parent?.type === 'CallExpression' && key === 'callee')) {
       addReference(references, lines, node, memberPropertyName(node), 'member-reference');
+    }
+
+    // 对象属性指向函数：{ handler: fn } / { onDone: () => {} } —— 记录数据流绑定
+    if (['ObjectProperty', 'Property'].includes(node.type) && !node.computed && node.value) {
+      if (['FunctionExpression', 'ArrowFunctionExpression', 'Identifier'].includes(node.value.type)) {
+        const propKey = propertyKeyName(node.key);
+        if (propKey) addReference(references, lines, node, propKey, 'object-property-flow');
+      }
     }
 
     if (node.type === 'Literal' || node.type === 'TemplateLiteral') {
