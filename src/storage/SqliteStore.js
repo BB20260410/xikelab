@@ -308,6 +308,21 @@ export function initSqlite(dbPath = DEFAULT_DB_PATH) {
       FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_agent_tool_results_run ON agent_tool_results(run_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS governance_queue_items (
+      id TEXT PRIMARY KEY,
+      source_kind TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      title TEXT,
+      severity TEXT,
+      queue_state TEXT NOT NULL DEFAULT 'pending_review',
+      note TEXT,
+      dedupe_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_governance_queue_dedupe ON governance_queue_items(dedupe_key);
+    CREATE INDEX IF NOT EXISTS idx_governance_queue_state ON governance_queue_items(queue_state, updated_at);
   `);
   ensureEventsSchema(db);
   ensureAgentRunSchema(db);
