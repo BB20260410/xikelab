@@ -5664,8 +5664,24 @@ function renderOverviewBlockF(governance) {
 // ========== P0 Governance Center — 统一治理入口 ==========
 const governanceCenterState = {
   summary: null,
+  queue: null,
   loading: false,
   error: '',
+};
+
+// P5：工作队列状态机——五态及推进顺序（done 为终态）
+const GOV_QUEUE_STATE_LABELS = {
+  pending_review: '待审批',
+  pending_verify: '待验证',
+  pending_archive: '待归档',
+  pending_fix: '待修复',
+  done: '已处理',
+};
+const GOV_QUEUE_NEXT_STATE = {
+  pending_review: 'pending_verify',
+  pending_verify: 'pending_archive',
+  pending_archive: 'done',
+  pending_fix: 'done',
 };
 
 function governanceCenterTime(ts) {
@@ -5700,12 +5716,60 @@ async function refreshGovernanceCenter() {
   root.innerHTML = '<div class="muted small" style="padding:20px;">加载中…</div>';
   try {
     governanceCenterState.summary = await api('/api/governance/summary');
+    // 工作队列与 summary 并行口径：派生失败不阻断主看板
+    try { governanceCenterState.queue = await api('/api/governance/queue'); }
+    catch { governanceCenterState.queue = null; }
   } catch (e) {
     governanceCenterState.error = e.message || '加载治理中心失败';
   } finally {
     governanceCenterState.loading = false;
     renderGovernanceCenter();
   }
+}
+
+// 推进队列项到下一状态
+async function advanceGovernanceQueueItem(id, nextState, btn = null) {
+  if (!id || !nextState) return;
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/api/governance/queue/${encodeURIComponent(id)}/state`, {
+      method: 'POST',
+      body: JSON.stringify({ state: nextState }),
+    });
+    toast(`已推进到「${GOV_QUEUE_STATE_LABELS[nextState] || nextState}」`, 'success', 1500);
+    await refreshGovernanceCenter();
+  } catch (e) {
+    toast('推进失败：' + (e.message || e), 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderGovernanceCenterQueue(queue) {
+  const grouped = queue && queue.queue && !Array.isArray(queue.queue) ? queue.queue : null;
+  const order = ['pending_review', 'pending_verify', 'pending_fix', 'pending_archive', 'done'];
+  const cols = order.map((state) => {
+    const items = (grouped && grouped[state]) || [];
+    const cards = items.length
+      ? items.map((it) => {
+        const next = GOV_QUEUE_NEXT_STATE[it.queueState];
+        const btn = next
+          ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-gov-queue-advance="${escapeHtml(it.id)}" data-gov-queue-next="${escapeHtml(next)}">→ ${escapeHtml(GOV_QUEUE_STATE_LABELS[next] || next)}</button>`
+          : '';
+        return `<div class="gov-queue-item" data-gov-queue-id="${escapeHtml(it.id)}">
+          <div class="gov-queue-item-title">${escapeHtml(it.title || it.sourceId || it.sourceKind || '-')}</div>
+          <div class="gov-queue-item-meta"><span>${escapeHtml(it.sourceKind || '-')}</span>${btn}</div>
+        </div>`;
+      }).join('')
+      : '<div class="muted small">—</div>';
+    return `<div class="gov-queue-col" data-gov-queue-col="${state}">
+      <div class="gov-queue-col-head">${escapeHtml(GOV_QUEUE_STATE_LABELS[state] || state)} <span>${items.length}</span></div>
+      ${cards}
+    </div>`;
+  }).join('');
+  return `<section class="governance-center-section" data-gov-center-queue>
+    <h4>工作队列</h4>
+    <div class="gov-queue-board">${cols}</div>
+  </section>`;
 }
 
 function governanceActionLabel(action = {}) {
@@ -6035,6 +6099,7 @@ function renderGovernanceCenter() {
       <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnGovernanceCenterRefresh">刷新</button>
     </div>
     ${renderGovernanceCenterCards(counts)}
+    ${renderGovernanceCenterQueue(governanceCenterState.queue)}
     <div class="governance-center-grid">
       ${renderGovernanceCenterNextActions(summary.nextActions || [])}
       ${renderGovernanceCenterApprovals(sections.approvals || [])}
@@ -6045,6 +6110,9 @@ function renderGovernanceCenter() {
     </div>
   `;
   $('#btnGovernanceCenterRefresh')?.addEventListener('click', refreshGovernanceCenter);
+  root.querySelectorAll('[data-gov-queue-advance]').forEach(btn => {
+    btn.addEventListener('click', () => advanceGovernanceQueueItem(btn.dataset.govQueueAdvance, btn.dataset.govQueueNext, btn));
+  });
   root.querySelectorAll('[data-gov-center-open]').forEach(btn => {
     btn.addEventListener('click', () => openGovernanceCenterTarget(btn.dataset.govCenterOpen, btn.dataset.govCenterId));
   });

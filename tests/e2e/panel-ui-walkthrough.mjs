@@ -134,6 +134,17 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
     await page.click('#btnGovernanceCenterRefresh');
     await page.waitForFunction((incidentId) => !!document.querySelector(`[data-gov-center-resolve-budget="${incidentId}"]`), governanceBudgetIncidentId, { timeout: 5000 });
     track('4a. Governance Center budget action present', !!governanceBudgetIncidentId);
+    // P5 工作队列看板：budget incident 应派生为队列项（pending_fix）
+    const govQueueBoard = await page.evaluate(() => {
+      const board = document.querySelector('[data-gov-center-queue]');
+      return {
+        present: !!board,
+        hasTitle: (board?.textContent || '').includes('工作队列'),
+        advance: document.querySelectorAll('[data-gov-queue-advance]').length,
+      };
+    });
+    track('4a. Governance Center work queue board', govQueueBoard.present && govQueueBoard.hasTitle);
+    track('4a. Governance Center work queue derives items', govQueueBoard.advance >= 1, `advance=${govQueueBoard.advance}`);
     await page.click(`[data-gov-center-resolve-budget="${governanceBudgetIncidentId}"]`);
     await page.waitForFunction((incidentId) => !document.querySelector(`[data-gov-center-resolve-budget="${incidentId}"]`), governanceBudgetIncidentId, { timeout: 5000 });
     track('4a. Governance Center budget action resolves incident', true);

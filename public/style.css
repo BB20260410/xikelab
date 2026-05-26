@@ -4160,6 +4160,60 @@ kbd {
   color: var(--text-pri);
   font-size: var(--text-sm);
 }
+/* P5 治理工作队列看板 */
+.governance-center-section h4 {
+  margin: 0 0 var(--spacing-2);
+  color: var(--text-pri);
+  font-size: var(--text-sm);
+}
+.gov-queue-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--spacing-2);
+}
+.gov-queue-col {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2);
+  background: var(--bg-base);
+}
+.gov-queue-col-head {
+  font-size: var(--text-xs);
+  color: var(--text-sec);
+  margin-bottom: var(--spacing-2);
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.gov-queue-item {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: var(--bg-top);
+}
+.gov-queue-item-title {
+  font-size: var(--text-xs);
+  color: var(--text-pri);
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.gov-queue-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-sec);
+}
+@media (max-width: 900px) {
+  .gov-queue-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .governance-center-action-list,
 .governance-center-item-list,
 .governance-center-approval-list,
