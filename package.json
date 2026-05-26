@@ -26,6 +26,7 @@
     "dist:publish": "electron-builder --mac --publish always"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.7",
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "^1.9.1",

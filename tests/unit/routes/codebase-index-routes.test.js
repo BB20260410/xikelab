@@ -31,6 +31,14 @@ describe('codebase index routes', () => {
       query: 'budget',
       results: [{ path: 'src/room/RoomAdapter.js', line: 10, score: 50, reason: ['symbol'], parser: 'acorn' }],
     };
+    const questionResult = {
+      ...queryResult,
+      question: 'budget',
+      answer: {
+        mode: 'local-codebase-question',
+        answer: 'Most relevant local evidence points to src/room/RoomAdapter.js:10.',
+      },
+    };
     const store = {
       rebuild(cwd, options) {
         expect(cwd).toBe('/safe/project');
@@ -43,8 +51,13 @@ describe('codebase index routes', () => {
       },
       query(cwd, options) {
         expect(cwd).toBe('/safe/project');
-        expect(options).toMatchObject({ query: 'budget', maxResults: 5, focusLimit: 8 });
+        expect(options).toMatchObject({ query: 'budget', maxResults: 5, focusLimit: 8, useSnapshot: true });
         return queryResult;
+      },
+      question(cwd, options) {
+        expect(cwd).toBe('/safe/project');
+        expect(options).toMatchObject({ question: 'budget', maxResults: 5, focusLimit: 8, useSnapshot: true });
+        return questionResult;
       },
     };
     const { app, routes } = makeApp();
@@ -65,8 +78,13 @@ describe('codebase index routes', () => {
 
     const queryRes = makeRes();
     routes.find((route) => route.method === 'post' && route.path === '/api/codebase-index/query')
-      .handlers[1]({ body: { cwd: '/unsafe', query: 'budget', maxResults: 5, focusLimit: 8 }, query: {} }, queryRes);
+      .handlers[1]({ body: { cwd: '/unsafe', query: 'budget', maxResults: 5, focusLimit: 8, useSnapshot: true }, query: {} }, queryRes);
     expect(queryRes.payload).toBe(queryResult);
+
+    const questionRes = makeRes();
+    routes.find((route) => route.method === 'post' && route.path === '/api/codebase-index/question')
+      .handlers[1]({ body: { cwd: '/unsafe', question: 'budget', maxResults: 5, focusLimit: 8, useSnapshot: true }, query: {} }, questionRes);
+    expect(questionRes.payload).toBe(questionResult);
   });
 
   it('uses process cwd when cwd is not explicitly supplied', () => {

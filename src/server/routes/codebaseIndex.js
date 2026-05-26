@@ -20,6 +20,10 @@ function intInRange(value, fallback, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+function boolFlag(value) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
 export function registerCodebaseIndexRoutes(app, {
   codebaseIndexStore = defaultCodebaseIndexStore,
   safeResolveFsPath = null,
@@ -51,7 +55,22 @@ export function registerCodebaseIndexRoutes(app, {
       const query = safeString(req.body?.query || req.body?.q || '', 500);
       const maxResults = intInRange(req.body?.maxResults || req.body?.limit, 20, 1, 100);
       const focusLimit = intInRange(req.body?.focusLimit, 24, 4, 24);
-      const result = codebaseIndexStore.query(cwd, { query, maxResults, focusLimit });
+      const useSnapshot = boolFlag(req.body?.useSnapshot || req.query?.useSnapshot);
+      const result = codebaseIndexStore.query(cwd, { query, maxResults, focusLimit, useSnapshot });
+      res.json(result);
+    } catch (e) {
+      res.status(400).json({ ok: false, error: e.message || String(e) });
+    }
+  });
+
+  app.post('/api/codebase-index/question', requireOwnerToken, (req, res) => {
+    try {
+      const cwd = resolveRouteCwd(req, safeResolveFsPath);
+      const question = safeString(req.body?.question || req.body?.query || req.body?.q || '', 500);
+      const maxResults = intInRange(req.body?.maxResults || req.body?.limit, 8, 1, 20);
+      const focusLimit = intInRange(req.body?.focusLimit, 24, 4, 24);
+      const useSnapshot = boolFlag(req.body?.useSnapshot || req.query?.useSnapshot);
+      const result = codebaseIndexStore.question(cwd, { question, maxResults, focusLimit, useSnapshot });
       res.json(result);
     } catch (e) {
       res.status(400).json({ ok: false, error: e.message || String(e) });

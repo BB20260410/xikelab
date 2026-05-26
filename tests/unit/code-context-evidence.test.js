@@ -22,6 +22,7 @@ describe('CodeContextEvidence', () => {
       writeFileSync(join(dir, 'src/server/routes/agentRegistry.js'), [
         "import express from 'express';",
         "import { buildCodeContextEvidence } from '../../agents/CodeContextEvidence.js';",
+        "const plugin = () => import('../../plugins/agent-registry-plugin.js');",
         'export function registerAgentRegistryRoutes(app) {',
         "  app.get('/api/agent-registry/changed-files', (req, res) => res.json({ ok: true }));",
         '}',
@@ -50,6 +51,9 @@ describe('CodeContextEvidence', () => {
         expect.objectContaining({ name: 'registerAgentRegistryRoutes', type: 'function', exported: true }),
       ]));
       expect(evidence[0].imports.map((item) => item.source)).toContain('express');
+      expect(evidence[0].imports).toEqual(expect.arrayContaining([
+        expect.objectContaining({ source: '../../plugins/agent-registry-plugin.js', kind: 'dynamic-import' }),
+      ]));
       expect(evidence[0].anchors).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'route', name: 'GET /api/agent-registry/changed-files' }),
       ]));

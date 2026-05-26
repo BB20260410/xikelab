@@ -6,6 +6,7 @@ const MAX_EVIDENCE_FILES = 24;
 const MAX_FILE_BYTES = 500_000;
 const MAX_SYMBOLS_PER_FILE = 16;
 const MAX_IMPORTS_PER_FILE = 18;
+const MAX_EXPORTS_PER_FILE = 18;
 const MAX_ANCHORS_PER_FILE = 18;
 const MAX_SNIPPETS_PER_FILE = 10;
 const MAX_REFERENCES_PER_FILE = 120;
@@ -81,6 +82,7 @@ function addSnippet(snippets, line, lineNumber, reason) {
 function extractJsLike(lines) {
   const symbols = [];
   const imports = [];
+  const exports = [];
   const anchors = [];
   const snippets = [];
 
@@ -102,8 +104,27 @@ function extractJsLike(lines) {
         line: lineNumber,
         exported: /\bexport\b/.test(line),
       }, MAX_SYMBOLS_PER_FILE, (item) => `${item.type}:${item.name}`);
+      if (/\bexport\b/.test(line)) {
+        pushLimited(exports, {
+          name: match[1],
+          local: match[1],
+          kind: 'named',
+          line: lineNumber,
+        }, MAX_EXPORTS_PER_FILE, (item) => `${item.kind}:${item.name}:${item.local}:${item.line}`);
+      }
       addSnippet(snippets, line, lineNumber, 'symbol');
       break;
+    }
+
+    const dynamicImportMatch = line.match(/\bimport\(\s*['"`]([^'"`]+)['"`]\s*\)/);
+    if (dynamicImportMatch) {
+      pushLimited(imports, {
+        source: dynamicImportMatch[1],
+        line: lineNumber,
+        kind: 'dynamic-import',
+        specifiers: [{ imported: '*', local: 'import', kind: 'dynamic' }],
+      }, MAX_IMPORTS_PER_FILE, (item) => `${item.kind || 'import'}:${item.source}`);
+      addSnippet(snippets, line, lineNumber, 'dynamic-import');
     }
 
     const importMatch = line.match(/^\s*import\s+(?:.+?\s+from\s+)?['"]([^'"]+)['"]/) ||
@@ -112,6 +133,26 @@ function extractJsLike(lines) {
     if (importMatch) {
       pushLimited(imports, { source: importMatch[1], line: lineNumber }, MAX_IMPORTS_PER_FILE, (item) => item.source);
       addSnippet(snippets, line, lineNumber, 'import');
+    }
+
+    const exportFromMatch = line.match(/^\s*export\s+(?:\{([^}]+)\}|\*)\s+from\s+['"]([^'"]+)['"]/);
+    if (exportFromMatch) {
+      const source = exportFromMatch[2];
+      const names = exportFromMatch[1]
+        ? exportFromMatch[1].split(',').map((part) => part.trim()).filter(Boolean)
+        : ['*'];
+      for (const part of names) {
+        const aliasMatch = part.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/);
+        const local = aliasMatch ? aliasMatch[1] : part;
+        const name = aliasMatch?.[2] || local;
+        pushLimited(exports, {
+          name,
+          local,
+          source,
+          kind: part === '*' ? 'all' : 're-export',
+          line: lineNumber,
+        }, MAX_EXPORTS_PER_FILE, (item) => `${item.kind}:${item.name}:${item.local}:${item.source}:${item.line}`);
+      }
     }
 
     const routeMatch = line.match(/\bapp\.(get|post|put|delete|patch)\(\s*['"`]([^'"`]+)['"`]/);
@@ -132,7 +173,7 @@ function extractJsLike(lines) {
     }
   });
 
-  return { parser: 'regex', diagnostics: [], symbols, imports, anchors, snippets, references: [] };
+  return { parser: 'regex', diagnostics: [], symbols, imports, exports, anchors, snippets, references: [] };
 }
 
 function extractCss(lines) {
@@ -175,7 +216,7 @@ function extractEvidence(path, text) {
   const language = detectLanguage(path);
   const lines = String(text || '').split(/\r?\n/);
   const ext = extensionOf(path);
-  if (language === 'javascript' && ['.js', '.mjs', '.cjs'].includes(ext)) {
+  if (['javascript', 'typescript'].includes(language) && ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx'].includes(ext)) {
     const ast = analyzeJavaScriptAst({ path, text });
     if (ast.ok) return { language, ...ast };
     return { language, ...extractJsLike(lines), diagnostics: ast.diagnostics || [] };
@@ -208,11 +249,26 @@ function sanitizeEvidenceFile(input = {}) {
       type: safeString(item.type, 40) || 'symbol',
       line: Math.max(1, Number(item.line) || 1),
       exported: !!item.exported,
+      owner: safeString(item.owner, 120),
+      ownerType: safeString(item.ownerType, 40),
     })).filter((item) => item.name) : [],
     imports: Array.isArray(input.imports) ? input.imports.slice(0, MAX_IMPORTS_PER_FILE).map((item) => ({
       source: safeString(item.source, 160),
       line: Math.max(1, Number(item.line) || 1),
+      kind: safeString(item.kind, 40) || 'import',
+      specifiers: Array.isArray(item.specifiers) ? item.specifiers.slice(0, 12).map((specifier) => ({
+        imported: safeString(specifier.imported, 120),
+        local: safeString(specifier.local, 120),
+        kind: safeString(specifier.kind, 40) || 'named',
+      })).filter((specifier) => specifier.imported || specifier.local) : [],
     })).filter((item) => item.source) : [],
+    exports: Array.isArray(input.exports) ? input.exports.slice(0, MAX_EXPORTS_PER_FILE).map((item) => ({
+      name: safeString(item.name, 120),
+      local: safeString(item.local || item.name, 120),
+      source: safeString(item.source, 160),
+      kind: safeString(item.kind, 40) || 'named',
+      line: Math.max(1, Number(item.line) || 1),
+    })).filter((item) => item.name) : [],
     anchors: Array.isArray(input.anchors) ? input.anchors.slice(0, MAX_ANCHORS_PER_FILE).map((item) => ({
       kind: safeString(item.kind, 40) || 'anchor',
       name: safeString(item.name, 180),
@@ -249,58 +305,62 @@ export function normalizeCodeContextEvidence(input = {}) {
   return out;
 }
 
-export function buildCodeContextEvidence({ cwd, files = [], fsApi = {} } = {}) {
-  const evidence = [];
-  const seen = new Set();
+export function buildCodeContextEvidenceFile({ cwd, file, fsApi = {}, text: providedText = null, meta: providedMeta = null } = {}) {
+  const itemPath = typeof file === 'string' ? file : file?.path;
+  const resolved = safeProjectFile(cwd, itemPath);
+  if (!resolved) return null;
   const exists = fsApi.existsSync || existsSync;
   const stat = fsApi.statSync || statSync;
   const read = fsApi.readFileSync || readFileSync;
+  const base = {
+    path: resolved.rel,
+    language: detectLanguage(resolved.rel),
+    exists: false,
+    bytes: 0,
+    lineCount: 0,
+    parser: 'unknown',
+    diagnostics: [],
+    symbols: [],
+    imports: [],
+    exports: [],
+    anchors: [],
+    snippets: [],
+    references: [],
+  };
 
+  try {
+    if (!exists(resolved.abs)) return normalizeCodeContextEvidence([{ ...base }])[0] || base;
+    const meta = providedMeta || stat(resolved.abs);
+    if (!meta.isFile() || meta.size > MAX_FILE_BYTES) {
+      return normalizeCodeContextEvidence([{ ...base, exists: meta.isFile(), bytes: meta.size }])[0] || base;
+    }
+    const text = providedText === null || providedText === undefined ? read(resolved.abs, 'utf8') : providedText;
+    const extracted = extractEvidence(resolved.rel, text);
+    return normalizeCodeContextEvidence([{
+      ...base,
+      ...extracted,
+      exists: true,
+      bytes: meta.size,
+      lineCount: String(text || '').split(/\r?\n/).length,
+    }])[0] || base;
+  } catch (e) {
+    return normalizeCodeContextEvidence([{
+      ...base,
+      error: safeString(e?.message || String(e), 200),
+    }])[0] || base;
+  }
+}
+
+export function buildCodeContextEvidence({ cwd, files = [], fsApi = {} } = {}) {
+  const evidence = [];
+  const seen = new Set();
   for (const file of files || []) {
     const itemPath = typeof file === 'string' ? file : file?.path;
     const resolved = safeProjectFile(cwd, itemPath);
     if (!resolved || seen.has(resolved.rel.toLowerCase())) continue;
     seen.add(resolved.rel.toLowerCase());
-    const base = {
-      path: resolved.rel,
-      language: detectLanguage(resolved.rel),
-      exists: false,
-      bytes: 0,
-      lineCount: 0,
-      parser: 'unknown',
-      diagnostics: [],
-      symbols: [],
-      imports: [],
-      anchors: [],
-      snippets: [],
-      references: [],
-    };
-
-    try {
-      if (!exists(resolved.abs)) {
-        evidence.push(base);
-        continue;
-      }
-      const meta = stat(resolved.abs);
-      if (!meta.isFile() || meta.size > MAX_FILE_BYTES) {
-        evidence.push({ ...base, exists: meta.isFile(), bytes: meta.size });
-        continue;
-      }
-      const text = read(resolved.abs, 'utf8');
-      const extracted = extractEvidence(resolved.rel, text);
-      evidence.push({
-        ...base,
-        ...extracted,
-        exists: true,
-        bytes: meta.size,
-        lineCount: String(text || '').split(/\r?\n/).length,
-      });
-    } catch (e) {
-      evidence.push({
-        ...base,
-        error: safeString(e?.message || String(e), 200),
-      });
-    }
+    const fileEvidence = buildCodeContextEvidenceFile({ cwd, file: resolved.rel, fsApi });
+    if (fileEvidence) evidence.push(fileEvidence);
 
     if (evidence.length >= MAX_EVIDENCE_FILES) break;
   }
@@ -313,12 +373,14 @@ export function summarizeCodeContextEvidence(input = {}) {
   const symbols = [];
   const anchors = [];
   const imports = [];
+  const exports = [];
   const references = [];
   const parsers = new Map();
   for (const file of evidence) {
     for (const symbol of file.symbols || []) symbols.push({ ...symbol, path: file.path });
     for (const anchor of file.anchors || []) anchors.push({ ...anchor, path: file.path });
     for (const dep of file.imports || []) imports.push({ ...dep, path: file.path });
+    for (const item of file.exports || []) exports.push({ ...item, path: file.path });
     for (const ref of file.references || []) references.push({ ...ref, path: file.path });
     const parser = file.parser || 'unknown';
     parsers.set(parser, (parsers.get(parser) || 0) + 1);
@@ -328,11 +390,13 @@ export function summarizeCodeContextEvidence(input = {}) {
     symbolCount: symbols.length,
     anchorCount: anchors.length,
     importCount: imports.length,
+    exportCount: exports.length,
     referenceCount: references.length,
     parserCounts: Object.fromEntries(parsers.entries()),
     topSymbols: symbols.slice(0, 12),
     topAnchors: anchors.slice(0, 12),
     topImports: imports.slice(0, 12),
+    topExports: exports.slice(0, 12),
     topReferences: references.slice(0, 12),
   };
 }

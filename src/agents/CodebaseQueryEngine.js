@@ -1,5 +1,7 @@
 const DEFAULT_MAX_RESULTS = 20;
 const MAX_QUERY_CHARS = 500;
+const FTS_SCORE_BASE = 132;
+const VECTOR_SCORE_BASE = 96;
 
 const QUERY_ALIASES = [
   {
@@ -149,13 +151,31 @@ function pushResult(results, item) {
     text: safeString(item.text, 260),
     symbols: Array.isArray(item.symbols) ? item.symbols.slice(0, 8) : [],
     routes: Array.isArray(item.routes) ? item.routes.slice(0, 8) : [],
+    bm25Rank: Number.isFinite(Number(item.bm25Rank)) ? Number(item.bm25Rank) : undefined,
+    semanticScore: Number.isFinite(Number(item.semanticScore)) ? Number(item.semanticScore) : undefined,
   });
 }
 
-export function scoreCodebaseEvidence(map, query = '', { maxResults = DEFAULT_MAX_RESULTS } = {}) {
+export function scoreCodebaseEvidence(map, query = '', { maxResults = DEFAULT_MAX_RESULTS, ftsResults = [], vectorResults = [] } = {}) {
   const tokens = tokenizeCodebaseQuery(query);
   const results = [];
   const focusByPath = new Map((map.focusFiles || []).map((file) => [file.path, file]));
+
+  for (const fts of ftsResults || []) {
+    pushResult(results, {
+      ...fts,
+      score: FTS_SCORE_BASE + Number(fts.score || 0),
+      reason: [...(fts.reason || []), 'sqlite-fts'],
+    });
+  }
+
+  for (const vector of vectorResults || []) {
+    pushResult(results, {
+      ...vector,
+      score: VECTOR_SCORE_BASE + Number(vector.score || 0),
+      reason: [...(vector.reason || []), 'vector-index'],
+    });
+  }
 
   for (const focus of map.focusFiles || []) {
     const evidence = evidenceForPath(map, focus.path);

@@ -1,6 +1,11 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, relative, resolve } from 'node:path';
-import { buildCodeContextEvidence, summarizeCodeContextEvidence } from './CodeContextEvidence.js';
+import {
+  buildCodeContextEvidence,
+  buildCodeContextEvidenceFile,
+  summarizeCodeContextEvidence,
+} from './CodeContextEvidence.js';
 import { inferCodeContextSignals } from './CodeContextSignals.js';
 import { scorePathForCodebaseQuery, tokenizeCodebaseQuery } from './CodebaseQueryEngine.js';
 import { buildSymbolGraph, summarizeSymbolGraph } from './SymbolGraph.js';
@@ -57,6 +62,15 @@ function isIgnoredPath(rel = '') {
 function withinRoot(root, abs) {
   const rel = relative(root, abs);
   return rel && !rel.startsWith('..') && !rel.includes('\0') && !rel.startsWith('/');
+}
+
+function resolveProjectFile(root, inputPath) {
+  const rel = normalizeRel(inputPath);
+  if (!root || !rel || !isTextLike(rel)) return null;
+  const abs = resolve(root, rel);
+  if (!withinRoot(root, abs)) return null;
+  const normalizedRel = normalizeRel(relative(root, abs));
+  return normalizedRel ? { rel: normalizedRel, abs } : null;
 }
 
 function collectCandidateFiles(cwd, { fsApi = {}, maxFiles = MAX_SCAN_FILES } = {}) {
@@ -224,7 +238,127 @@ function buildImportGraph(evidence = []) {
   return { nodes, edges, nodeCount: nodes.length, edgeCount: edges.length };
 }
 
-export function buildCodebaseMap(cwd, { query = '', limit = MAX_FOCUS_FILES, fsApi = {} } = {}) {
+function fileMtimeMs(meta) {
+  if (!meta) return 0;
+  if (Number.isFinite(Number(meta.mtimeMs))) return Number(meta.mtimeMs);
+  if (meta.mtime instanceof Date) return meta.mtime.getTime();
+  return 0;
+}
+
+function hashText(text = '') {
+  return createHash('sha256').update(String(text)).digest('hex').slice(0, 16);
+}
+
+function cloneEvidence(file) {
+  return file ? {
+    ...file,
+    diagnostics: (file.diagnostics || []).map((item) => ({ ...item })),
+    symbols: (file.symbols || []).map((item) => ({ ...item })),
+    imports: (file.imports || []).map((item) => ({
+      ...item,
+      specifiers: (item.specifiers || []).map((specifier) => ({ ...specifier })),
+    })),
+    exports: (file.exports || []).map((item) => ({ ...item })),
+    anchors: (file.anchors || []).map((item) => ({ ...item })),
+    snippets: (file.snippets || []).map((item) => ({ ...item })),
+    references: (file.references || []).map((item) => ({ ...item })),
+  } : null;
+}
+
+function buildEvidenceWithCache(cwd, focusFiles, { fsApi = {}, evidenceCache = null } = {}) {
+  if (!evidenceCache) {
+    const evidence = buildCodeContextEvidence({ cwd, files: focusFiles, fsApi });
+    return {
+      evidence,
+      cacheStats: {
+        enabled: false,
+        files: evidence.length,
+        hits: 0,
+        misses: evidence.length,
+        stale: 0,
+        cacheSize: 0,
+      },
+    };
+  }
+
+  const exists = fsApi.existsSync || existsSync;
+  const stat = fsApi.statSync || statSync;
+  const read = fsApi.readFileSync || readFileSync;
+  const root = resolve(cwd || '');
+  const evidence = [];
+  const stats = {
+    enabled: true,
+    files: 0,
+    hits: 0,
+    misses: 0,
+    stale: 0,
+    cacheSize: evidenceCache.size || 0,
+  };
+  const seen = new Set();
+
+  for (const file of focusFiles || []) {
+    if (evidence.length >= MAX_FOCUS_FILES) break;
+    const resolved = resolveProjectFile(root, typeof file === 'string' ? file : file?.path);
+    if (!resolved || seen.has(resolved.rel.toLowerCase())) continue;
+    seen.add(resolved.rel.toLowerCase());
+    const key = resolved.rel.toLowerCase();
+
+    try {
+      if (!exists(resolved.abs)) {
+        const fileEvidence = buildCodeContextEvidenceFile({ cwd, file: resolved.rel, fsApi });
+        if (fileEvidence) evidence.push(fileEvidence);
+        stats.misses += 1;
+        continue;
+      }
+
+      const meta = stat(resolved.abs);
+      if (!meta.isFile() || meta.size > MAX_FILE_BYTES) {
+        const fileEvidence = buildCodeContextEvidenceFile({ cwd, file: resolved.rel, fsApi, meta });
+        if (fileEvidence) evidence.push(fileEvidence);
+        stats.misses += 1;
+        continue;
+      }
+
+      const size = Number(meta.size) || 0;
+      const mtimeMs = fileMtimeMs(meta);
+      const cached = evidenceCache.get(key);
+      const text = read(resolved.abs, 'utf8');
+      const hash = hashText(text);
+      if (cached && cached.size === size && cached.mtimeMs === mtimeMs && cached.hash === hash) {
+        const fileEvidence = cloneEvidence(cached.evidence);
+        if (fileEvidence) evidence.push(fileEvidence);
+        stats.hits += 1;
+        continue;
+      }
+
+      if (cached) stats.stale += 1;
+      else stats.misses += 1;
+
+      const fileEvidence = buildCodeContextEvidenceFile({ cwd, file: resolved.rel, fsApi, text, meta });
+      if (fileEvidence) {
+        evidenceCache.set(key, {
+          path: resolved.rel,
+          size,
+          mtimeMs,
+          hash,
+          indexedAt: Date.now(),
+          evidence: cloneEvidence(fileEvidence),
+        });
+        evidence.push(fileEvidence);
+      }
+    } catch {
+      const fileEvidence = buildCodeContextEvidenceFile({ cwd, file: resolved.rel, fsApi });
+      if (fileEvidence) evidence.push(fileEvidence);
+      stats.misses += 1;
+    }
+  }
+
+  stats.files = evidence.length;
+  stats.cacheSize = evidenceCache.size || 0;
+  return { evidence, cacheStats: stats };
+}
+
+export function buildCodebaseMap(cwd, { query = '', limit = MAX_FOCUS_FILES, fsApi = {}, evidenceCache = null } = {}) {
   const safeLimit = Math.max(4, Math.min(MAX_FOCUS_FILES, Number(limit) || MAX_FOCUS_FILES));
   const candidates = collectCandidateFiles(cwd, { fsApi });
   const queryTokens = tokenizeCodebaseQuery(query);
@@ -232,7 +366,7 @@ export function buildCodebaseMap(cwd, { query = '', limit = MAX_FOCUS_FILES, fsA
     .map((candidate) => scoreFile(candidate, queryTokens, { fsApi }))
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
   const focusFiles = scored.slice(0, safeLimit).filter((item) => item.score > 0 || queryTokens.length === 0);
-  const evidence = buildCodeContextEvidence({ cwd, files: focusFiles });
+  const { evidence, cacheStats } = buildEvidenceWithCache(cwd, focusFiles, { fsApi, evidenceCache });
   const evidenceSummary = summarizeCodeContextEvidence(evidence);
   const graph = buildImportGraph(evidence);
   const symbolGraph = buildSymbolGraph({ cwd, evidence, fsApi });
@@ -248,6 +382,7 @@ export function buildCodebaseMap(cwd, { query = '', limit = MAX_FOCUS_FILES, fsA
     focusFiles,
     evidence,
     evidenceSummary,
+    indexCacheStats: cacheStats,
     graph,
     symbolGraph,
     symbolGraphSummary,
