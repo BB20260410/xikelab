@@ -245,6 +245,9 @@ export class PermissionGovernance {
     if (action === 'file.write' || action === 'file.delete') {
       const path = normalizePathLike(target.path || target.filePath);
       if (!path) return { decision: 'deny', reason: 'file target path missing', risk: 'high' };
+      if (target.requiresApproval || target.approvalRequired) {
+        return { decision: 'ask', reason: 'file operation requested explicit approval', risk: risk || 'high' };
+      }
       if (/(^|\/)(\.ssh|\.aws|\.gnupg|\.docker|\.kube)(\/|$)/.test(path) || /(^|\/)\.env(\.|$|\/)?/.test(path)) {
         return { decision: 'ask', reason: 'sensitive file write/delete requires approval', risk: 'high' };
       }

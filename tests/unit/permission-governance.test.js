@@ -96,6 +96,44 @@ describe('PermissionGovernance', () => {
     });
   });
 
+  it('asks before explicitly approval-gated project-local file writes', () => {
+    const { governance, approvals } = makeGovernance();
+
+    const decision = governance.evaluatePermission({
+      action: 'file.write',
+      cwd: '/tmp/project',
+      target: {
+        path: '/tmp/project/output/playwright/generated.js',
+        relativePath: 'output/playwright/generated.js',
+        operation: 'create',
+        contentSha256: 'abc123',
+        requiresApproval: true,
+      },
+    });
+
+    expect(decision).toMatchObject({
+      decision: 'ask',
+      reason: 'file operation requested explicit approval',
+      approval: { id: 'approval-1', status: 'pending' },
+    });
+    approvals[0].status = 'approved';
+    expect(governance.evaluatePermission({
+      action: 'file.write',
+      approvalId: 'approval-1',
+      cwd: '/tmp/project',
+      target: {
+        operation: 'create',
+        requiresApproval: true,
+        contentSha256: 'abc123',
+        relativePath: 'output/playwright/generated.js',
+        path: '/tmp/project/output/playwright/generated.js',
+      },
+    })).toMatchObject({
+      decision: 'allow',
+      reason: 'approved permission resumed',
+    });
+  });
+
   it('denies sensitive external directories and private network uploads', () => {
     const { governance, approvals } = makeGovernance();
 

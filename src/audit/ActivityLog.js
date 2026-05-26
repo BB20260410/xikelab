@@ -113,6 +113,60 @@ function activityAgentProfileIds(event) {
   return ids;
 }
 
+function activityAgentRunIds(event) {
+  const details = event.details || {};
+  const ids = new Set();
+  if (event.entityType === 'agent_run' && event.entityId) ids.add(String(event.entityId));
+  for (const value of [
+    details.agentRunId,
+    details.runId,
+    details.agentRun?.id,
+    details.replayPlan?.runId,
+    details.replayResult?.runId,
+  ]) {
+    if (value) ids.add(String(value));
+  }
+  return ids;
+}
+
+function activityApprovalResumeGateIds(event) {
+  const details = event.details || {};
+  const ids = new Set();
+  for (const value of [
+    details.approvalResumeGateId,
+    details.reviewGateId,
+    details.resumeReviewGateId,
+    details.approvalResumeReviewGateId,
+    details.approvalResumeGateAudit?.id,
+    details.resumeReviewGateAudit?.id,
+    details.resumeReviewGate?.id,
+    details.resumeReview?.gate?.id,
+  ]) {
+    const text = safeString(value, 160);
+    if (text) ids.add(text);
+  }
+  return ids;
+}
+
+function activityApprovalResumeGateSha256s(event) {
+  const details = event.details || {};
+  const hashes = new Set();
+  for (const value of [
+    details.approvalResumeGateSha256,
+    details.reviewSha256,
+    details.resumeReviewSha256,
+    details.approvalResumeReviewSha256,
+    details.approvalResumeGateAudit?.sha256,
+    details.resumeReviewGateAudit?.sha256,
+    details.resumeReviewGate?.sha256,
+    details.resumeReview?.gate?.sha256,
+  ]) {
+    const text = safeString(value, 128);
+    if (text) hashes.add(text);
+  }
+  return hashes;
+}
+
 function activitySkillNames(event) {
   const details = event.details || {};
   return stringSet([
@@ -136,7 +190,10 @@ function activityDiagnosticCodes(event) {
 function hasAgentActivity(event) {
   const action = String(event.action || '');
   return action.startsWith('agent.')
+    || activityAgentRunIds(event).size > 0
     || activityAgentProfileIds(event).size > 0
+    || activityApprovalResumeGateIds(event).size > 0
+    || activityApprovalResumeGateSha256s(event).size > 0
     || activitySkillNames(event).size > 0
     || activityDiagnosticCodes(event).size > 0;
 }
@@ -208,6 +265,21 @@ export class ActivityLog {
     if (query.severity) events = events.filter((e) => e.severity === query.severity);
     if (query.status) events = events.filter((e) => e.status === query.status);
     if (query.agentOnly) events = events.filter(hasAgentActivity);
+    if (query.agentRunId) {
+      const target = String(query.agentRunId);
+      events = events.filter((e) => activityAgentRunIds(e).has(target));
+    }
+    if (query.approvalResumeGateId || query.reviewGateId) {
+      const target = safeString(query.approvalResumeGateId || query.reviewGateId, 160);
+      if (target) events = events.filter((e) => activityApprovalResumeGateIds(e).has(target));
+    }
+    if (query.approvalResumeGateSha256 || query.reviewSha256) {
+      const target = safeString(query.approvalResumeGateSha256 || query.reviewSha256, 128);
+      if (target) {
+        events = events.filter((e) => [...activityApprovalResumeGateSha256s(e)]
+          .some((sha) => sha.startsWith(target)));
+      }
+    }
     if (query.agentProfileId) {
       const target = String(query.agentProfileId);
       events = events.filter((e) => activityAgentProfileIds(e).has(target));

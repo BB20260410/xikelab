@@ -89,6 +89,7 @@ describe('ActivityLog', () => {
       entityType: 'metric_turn',
       entityId: 'turn-1',
       details: {
+        agentRunId: 'agent-run-1',
         agentProfileId: 'xike-verifier',
         agentSkillNames: ['qa', 'browser'],
         agentSkillBindings: [{ name: 'qa', sources: ['profile'] }],
@@ -104,10 +105,46 @@ describe('ActivityLog', () => {
     });
 
     expect(log.list({ agentOnly: true }).map((event) => event.action)).toEqual(['metrics.recorded']);
+    expect(log.list({ agentRunId: 'agent-run-1' })).toHaveLength(1);
     expect(log.list({ agentProfileId: 'xike-verifier' })).toHaveLength(1);
     expect(log.list({ skillName: 'qa' })).toHaveLength(1);
     expect(log.list({ diagnosticCode: 'too_many_skills' })).toHaveLength(1);
     expect(log.list({ skillName: 'not-installed' })).toHaveLength(0);
+  });
+
+  it('filters approval resume gate audit events by gate id and sha prefix', () => {
+    const log = new ActivityLog({ logger: null });
+    log.record({
+      action: 'agent.run.approval_resume_gate_accepted',
+      roomId: 'room-gate',
+      sessionId: 'session-gate',
+      taskId: 'task-gate',
+      entityType: 'agent_run',
+      entityId: 'agent-run-gate',
+      status: 'succeeded',
+      details: {
+        agentRunId: 'agent-run-gate',
+        approvalResumeGateAudit: {
+          id: 'review-gate-abc123',
+          sha256: 'abcdef1234567890'.repeat(4),
+          status: 'accepted',
+          safeToResume: true,
+          counts: { fileChanges: 1, commands: 1, workEvidenceCommands: 0, risks: 0 },
+        },
+      },
+    });
+    log.record({
+      action: 'agent.run.created',
+      entityType: 'agent_run',
+      entityId: 'agent-run-other',
+      details: { agentRunId: 'agent-run-other' },
+    });
+
+    expect(log.list({ approvalResumeGateId: 'review-gate-abc123' }).map((event) => event.entityId))
+      .toEqual(['agent-run-gate']);
+    expect(log.list({ reviewGateId: 'review-gate-abc123' })).toHaveLength(1);
+    expect(log.list({ approvalResumeGateSha256: 'abcdef123456' })).toHaveLength(1);
+    expect(log.list({ reviewSha256: 'missing' })).toHaveLength(0);
   });
 
   it('migrates the legacy events table before creating new activity indexes', () => {
