@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
-import { analyzeJavaScriptAst } from './JavaScriptAstAnalyzer.js';
+import { defaultParserRegistry } from './parsers/ParserRegistry.js';
 
 const MAX_EVIDENCE_FILES = 24;
 const MAX_FILE_BYTES = 500_000;
@@ -216,8 +216,9 @@ function extractEvidence(path, text) {
   const language = detectLanguage(path);
   const lines = String(text || '').split(/\r?\n/);
   const ext = extensionOf(path);
-  if (['javascript', 'typescript'].includes(language) && ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx'].includes(ext)) {
-    const ast = analyzeJavaScriptAst({ path, text });
+  const astAdapter = defaultParserRegistry.getAdapter(ext);
+  if (['javascript', 'typescript'].includes(language) && astAdapter) {
+    const ast = astAdapter.parse({ path, text });
     if (ast.ok) return { language, ...ast };
     return { language, ...extractJsLike(lines), diagnostics: ast.diagnostics || [] };
   }
