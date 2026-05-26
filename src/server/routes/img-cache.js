@@ -56,6 +56,9 @@ export function isPrivateIp(ip) {
       const v4 = `${(h1 >> 8) & 0xff}.${h1 & 0xff}.${(h2 >> 8) & 0xff}.${h2 & 0xff}`;
       return isPrivateIp(v4);
     }
+    // IPv4-compatible IPv6（已废弃但仍可解析）：::a.b.c.d，如 ::127.0.0.1
+    const compat = lower.match(/^::(\d+\.\d+\.\d+\.\d+)$/);
+    if (compat) return isPrivateIp(compat[1]);
     return false;
   }
   return true;

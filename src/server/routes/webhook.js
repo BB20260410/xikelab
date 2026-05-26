@@ -14,7 +14,17 @@
 
 import { requireOwnerToken } from '../auth/owner-token.js';
 import { assertPublicUrl } from './img-cache.js';
+import { isUploadHostAllowed } from '../../security/uploadAllowlist.js';
 import { permissionApprovalIdFromRequest, permissionHttpBody, permissionHttpStatus } from '../../permissions/PermissionGovernance.js';
+
+function uploadHostBlocked(rawUrl) {
+  try {
+    const host = new URL(String(rawUrl).trim()).hostname;
+    return !isUploadHostAllowed(host);
+  } catch {
+    return false; // URL 非法交由 assertPublicUrl 处理
+  }
+}
 
 function stripPermissionFields(body = {}) {
   const clean = { ...(body || {}) };
@@ -43,6 +53,7 @@ export function registerWebhookRoutes(app, deps) {
       if (typeof body.url === 'string' && body.url.trim()) {
         try { await assertPublicUrl(body.url.trim()); }
         catch (e) { return res.status(400).json({ ok: false, error: `url blocked: ${e.message}` }); }
+        if (uploadHostBlocked(body.url)) return res.status(403).json({ ok: false, error: 'upload host not in allowlist' });
         const permission = permissionGovernance?.evaluatePermission?.({
           actorType: 'owner',
           actorId: 'local-owner',
@@ -70,6 +81,7 @@ export function registerWebhookRoutes(app, deps) {
       if (typeof body.url === 'string' && body.url.trim()) {
         try { await assertPublicUrl(body.url.trim()); }
         catch (e) { return res.status(400).json({ ok: false, error: `url blocked: ${e.message}` }); }
+        if (uploadHostBlocked(body.url)) return res.status(403).json({ ok: false, error: 'upload host not in allowlist' });
         const permission = permissionGovernance?.evaluatePermission?.({
           actorType: 'owner',
           actorId: 'local-owner',
@@ -108,6 +120,7 @@ export function registerWebhookRoutes(app, deps) {
       // test 触发实际出站 fetch — 再校验一遍 URL（防 store 里有历史脏数据）
       try { await assertPublicUrl(w.url); }
       catch (e) { return res.status(400).json({ ok: false, error: `url blocked: ${e.message}` }); }
+      if (uploadHostBlocked(w.url)) return res.status(403).json({ ok: false, error: 'upload host not in allowlist' });
       const permission = permissionGovernance?.evaluatePermission?.({
         actorType: 'owner',
         actorId: 'local-owner',
