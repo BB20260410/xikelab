@@ -7044,21 +7044,36 @@ async function saveMcp(nameOrNull) {
   try { body = collectMcpFromForm(); }
   catch (e) { toast(e.message, 'error'); return; }
   const isNew = !nameOrNull;
-  try {
-    const r = await fetch(isNew ? '/api/mcp/servers' : `/api/mcp/servers/${encodeURIComponent(nameOrNull)}`, {
-      method: isNew ? 'POST' : 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(x => x.json());
-    if (r.ok) {
-      toast(isNew ? '已创建' : '已保存', 'success', 1800);
-      mcpState.isNew = false;
-      mcpState.activeName = r.server?.name;
-      await refreshMcpList();
-    } else {
-      toast('保存失败：' + (r.error || 'unknown'), 'error');
-    }
-  } catch (e) { toast('保存失败：' + e.message, 'error'); }
+  const path = isNew ? '/api/mcp/servers' : `/api/mcp/servers/${encodeURIComponent(nameOrNull)}`;
+  const opts = { method: isNew ? 'POST' : 'PUT', body: JSON.stringify(body) };
+  const onSaved = async (label, r) => {
+    toast(label, 'success', 1800);
+    mcpState.isNew = false;
+    mcpState.activeName = r?.server?.name || mcpState.activeName;
+    await refreshMcpList();
+  };
+  const result = await requestWithApproval(path, opts);
+  if (result.status === 'ok') { await onSaved(isNew ? '已创建' : '已保存', result.body); return; }
+  if (result.status === 'approval_required') {
+    openApprovalRetryModal({
+      approvalId: result.approvalId,
+      approval: result.approval,
+      permissionDecision: result.permissionDecision,
+      actionLabel: isNew ? '创建 MCP server' : '更新 MCP server',
+      onApproveRetry: async () => {
+        const retry = await approveAndRetryRequest(result.approvalId, path, opts);
+        if (retry.status === 'ok') { await onSaved(isNew ? '已批准并创建' : '已批准并保存', retry.body); return true; }
+        if (retry.status === 'approval_required') { toast('审批仍未生效，请重试', 'error'); return false; }
+        toast('重试失败：' + (retry.error || retry.status), 'error'); return false;
+      },
+    });
+    return;
+  }
+  if (result.status === 'denied') {
+    toast('操作被拒绝：' + (result.permissionDecision?.reason || 'permission denied'), 'error', 5000);
+    return;
+  }
+  toast('保存失败：' + (result.error || 'unknown'), 'error');
 }
 
 // B-013 v0.9：MCP resources 查看（goose-style "MCP 一等公民"）

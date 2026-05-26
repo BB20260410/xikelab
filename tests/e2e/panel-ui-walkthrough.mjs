@@ -1262,6 +1262,35 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       await page.waitForTimeout(100);
     }
 
+    // ── 13. P2 权限治理 UI 闭环：MCP server 配置审批后重试（RCE 级高风险写入口）──
+    if (!ownerToken) {
+      track('13. MCP approval-retry (create)', true, 'skipped owner-token');
+      track('13. 批准并重试后创建成功', true, 'skipped owner-token');
+    } else {
+      await page.click('#btnMcp');
+      await page.waitForSelector('#btnMcpNew', { timeout: 3000 });
+      await page.click('#btnMcpNew');
+      await page.waitForSelector('#mcpCommand', { timeout: 3000 });
+      const mcpName = 'e2e-mcp-' + Date.now();
+      await page.fill('#mcpName', mcpName);
+      await page.fill('#mcpCommand', 'echo');
+      await page.fill('#mcpArgs', 'hello');
+      await page.click('#btnMcpSave');
+      const mcpRetryShown = await page.waitForSelector('[data-approval-retry-modal]', { timeout: 4000 })
+        .then(() => true).catch(() => false);
+      track('13. MCP approval-retry (create)', mcpRetryShown);
+      let mcpCreated = false;
+      if (mcpRetryShown) {
+        await page.click('[data-approval-retry-confirm]');
+        mcpCreated = await page.waitForFunction((name) =>
+          (document.querySelector('#mcpList')?.textContent || '').includes(name),
+        mcpName, { timeout: 6000 }).then(() => true).catch(() => false);
+      }
+      track('13. 批准并重试后创建成功', mcpCreated);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(100);
+    }
+
   } catch (e) {
     track('FATAL', false, e.message);
     await saveFailureArtifact(page, 'fatal');
