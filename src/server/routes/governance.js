@@ -5,6 +5,7 @@ import { delegationStore as defaultDelegationStore } from '../../delegation/Dele
 import { agentRunStore as defaultAgentRunStore } from '../../agents/AgentRunStore.js';
 import { buildApprovalResumeGateAudit, buildApprovalResumeReview, latestApprovalResumeManifest } from '../../agents/AgentRunApprovalResumeReview.js';
 import { activityLog as defaultActivityLog } from '../../audit/ActivityLog.js';
+import { governanceQueueStore as defaultGovernanceQueueStore } from '../../governance/GovernanceQueueStore.js';
 import { requireOwnerToken } from '../auth/owner-token.js';
 
 function compact(items, limit = 5) {
@@ -286,38 +287,68 @@ export function registerGovernanceRoutes(app, {
   autopilotStore = defaultAutopilotStore,
   agentRunStore = defaultAgentRunStore,
   activityLog = defaultActivityLog,
+  governanceQueueStore = defaultGovernanceQueueStore,
 } = {}) {
+  const collectSummary = () => {
+    const approvals = approvalStore.listApprovals({ status: 'pending', limit: 50 });
+    const budgetIncidents = budgetStore.listIncidents({ status: 'open', limit: 50 });
+    const queuedDelegations = delegationStore.list({ status: 'queued', limit: 50 });
+    const failedDelegations = delegationStore.list({ status: 'failed', limit: 50 });
+    const queuedJobs = autopilotStore.listJobs({ status: 'queued', limit: 50 });
+    const runningJobs = autopilotStore.listJobs({ status: 'running', limit: 50 });
+    const agentRuns = agentRunStore.list({ hasGovernance: true, limit: 50 });
+    const agentRunTimelines = new Map();
+    for (const run of agentRuns) {
+      if (run.status !== 'deferred' || run.sourceType !== 'idea_to_archive' || !run.approvalId) continue;
+      try {
+        const timeline = agentRunStore.getTimeline?.(run.id);
+        if (timeline) agentRunTimelines.set(run.id, timeline);
+      } catch {}
+    }
+    const activityEvents = activityLog.list({ limit: 200 });
+    return buildGovernanceSummary({
+      approvals,
+      budgetIncidents,
+      queuedDelegations,
+      failedDelegations,
+      queuedJobs,
+      runningJobs,
+      agentRuns,
+      agentRunTimelines,
+      activityEvents,
+    });
+  };
+
   app.get('/api/governance/summary', requireOwnerToken, (req, res) => {
     try {
-      const approvals = approvalStore.listApprovals({ status: 'pending', limit: 50 });
-      const budgetIncidents = budgetStore.listIncidents({ status: 'open', limit: 50 });
-      const queuedDelegations = delegationStore.list({ status: 'queued', limit: 50 });
-      const failedDelegations = delegationStore.list({ status: 'failed', limit: 50 });
-      const queuedJobs = autopilotStore.listJobs({ status: 'queued', limit: 50 });
-      const runningJobs = autopilotStore.listJobs({ status: 'running', limit: 50 });
-      const agentRuns = agentRunStore.list({ hasGovernance: true, limit: 50 });
-      const agentRunTimelines = new Map();
-      for (const run of agentRuns) {
-        if (run.status !== 'deferred' || run.sourceType !== 'idea_to_archive' || !run.approvalId) continue;
-        try {
-          const timeline = agentRunStore.getTimeline?.(run.id);
-          if (timeline) agentRunTimelines.set(run.id, timeline);
-        } catch {}
-      }
-      const activityEvents = activityLog.list({ limit: 200 });
-      res.json(buildGovernanceSummary({
-        approvals,
-        budgetIncidents,
-        queuedDelegations,
-        failedDelegations,
-        queuedJobs,
-        runningJobs,
-        agentRuns,
-        agentRunTimelines,
-        activityEvents,
-      }));
+      res.json(collectSummary());
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message || String(e) });
+    }
+  });
+
+  // P5：治理工作队列——从 summary 阻塞项派生队列项并返回（按状态分组或过滤）
+  app.get('/api/governance/queue', requireOwnerToken, (req, res) => {
+    try {
+      const summary = collectSummary();
+      governanceQueueStore.syncFromBlockers(summary.blockers || []);
+      const state = typeof req.query?.state === 'string' ? req.query.state : '';
+      const queue = state ? governanceQueueStore.list({ state }) : governanceQueueStore.grouped();
+      res.json({ ok: true, queue, counts: summary.counts || {} });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message || String(e) });
+    }
+  });
+
+  // P5：推进队列项状态（待审批/待验证/待归档/待修复/已处理）
+  app.post('/api/governance/queue/:id/state', requireOwnerToken, (req, res) => {
+    try {
+      const { state, note } = req.body || {};
+      const ok = governanceQueueStore.setState(req.params.id, state, note || '');
+      if (!ok) return res.status(404).json({ ok: false, error: 'queue item not found' });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: e.message || String(e) });
     }
   });
 }

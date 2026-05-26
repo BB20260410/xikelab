@@ -4,7 +4,7 @@ import { buildGovernanceSummary, registerGovernanceRoutes } from '../../../src/s
 function makeApp() {
   const routes = [];
   const app = {};
-  for (const method of ['get']) {
+  for (const method of ['get', 'post']) {
     app[method] = (path, ...handlers) => {
       routes.push({ method, path, handlers });
     };
@@ -226,5 +226,45 @@ describe('governance routes', () => {
       uncoveredFileCount: 0,
     });
     expect(res.payload.sections.agentRuns[0].id).toBe('agent-run-1');
+  });
+
+  it('derives a work queue from summary blockers and transitions item state', () => {
+    const { app, routes } = makeApp();
+    const synced = [];
+    const transitions = [];
+    const queueStore = {
+      syncFromBlockers: (b) => { synced.push(...(b || [])); return { upserted: (b || []).length }; },
+      grouped: () => ({ pending_review: [{ id: 'q1', sourceKind: 'approval' }], pending_verify: [], pending_archive: [], pending_fix: [], done: [] }),
+      list: () => [{ id: 'q1' }],
+      setState: (id, state) => { transitions.push({ id, state }); return id === 'q1'; },
+    };
+    const base = { listApprovals: () => [], listIncidents: () => [], list: () => [], listJobs: () => [], getTimeline: () => null };
+    const approvalStore = { ...base, listApprovals: () => [{ id: 'approval-1', type: 'manual', status: 'pending', payload: { title: 'Approve X', action: 'file.write' }, createdAt: 1 }] };
+    registerGovernanceRoutes(app, {
+      approvalStore,
+      budgetStore: base,
+      delegationStore: base,
+      autopilotStore: base,
+      agentRunStore: base,
+      activityLog: { list: () => [] },
+      governanceQueueStore: queueStore,
+    });
+
+    const queueGet = routes.find((r) => r.method === 'get' && r.path === '/api/governance/queue');
+    const res = makeRes();
+    queueGet.handlers[1]({ query: {} }, res);
+    expect(res.payload.ok).toBe(true);
+    expect(res.payload.queue.pending_review[0].id).toBe('q1');
+    expect(synced.length).toBeGreaterThan(0); // 从 summary 阻塞项派生
+
+    const statePost = routes.find((r) => r.method === 'post' && r.path === '/api/governance/queue/:id/state');
+    const res2 = makeRes();
+    statePost.handlers[1]({ params: { id: 'q1' }, body: { state: 'done' } }, res2);
+    expect(res2.payload.ok).toBe(true);
+    expect(transitions).toContainEqual({ id: 'q1', state: 'done' });
+
+    const res3 = makeRes();
+    statePost.handlers[1]({ params: { id: 'missing' }, body: { state: 'done' } }, res3);
+    expect(res3.statusCode).toBe(404);
   });
 });
