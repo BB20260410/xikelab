@@ -23,6 +23,7 @@
 - [crow5-local-research-evidence-map.md](./crow5-local-research-evidence-map.md) — Crow5 本地研究证据地图、合法吸收边界、Xike Lab 自研替代方案与 P0-P9 路线
 - [crow5-deep-analysis-personal-growth-plan.md](./crow5-deep-analysis-personal-growth-plan.md) — Crow5 深度分析与个人能力提升落地计划
 - [xikelab-remaining-roadmap-plan.md](./xikelab-remaining-roadmap-plan.md) — 未完成方向（P2 收尾 / P0-A / P1 深化 / P4-P9）操作级详细实施计划
+- [xikelab-next-steps-plan.md](./xikelab-next-steps-plan.md) — 基于当前实际进展的下一步务实计划（收口半成品闭环 + 解决实际困难）
 
 ## 🛠 部署 / 运维
 
