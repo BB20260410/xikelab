@@ -1204,6 +1204,40 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
     });
     track('10. footer fontSize 12px', footerFs === '12px');
 
+    // ── 11. P2 权限治理 UI 闭环：Webhook 审批后安全重试 ──
+    if (!ownerToken) {
+      track('11. Webhook approval-retry (create)', true, 'skipped owner-token');
+      track('11. 审批摘要含 network.upload', true, 'skipped owner-token');
+      track('11. 批准并重试后创建成功', true, 'skipped owner-token');
+    } else {
+      await page.click('#btnWebhooks');
+      await page.waitForSelector('#btnWebhookNew', { timeout: 3000 });
+      await page.click('#btnWebhookNew');
+      await page.waitForSelector('#whUrl', { timeout: 3000 });
+      const uniqueName = 'e2e-approval-' + Date.now();
+      await page.fill('#whName', uniqueName);
+      await page.fill('#whUrl', 'https://example.com/api/webhooks/e2e-approval-test');
+      await page.click('#btnWebhookSave');
+      const retryModalShown = await page.waitForSelector('[data-approval-retry-modal]', { timeout: 4000 })
+        .then(() => true).catch(() => false);
+      track('11. Webhook approval-retry (create)', retryModalShown);
+      const summaryHasUpload = retryModalShown && await page.evaluate(() => {
+        const m = document.querySelector('[data-approval-retry-modal]');
+        return !!m && /network\.upload/.test(m.textContent || '');
+      });
+      track('11. 审批摘要含 network.upload', !!summaryHasUpload);
+      let created = false;
+      if (retryModalShown) {
+        await page.click('[data-approval-retry-confirm]');
+        created = await page.waitForFunction((name) =>
+          [...document.querySelectorAll('#webhookList .wname')].some(el => (el.textContent || '').includes(name)),
+        uniqueName, { timeout: 6000 }).then(() => true).catch(() => false);
+      }
+      track('11. 批准并重试后创建成功', created);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(100);
+    }
+
   } catch (e) {
     track('FATAL', false, e.message);
     await saveFailureArtifact(page, 'fatal');

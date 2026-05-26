@@ -125,6 +125,116 @@ async function api(path, opts = {}) {
   return r.json();
 }
 
+// ─── P2 权限治理 UI 闭环：高风险写操作「审批后安全重试」─────
+// 后端约定：ask → HTTP 202 + { ok:false, error:'approval_required', approval, approvalId }
+//          deny → HTTP 403 + { ok:false, error:'permission_denied', permissionDecision }
+// 本机制只引导用户「批准后带 approvalId 重试同一请求」，绑定原 action/target，
+// 不自动重放危险终端命令（shell.exec 类不接入此机制）。
+async function requestWithApproval(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  const token = getOwnerToken();
+  if (token) headers['X-Panel-Owner-Token'] = token;
+  let r;
+  try {
+    r = await fetch(path, { ...opts, headers });
+  } catch (e) {
+    return { status: 'error', httpStatus: 0, error: e.message };
+  }
+  let body = null;
+  try { body = await r.json(); } catch { body = null; }
+  if (r.status === 202 && body && body.error === 'approval_required') {
+    return {
+      status: 'approval_required',
+      httpStatus: 202,
+      body,
+      approvalId: body.approvalId || body.approval?.id || null,
+      approval: body.approval || null,
+      permissionDecision: body.permissionDecision || null,
+    };
+  }
+  if (r.status === 403 && body && body.error === 'permission_denied') {
+    return { status: 'denied', httpStatus: 403, body, permissionDecision: body.permissionDecision || null };
+  }
+  if (!r.ok || (body && body.ok === false)) {
+    return { status: 'error', httpStatus: r.status, body, error: (body && body.error) || `HTTP ${r.status}` };
+  }
+  return { status: 'ok', httpStatus: r.status, body };
+}
+
+// 批准指定 approval 后带 approvalId 重发原请求（不改原 body 其它字段，后端校验 action/target 完全匹配）
+async function approveAndRetryRequest(approvalId, path, opts = {}) {
+  if (!approvalId) throw new Error('缺少 approvalId');
+  await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: '审批后重试原操作' }),
+  });
+  let bodyObj = {};
+  if (opts.body) { try { bodyObj = JSON.parse(opts.body); } catch { bodyObj = {}; } }
+  const retryOpts = { ...opts, body: JSON.stringify({ ...bodyObj, approvalId }) };
+  return requestWithApproval(path, retryOpts);
+}
+
+function maskUrlForDisplay(url) {
+  const s = String(url || '');
+  try { const u = new URL(s); return u.host + (u.pathname && u.pathname !== '/' ? '/…' : ''); }
+  catch { return s.length > 40 ? s.slice(0, 40) + '…' : s; }
+}
+
+// 通用「需要审批」弹窗：展示 approval payload 摘要 + 批准并重试 + 打开审批中心
+function openApprovalRetryModal(opts = {}) {
+  const { approvalId, approval, permissionDecision, actionLabel, onApproveRetry } = opts;
+  const payload = approval?.payload || permissionDecision?.approvalPayload || {};
+  const target = payload.target || {};
+  const action = payload.action || permissionDecision?.action || '-';
+  const risk = payload.risk || permissionDecision?.risk || 'high';
+  const reason = payload.reason || permissionDecision?.reason || '需要人工批准';
+  const urlDisp = target.url ? maskUrlForDisplay(target.url) : '';
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-modal approval-retry-modal';
+  overlay.setAttribute('data-approval-retry-modal', approvalId || '');
+  overlay.innerHTML = `
+    <div class="confirm-modal-bg"></div>
+    <div class="confirm-modal-body">
+      <h3 class="confirm-modal-title">需要人工批准${actionLabel ? '：' + escapeHtml(actionLabel) : ''}</h3>
+      <div class="approval-retry-summary">
+        <div class="approval-retry-row"><span>操作</span><code>${escapeHtml(String(action))}</code></div>
+        ${target.operation ? `<div class="approval-retry-row"><span>动作</span><code>${escapeHtml(String(target.operation))}</code></div>` : ''}
+        ${urlDisp ? `<div class="approval-retry-row"><span>目标</span><code>${escapeHtml(urlDisp)}</code></div>` : ''}
+        <div class="approval-retry-row"><span>风险</span><code>${escapeHtml(String(risk))}</code></div>
+        <div class="approval-retry-row"><span>原因</span><span>${escapeHtml(String(reason))}</span></div>
+        <div class="approval-retry-row"><span>审批 ID</span><code>${escapeHtml(approvalId || '-')}</code></div>
+      </div>
+      <div class="approval-retry-note">批准后将带 approvalId 重试同一操作（绑定原 action/target）；不会自动重放危险终端命令。</div>
+      <div class="confirm-modal-actions">
+        <button class="cxbtn cxbtn-tertiary" data-approval-retry-open-center>打开审批中心</button>
+        <button class="cxbtn cxbtn-secondary" data-approval-retry-cancel>取消</button>
+        <button class="cxbtn cxbtn-primary" data-approval-retry-confirm>批准并重试</button>
+      </div>
+    </div>
+  `;
+  const close = () => overlay.remove();
+  overlay.querySelector('.confirm-modal-bg').addEventListener('click', close);
+  overlay.querySelector('[data-approval-retry-cancel]').addEventListener('click', close);
+  overlay.querySelector('[data-approval-retry-open-center]').addEventListener('click', () => {
+    close();
+    try { openApprovalModal?.(); } catch { /* 审批中心可能未加载 */ }
+  });
+  overlay.querySelector('[data-approval-retry-confirm]').addEventListener('click', async () => {
+    const btn = overlay.querySelector('[data-approval-retry-confirm]');
+    btn.disabled = true; btn.textContent = '批准中…';
+    try {
+      const ok = await onApproveRetry?.();
+      if (ok !== false) close();
+      else { btn.disabled = false; btn.textContent = '批准并重试'; }
+    } catch (e) {
+      toast('批准重试失败：' + (e.message || e), 'error');
+      btn.disabled = false; btn.textContent = '批准并重试';
+    }
+  });
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
 // ─── v0.8 ConfirmModal（替代 confirm()）─────
 // S29 starter: 主实现挪到 src/web/dialog.js (window.PanelDialog.confirmModal)
 // 本 wrapper 22 处现有调用透明走 module；main.js 加载失败 fallback inline
@@ -6462,30 +6572,60 @@ async function saveWebhook(idOrNull) {
   const isNew = !idOrNull;
   // 编辑时如果 URL 是掩码（含 "..."），不覆盖（让后端保留旧 URL）—— 这里前端做：URL 含 "..." 时去掉 url 字段
   if (!isNew && body.url && body.url.includes('...')) delete body.url;
-  try {
-    const r = await fetch(isNew ? '/api/webhooks' : '/api/webhooks/' + encodeURIComponent(idOrNull), {
-      method: isNew ? 'POST' : 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(x => x.json());
-    if (r.ok) {
-      toast(isNew ? '已创建' : '已保存', 'success', 1800);
-      webhookState.isNew = false;
-      webhookState.activeId = r.webhook?.id;
-      await refreshWebhookList();
-    } else {
-      toast('保存失败：' + (r.error || 'unknown'), 'error');
-    }
-  } catch (e) { toast('保存失败：' + e.message, 'error'); }
+  const path = isNew ? '/api/webhooks' : '/api/webhooks/' + encodeURIComponent(idOrNull);
+  const opts = { method: isNew ? 'POST' : 'PUT', body: JSON.stringify(body) };
+  const onSaved = async (label, r) => {
+    toast(label, 'success', 1800);
+    webhookState.isNew = false;
+    webhookState.activeId = r?.webhook?.id || webhookState.activeId;
+    await refreshWebhookList();
+  };
+  const result = await requestWithApproval(path, opts);
+  if (result.status === 'ok') { await onSaved(isNew ? '已创建' : '已保存', result.body); return; }
+  if (result.status === 'approval_required') {
+    openApprovalRetryModal({
+      approvalId: result.approvalId,
+      approval: result.approval,
+      permissionDecision: result.permissionDecision,
+      actionLabel: isNew ? '创建 Webhook' : '更新 Webhook',
+      onApproveRetry: async () => {
+        const retry = await approveAndRetryRequest(result.approvalId, path, opts);
+        if (retry.status === 'ok') { await onSaved(isNew ? '已批准并创建' : '已批准并保存', retry.body); return true; }
+        if (retry.status === 'approval_required') { toast('审批仍未生效，请稍后重试', 'error'); return false; }
+        toast('重试失败：' + (retry.error || retry.status), 'error'); return false;
+      },
+    });
+    return;
+  }
+  if (result.status === 'denied') {
+    toast('操作被拒绝：' + (result.permissionDecision?.reason || 'permission denied'), 'error', 5000);
+    return;
+  }
+  toast('保存失败：' + (result.error || 'unknown'), 'error');
 }
 
 async function testWebhookById(id) {
-  try {
-    const r = await fetch(`/api/webhooks/${encodeURIComponent(id)}/test`, { method: 'POST' }).then(x => x.json());
-    if (r.ok) toast('测试推送成功 ✓ 查看目标平台确认收到', 'success', 3000);
-    else toast('测试推送失败：' + (r.error || 'unknown'), 'error', 5000);
-    await refreshWebhookList();
-  } catch (e) { toast('测试失败：' + e.message, 'error'); }
+  const path = `/api/webhooks/${encodeURIComponent(id)}/test`;
+  const opts = { method: 'POST' };
+  const result = await requestWithApproval(path, opts);
+  if (result.status === 'ok') { toast('测试推送成功 ✓ 查看目标平台确认收到', 'success', 3000); await refreshWebhookList(); return; }
+  if (result.status === 'approval_required') {
+    openApprovalRetryModal({
+      approvalId: result.approvalId,
+      approval: result.approval,
+      permissionDecision: result.permissionDecision,
+      actionLabel: '发送测试推送',
+      onApproveRetry: async () => {
+        const retry = await approveAndRetryRequest(result.approvalId, path, opts);
+        if (retry.status === 'ok') { toast('已批准并完成测试推送 ✓', 'success', 3000); await refreshWebhookList(); return true; }
+        if (retry.status === 'approval_required') { toast('审批仍未生效，请稍后重试', 'error'); return false; }
+        toast('重试失败：' + (retry.error || retry.status), 'error'); return false;
+      },
+    });
+    return;
+  }
+  if (result.status === 'denied') { toast('测试被拒绝：' + (result.permissionDecision?.reason || 'permission denied'), 'error', 5000); return; }
+  toast('测试推送失败：' + (result.error || 'unknown'), 'error', 5000);
 }
 
 async function deleteWebhook(id) {

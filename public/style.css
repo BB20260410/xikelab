@@ -1904,6 +1904,39 @@ button[data-forward]:hover,
   justify-content: flex-end;
 }
 .confirm-modal-closing { animation: confirm-fade-out 180ms forwards; }
+/* ===== P2 审批后安全重试弹窗 ===== */
+.approval-retry-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: var(--color-bg-subtle, rgba(127,127,127,0.08));
+  border-radius: 8px;
+}
+.approval-retry-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  min-width: 0;
+}
+.approval-retry-row > span:first-child {
+  flex: 0 0 56px;
+  color: var(--color-text-muted, #888);
+}
+.approval-retry-row code,
+.approval-retry-row > span:last-child {
+  min-width: 0;
+  word-break: break-all;
+  flex-wrap: wrap;
+}
+.approval-retry-note {
+  font-size: 11px;
+  color: var(--color-text-muted, #888);
+  margin: 6px 0 10px;
+  line-height: 1.5;
+}
 @keyframes confirm-fade-in {
   from { opacity: 0; } to { opacity: 1; }
 }
