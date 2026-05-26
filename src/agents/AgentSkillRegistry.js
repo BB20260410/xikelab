@@ -284,6 +284,57 @@ function resolveCodeContextGraph(input = {}) {
   return normalizeSymbolGraph(candidate || {});
 }
 
+export function normalizeCodebaseQuestionAnswer(input = {}) {
+  const candidate = input?.codebaseQuestionAnswer || input?.questionAnswer || input;
+  if (!candidate || typeof candidate !== 'object') return null;
+  const citations = Array.isArray(candidate.citations) ? candidate.citations.slice(0, 6).map((item, index) => {
+    const id = safeString(item.id, 20) || `C${index + 1}`;
+    const path = safeString(item.path, 300);
+    const line = Math.max(1, Number(item.line) || 1);
+    const label = safeString(item.label, 340) || (path ? `${path}:${line}` : id);
+    return {
+      id,
+      path,
+      line,
+      label,
+      kind: safeString(item.kind, 100) || 'file',
+      anchor: safeString(item.anchor, 180),
+      parser: safeString(item.parser, 80) || 'unknown',
+      score: Number(item.score || 0),
+      semanticScore: Number.isFinite(Number(item.semanticScore)) ? Number(item.semanticScore) : null,
+      reasons: Array.isArray(item.reasons) ? item.reasons.map((reason) => safeString(reason, 120)).filter(Boolean).slice(0, 4) : [],
+      snippet: safeString(item.snippet, 260),
+      evidenceCount: Math.max(0, Number(item.evidenceCount) || 0),
+      graphReferenceCount: Math.max(0, Number(item.graphReferenceCount) || 0),
+      routeUsageCount: Math.max(0, Number(item.routeUsageCount) || 0),
+    };
+  }).filter((item) => item.path || item.label) : [];
+  const question = safeString(candidate.question, 500);
+  const answer = safeString(candidate.answer, 1200);
+  if (!question && !answer && citations.length === 0) return null;
+  const coverage = candidate.coverage && typeof candidate.coverage === 'object' ? candidate.coverage : {};
+  return {
+    ok: candidate.ok !== false,
+    mode: safeString(candidate.mode, 80) || 'local-codebase-question',
+    generatedBy: safeString(candidate.generatedBy, 120) || 'CodebaseIndexStore',
+    question,
+    confidence: safeString(candidate.confidence, 40) || 'unknown',
+    answer,
+    answerLines: Array.isArray(candidate.answerLines) ? candidate.answerLines.map((line) => safeString(line, 360)).filter(Boolean).slice(0, 6) : [],
+    citations,
+    coverage: {
+      resultCount: Math.max(0, Number(coverage.resultCount) || 0),
+      citedResultCount: Math.max(0, Number(coverage.citedResultCount) || citations.length),
+      uniqueFileCount: Math.max(0, Number(coverage.uniqueFileCount) || new Set(citations.map((item) => item.path).filter(Boolean)).size),
+      evidenceItemCount: Math.max(0, Number(coverage.evidenceItemCount) || 0),
+      graphReferenceCount: Math.max(0, Number(coverage.graphReferenceCount) || 0),
+      routeUsageCount: Math.max(0, Number(coverage.routeUsageCount) || 0),
+    },
+    nextActions: Array.isArray(candidate.nextActions) ? candidate.nextActions.map((item) => safeString(item, 180)).filter(Boolean).slice(0, 6) : [],
+    limitations: Array.isArray(candidate.limitations) ? candidate.limitations.map((item) => safeString(item, 180)).filter(Boolean).slice(0, 6) : [],
+  };
+}
+
 export function normalizeGovernancePolicy(input = {}) {
   const policy = input && typeof input === 'object' ? input : {};
   const budgetTier = normalizeId(policy.budgetTier) || 'standard';
@@ -592,6 +643,13 @@ export function buildAgentRuntimeContext({ room = {}, member = {}, objective = '
   const codeContextGraph = resolveCodeContextGraph({
     codeContext: codeContext || room?.codeContext || room?.codeContextGraph || {},
   });
+  const codebaseQuestionAnswer = normalizeCodebaseQuestionAnswer(
+    codeContext?.codebaseQuestionAnswer
+      || codeContext?.questionAnswer
+      || room?.codeContext?.codebaseQuestionAnswer
+      || room?.codeContext?.questionAnswer
+      || room?.codebaseQuestionAnswer,
+  );
   const targetText = [
     objective,
     room?.topic,
@@ -613,8 +671,9 @@ export function buildAgentRuntimeContext({ room = {}, member = {}, objective = '
     codeContextSignals,
     codeContextEvidence,
     codeContextGraph,
+    codebaseQuestionAnswer,
     governance,
-    prompt: formatAgentRuntimeContext({ profile, dispatchMatches, skillNames, skillBindings, skillDiagnostics, codeContextSignals, codeContextEvidence, codeContextGraph, member, governance }),
+    prompt: formatAgentRuntimeContext({ profile, dispatchMatches, skillNames, skillBindings, skillDiagnostics, codeContextSignals, codeContextEvidence, codeContextGraph, codebaseQuestionAnswer, member, governance }),
   };
 }
 
@@ -637,6 +696,7 @@ export function summarizeAgentRuntimeContext(agentContext = {}) {
     agentCodeContextSignals: agentContext.codeContextSignals || null,
     agentCodeContextEvidence: normalizeCodeContextEvidence(agentContext.codeContextEvidence || []),
     agentCodeContextGraph: normalizeSymbolGraph(agentContext.codeContextGraph || {}),
+    agentCodebaseQuestionAnswer: normalizeCodebaseQuestionAnswer(agentContext.codebaseQuestionAnswer),
     agentSkillNames: Array.isArray(agentContext.skillNames) ? agentContext.skillNames : [],
     agentSkillBindings: Array.isArray(agentContext.skillBindings) ? agentContext.skillBindings : [],
     agentSkillDiagnostics: Array.isArray(agentContext.skillDiagnostics) ? agentContext.skillDiagnostics : [],
@@ -679,10 +739,25 @@ function formatCodeGraphLine(codeContextGraph = {}) {
     defs.length ? `defs ${defs.join(', ')}` : '',
     routes.length ? `routes ${routes.join(', ')}` : '',
   ].filter(Boolean).join('; ');
-  return `- Symbol graph: ${summary.definitionCount} definitions, ${summary.referenceCount} references, ${summary.callCount} calls, ${summary.routeUsageCount} route uses${details ? `; ${details}` : ''}`;
+  return `- Symbol graph: ${summary.definitionCount} definitions, ${summary.referenceCount} references, ${summary.callCount} calls, ${summary.typeImplementationCount || 0} type implementations, ${summary.routeUsageCount} route uses${details ? `; ${details}` : ''}`;
 }
 
-export function formatAgentRuntimeContext({ profile, dispatchMatches = [], skillNames = [], skillBindings = [], skillDiagnostics = [], codeContextSignals = null, codeContextEvidence = [], codeContextGraph = {}, member = {}, governance = null } = {}) {
+function formatCodebaseQuestionAnswerLine(codebaseQuestionAnswer = null) {
+  const answer = normalizeCodebaseQuestionAnswer(codebaseQuestionAnswer);
+  if (!answer) return null;
+  const coverage = answer.coverage || {};
+  const citations = (answer.citations || []).slice(0, 4).map((item) => `${item.id}:${item.label}`);
+  const parts = [
+    answer.question ? `question "${answer.question}"` : '',
+    `${answer.confidence} confidence`,
+    `${coverage.uniqueFileCount || 0} files`,
+    citations.length ? `citations ${citations.join(', ')}` : '',
+    answer.answer ? `answer ${safeString(answer.answer, 320)}` : '',
+  ].filter(Boolean);
+  return `- Code question answer: ${parts.join('; ')}`;
+}
+
+export function formatAgentRuntimeContext({ profile, dispatchMatches = [], skillNames = [], skillBindings = [], skillDiagnostics = [], codeContextSignals = null, codeContextEvidence = [], codeContextGraph = {}, codebaseQuestionAnswer = null, member = {}, governance = null } = {}) {
   if (!profile) return '';
   const tagLine = dispatchMatches.length > 0
     ? dispatchMatches.map((match) => `${match.tag}:${match.agentId}`).join(', ')
@@ -708,6 +783,7 @@ export function formatAgentRuntimeContext({ profile, dispatchMatches = [], skill
   const codeContextLine = formatCodeContextLine(codeContextSignals);
   const codeEvidenceLine = formatCodeEvidenceLine(codeContextEvidence);
   const codeGraphLine = formatCodeGraphLine(codeContextGraph);
+  const codeQuestionLine = formatCodebaseQuestionAnswerLine(codebaseQuestionAnswer);
   return [
     '# Xike Agent Runtime Context',
     '',
@@ -716,6 +792,7 @@ export function formatAgentRuntimeContext({ profile, dispatchMatches = [], skill
     `- Mission: ${profile.mission || 'Complete the assigned work with evidence.'}`,
     `- Matched dispatch tags: ${tagLine}`,
     codeContextLine,
+    codeQuestionLine,
     codeEvidenceLine,
     codeGraphLine,
     `- Installed bound skills for this turn: ${skillsLine}`,

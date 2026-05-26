@@ -1378,7 +1378,7 @@ registerGovernanceRoutes(app);
 // Agent Profile / Skill 绑定 / 任务标签分派预览
 registerAgentRegistryRoutes(app, { skillStore, safeResolveFsPath });
 // Agent Run 会话化追踪：run / message / tool result
-registerAgentRunRoutes(app);
+registerAgentRunRoutes(app, { getRoomAdapterPool: () => roomAdapterPool });
 // Codebase Index 二期后端：可解释代码索引 / 查询
 registerCodebaseIndexRoutes(app, { safeResolveFsPath });
 // v2.0 Task 4.2：embeddings / 向量索引

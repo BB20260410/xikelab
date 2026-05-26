@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { TextDecoder, TextEncoder } from 'node:util';
-import { DEFAULT_AGENT_SKILL_REGISTRY, classifyTask, diagnoseAgentSkillBindings, formatAgentRuntimeContext, resolveAgentProfile, resolveAgentSkillBindings, resolveAgentSkillNames } from '../../agents/AgentSkillRegistry.js';
+import { DEFAULT_AGENT_SKILL_REGISTRY, classifyTask, diagnoseAgentSkillBindings, formatAgentRuntimeContext, normalizeCodebaseQuestionAnswer, resolveAgentProfile, resolveAgentSkillBindings, resolveAgentSkillNames } from '../../agents/AgentSkillRegistry.js';
 import { buildCodebaseMap } from '../../agents/CodebaseMap.js';
 import { buildCodeContextEvidence, normalizeCodeContextEvidence, summarizeCodeContextEvidence } from '../../agents/CodeContextEvidence.js';
 import { inferCodeContextSignals } from '../../agents/CodeContextSignals.js';
@@ -197,6 +197,13 @@ export function buildAgentClassification({
   });
   const codeContextEvidence = normalizeCodeContextEvidence(codeContext || room?.codeContext || room?.codeContextEvidence || []);
   const codeContextGraph = normalizeSymbolGraph(codeContext || room?.codeContext || room?.codeContextGraph || {});
+  const codebaseQuestionAnswer = normalizeCodebaseQuestionAnswer(
+    codeContext?.codebaseQuestionAnswer
+      || codeContext?.questionAnswer
+      || room?.codeContext?.codebaseQuestionAnswer
+      || room?.codeContext?.questionAnswer
+      || room?.codebaseQuestionAnswer,
+  );
   const dispatchMatches = classifyTask(safeText, registry, { codeContext: codeContextSignals });
   const profile = resolveAgentProfile(member, room, registry);
   const suggestedSkillBindings = resolveAgentSkillBindings({ profile, dispatchMatches, room });
@@ -222,6 +229,7 @@ export function buildAgentClassification({
     codeContextEvidenceSummary: summarizeCodeContextEvidence(codeContextEvidence),
     codeContextGraph,
     codeContextGraphSummary: summarizeSymbolGraph(codeContextGraph),
+    codebaseQuestionAnswer,
     matches: dispatchMatches,
     suggestedSkillBindings,
     installedSkillBindings,
@@ -239,6 +247,7 @@ export function buildAgentClassification({
       codeContextSignals,
       codeContextEvidence,
       codeContextGraph,
+      codebaseQuestionAnswer,
       member,
       governance: profile?.governance || null,
     }),

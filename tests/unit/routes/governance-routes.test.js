@@ -25,7 +25,7 @@ describe('governance routes', () => {
   it('builds a local governance summary across pending control queues', () => {
     const summary = buildGovernanceSummary({
       approvals: [
-        { id: 'approval-1', type: 'dangerous_command', status: 'pending', payload: { command: 'rm -rf tmp' }, createdAt: 100 },
+        { id: 'approval-1', type: 'manual', status: 'pending', payload: { title: 'Approve file write', action: 'file.write', agentRunId: 'agent-run-1' }, createdAt: 100 },
       ],
       budgetIncidents: [
         { id: 'incident-1', scopeType: 'room', scopeId: 'room-1', thresholdType: 'hard_stop', status: 'open', createdAt: 200 },
@@ -43,6 +43,28 @@ describe('governance routes', () => {
       runningJobs: [
         { id: 'job-2', action: 'notify', status: 'running', updatedAt: 50 },
       ],
+      agentRuns: [
+        { id: 'agent-run-1', status: 'deferred', taskId: 'task-1', sourceType: 'idea_to_archive', deferReason: 'approval_pending', approvalId: 'approval-1', updatedAt: 400 },
+      ],
+      activityEvents: [
+        { id: 1, action: 'agent.run.created', entityType: 'agent_run', entityId: 'agent-run-1', severity: 'info', status: 'queued', ts: 500, details: { agentRunId: 'agent-run-1' } },
+        { id: 2, action: 'room.updated', entityType: 'room', entityId: 'room-1', severity: 'info', ts: 450, details: {} },
+      ],
+      agentRunTimelines: new Map([['agent-run-1', {
+        run: { id: 'agent-run-1', sourceType: 'idea_to_archive', status: 'deferred', approvalId: 'approval-1' },
+        messages: [{
+          id: 'msg-1',
+          kind: 'summary',
+          payload: {
+            resumeManifest: {
+              approvalId: 'approval-1',
+              fileChanges: [{ operation: 'create', path: 'output/playwright/governance-review.js', content: 'const review = true;\n', requiresApproval: true }],
+              commands: ['node --check output/playwright/governance-review.js'],
+              workEvidenceCommands: ['git status --porcelain=v1'],
+            },
+          },
+        }],
+      }]]),
     });
 
     expect(summary.ok).toBe(true);
@@ -56,13 +78,62 @@ describe('governance routes', () => {
       hardBlockers: 2,
       attention: 4,
       totalOpen: 7,
+      governedAgentRuns: 1,
+      recentActivityEvents: 1,
     });
     expect(summary.blockers.map((b) => b.id).slice(0, 3)).toEqual(['job-1', 'delegation-1', 'delegation-2']);
     expect(summary.blockers.find((b) => b.id === 'approval-1')).toMatchObject({
       kind: 'approval',
-      title: 'rm -rf tmp',
-      severity: 'warn',
+      title: 'Approve file write',
+      severity: 'info',
     });
+    expect(summary.nextActions.map((a) => a.type)).toEqual([
+      'review_pending_approvals',
+      'resolve_budget_hard_stop',
+      'inspect_failed_delegation',
+      'inspect_running_autopilot',
+      'inspect_deferred_agent_run',
+    ]);
+    expect(summary.sections.approvals[0]).toMatchObject({
+      id: 'approval-1',
+      action: 'file.write',
+      agentRunId: 'agent-run-1',
+      resumeRunId: 'agent-run-1',
+      canApproveResume: true,
+    });
+    expect(summary.sections.approvals[0].resumeReview).toMatchObject({
+      approvalId: 'approval-1',
+      safeToResume: true,
+      gate: {
+        id: expect.stringMatching(/^review-/),
+        required: true,
+        safeToResume: true,
+      },
+      fileChangeCount: 1,
+      commandCount: 1,
+      workEvidenceCommandCount: 1,
+    });
+    expect(summary.sections.approvals[0].resumeReviewGateAudit).toMatchObject({
+      id: summary.sections.approvals[0].resumeReview.gate.id,
+      status: 'previewed',
+      counts: { fileChanges: 1, commands: 1, workEvidenceCommands: 1, risks: 0 },
+    });
+    expect(summary.sections.approvals[0].resumeReview.fileChanges[0]).toMatchObject({
+      operation: 'create',
+      path: 'output/playwright/governance-review.js',
+      ok: true,
+    });
+    expect(summary.sections.approvals[0].resumeReview.fileChanges[0].previewLines.join('\n')).toContain('+const review = true;');
+    expect(summary.sections.approvals[0].resumeReview.stagedDiffReview).toMatchObject({
+      id: expect.stringMatching(/^staged-diff-/),
+      summary: { fileCount: 1, totalAdditions: 1, totalRemovals: 0, newFileCount: 1, verificationCoveredFileCount: 1, uncoveredFileCount: 0 },
+    });
+    expect(summary.sections.approvals[0].resumeReview.fileChanges[0]).toMatchObject({
+      coverageStatus: 'verified',
+      commandCoverage: { status: 'verified', verificationCommandCount: 1 },
+    });
+    expect(summary.sections.agentRuns[0]).toMatchObject({ id: 'agent-run-1', deferReason: 'approval_pending' });
+    expect(summary.sections.activityEvents[0]).toMatchObject({ action: 'agent.run.created', agentRunId: 'agent-run-1' });
   });
 
   it('exposes the summary through the owner-gated API route', async () => {
@@ -71,7 +142,7 @@ describe('governance routes', () => {
       approvalStore: {
         listApprovals(query) {
           expect(query.status).toBe('pending');
-          return [{ id: 'approval-1', type: 'manual', status: 'pending', payload: { title: 'Confirm release' }, createdAt: 10 }];
+          return [{ id: 'approval-1', type: 'manual', status: 'pending', payload: { title: 'Confirm release', action: 'file.write', agentRunId: 'agent-run-1' }, createdAt: 10 }];
         },
       },
       budgetStore: {
@@ -94,6 +165,34 @@ describe('governance routes', () => {
           return [];
         },
       },
+      agentRunStore: {
+        list(query) {
+          expect(query.hasGovernance).toBe(true);
+          return [{ id: 'agent-run-1', status: 'deferred', taskId: 'task-1', sourceType: 'idea_to_archive', approvalId: 'approval-1', deferReason: 'approval_pending', updatedAt: 50 }];
+        },
+        getTimeline(id) {
+          expect(id).toBe('agent-run-1');
+          return {
+            run: { id, status: 'deferred', sourceType: 'idea_to_archive', approvalId: 'approval-1' },
+            messages: [{
+              id: 'msg-resume',
+              payload: {
+                resumeManifest: {
+                  approvalId: 'approval-1',
+                  fileChanges: [{ operation: 'create', path: 'output/playwright/governance-route-review.js', content: 'const routeReview = true;\n', requiresApproval: true }],
+                  commands: ['node --check output/playwright/governance-route-review.js'],
+                },
+              },
+            }],
+          };
+        },
+      },
+      activityLog: {
+        list(query) {
+          expect(query.limit).toBe(200);
+          return [{ id: 1, action: 'permission.decision', entityType: 'agent_run', entityId: 'agent-run-1', severity: 'warn', ts: 60, details: { agentRunId: 'agent-run-1' } }];
+        },
+      },
     });
 
     const route = routes.find((r) => r.method === 'get' && r.path === '/api/governance/summary');
@@ -107,7 +206,25 @@ describe('governance routes', () => {
       queuedDelegations: 1,
       queuedAutopilotJobs: 1,
       totalOpen: 4,
+      governedAgentRuns: 1,
+      recentActivityEvents: 1,
     });
     expect(res.payload.blockers.map((b) => b.kind)).toEqual(['autopilot_job', 'delegation', 'budget', 'approval']);
+    expect(res.payload.nextActions[0]).toMatchObject({ type: 'review_pending_approvals', targetKind: 'approval' });
+    expect(res.payload.sections.approvals[0]).toMatchObject({ canApproveResume: true, resumeRunId: 'agent-run-1' });
+    expect(res.payload.sections.approvals[0].resumeReview.gate).toMatchObject({
+      id: expect.stringMatching(/^review-/),
+      required: true,
+    });
+    expect(res.payload.sections.approvals[0].resumeReviewGateAudit).toMatchObject({ status: 'previewed' });
+    expect(res.payload.sections.approvals[0].resumeReview.fileChanges[0].path).toBe('output/playwright/governance-route-review.js');
+    expect(res.payload.sections.approvals[0].resumeReview.stagedDiffReview.summary).toMatchObject({
+      fileCount: 1,
+      totalAdditions: 1,
+      newFileCount: 1,
+      verificationCoveredFileCount: 1,
+      uncoveredFileCount: 0,
+    });
+    expect(res.payload.sections.agentRuns[0].id).toBe('agent-run-1');
   });
 });

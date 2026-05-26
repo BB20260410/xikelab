@@ -163,6 +163,15 @@ describe('agent registry routes', () => {
           'src/server/routes/approvals.js',
           'tests/e2e/panel-ui-walkthrough.mjs',
         ],
+        codebaseQuestionAnswer: {
+          question: '预算审批入口在哪里？',
+          answer: 'Most relevant local evidence points to src/server/routes/approvals.js:1.',
+          confidence: 'medium',
+          citations: [
+            { id: 'C1', path: 'src/server/routes/approvals.js', line: 1, label: 'src/server/routes/approvals.js:1' },
+          ],
+          coverage: { uniqueFileCount: 1, citedResultCount: 1 },
+        },
       },
       member: { adapterId: 'codex', role: 'qa', displayName: 'Codex QA' },
       skillStore: fakeSkillStore,
@@ -178,6 +187,8 @@ describe('agent registry routes', () => {
     expect(result.matches.find((match) => match.tag === 'verification').codeScore).toBeGreaterThan(0);
     expect(result.promptPreview).toContain('Xike Agent Runtime Context');
     expect(result.promptPreview).toContain('Code context signals:');
+    expect(result.promptPreview).toContain('Code question answer:');
+    expect(result.codebaseQuestionAnswer.citations[0].id).toBe('C1');
     expect(result.promptPreview).toContain('qa [profile+');
   });
 
