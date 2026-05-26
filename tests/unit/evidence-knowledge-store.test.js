@@ -1,0 +1,61 @@
+import { describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { EvidenceKnowledgeStore, redactSecrets } from '../../src/knowledge/EvidenceKnowledgeStore.js';
+
+function freshStore() {
+  return new EvidenceKnowledgeStore({ db: new Database(':memory:') });
+}
+
+describe('EvidenceKnowledgeStore', () => {
+  it('indexes evidence and searches by bm25 across kinds', () => {
+    const store = freshStore();
+    const res = store.indexItems([
+      { refKind: 'agent_run', refId: 'r1', content: 'implemented local budget policy enforcement' },
+      { refKind: 'tool_result', refId: 't1', content: 'ran npm test for budget gate' },
+      { refKind: 'activity', refId: 'a1', content: 'archived webhook delivery report' },
+    ]);
+    expect(res).toEqual({ indexed: 3, skipped: 0 });
+
+    const hits = store.search('budget');
+    expect(hits.length).toBeGreaterThanOrEqual(2);
+    expect(hits.some((h) => h.refId === 'r1')).toBe(true);
+
+    const onlyTools = store.search('budget', { kind: 'tool_result' });
+    expect(onlyTools.every((h) => h.refKind === 'tool_result')).toBe(true);
+    expect(onlyTools.some((h) => h.refId === 't1')).toBe(true);
+  });
+
+  it('dedupes by ref on incremental re-index', () => {
+    const store = freshStore();
+    store.indexItems([{ refKind: 'agent_run', refId: 'r1', content: 'first' }]);
+    const again = store.indexItems([
+      { refKind: 'agent_run', refId: 'r1', content: 'changed but same ref' },
+      { refKind: 'agent_run', refId: 'r2', content: 'new run evidence' },
+    ]);
+    expect(again).toEqual({ indexed: 1, skipped: 1 });
+    expect(store.stats().indexed).toBe(2);
+  });
+
+  it('redacts obvious secrets before indexing', () => {
+    const store = freshStore();
+    store.indexItems([{ refKind: 'msg', refId: 'm1', content: 'using token sk-abcdefghijklmnop1234567890 to call api' }]);
+    const hits = store.search('token');
+    expect(hits.length).toBe(1);
+    expect(hits[0].snippet).not.toContain('sk-abcdefghijklmnop');
+    expect(redactSecrets('ghp_aaaaaaaaaaaaaaaaaaaaaaaa')).toBe('[redacted]');
+  });
+
+  it('returns empty for blank or syntactically tricky queries (no FTS5 crash)', () => {
+    const store = freshStore();
+    store.indexItems([{ refKind: 'agent_run', refId: 'r1', content: 'evidence body' }]);
+    expect(store.search('')).toEqual([]);
+    expect(store.search('  ')).toEqual([]);
+    expect(Array.isArray(store.search('"unterminated ('))).toBe(true);
+    expect(store.search('evidence').length).toBe(1);
+  });
+
+  it('ignores items without ref or content', () => {
+    const store = freshStore();
+    expect(store.indexItems([{ refKind: 'x' }, { refId: 'y' }, { refKind: 'x', refId: 'z', content: '' }])).toEqual({ indexed: 0, skipped: 0 });
+  });
+});
