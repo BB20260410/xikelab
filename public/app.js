@@ -2919,6 +2919,8 @@ async function refreshRoomSkills() {
           name: skill.name,
           displayName: skill.displayName || skill.name,
           description: skill.description || '',
+          bodyLen: Number(skill.bodyLen || 0),
+          updatedAt: skill.updatedAt || '',
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -5511,6 +5513,525 @@ function renderOverviewBlockF(governance) {
   });
 }
 
+// ========== P0 Governance Center — 统一治理入口 ==========
+const governanceCenterState = {
+  summary: null,
+  loading: false,
+  error: '',
+};
+
+function governanceCenterTime(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return '-';
+  try { return new Date(n).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  catch { return '-'; }
+}
+
+function governanceCenterSeverityClass(severity) {
+  return safeClassToken(severity || 'info');
+}
+
+function governanceCenterMetric(n) {
+  return String(Number(n) || 0);
+}
+
+async function openGovernanceCenterModal() {
+  $('#governanceCenterModal').style.display = 'flex';
+  await refreshGovernanceCenter();
+}
+
+function closeGovernanceCenterModal() {
+  $('#governanceCenterModal').style.display = 'none';
+}
+
+async function refreshGovernanceCenter() {
+  const root = $('#governanceCenterBody');
+  if (!root) return;
+  governanceCenterState.loading = true;
+  governanceCenterState.error = '';
+  root.innerHTML = '<div class="muted small" style="padding:20px;">加载中…</div>';
+  try {
+    governanceCenterState.summary = await api('/api/governance/summary');
+  } catch (e) {
+    governanceCenterState.error = e.message || '加载治理中心失败';
+  } finally {
+    governanceCenterState.loading = false;
+    renderGovernanceCenter();
+  }
+}
+
+function governanceActionLabel(action = {}) {
+  return action.label || ({
+    review_pending_approvals: 'Review pending approvals',
+    resolve_budget_hard_stop: 'Resolve budget hard stop',
+    inspect_failed_delegation: 'Inspect failed delegation',
+    inspect_running_autopilot: 'Inspect running Autopilot',
+    inspect_deferred_agent_run: 'Inspect deferred Agent Run',
+  })[action.type] || action.type || 'Inspect governance item';
+}
+
+function renderGovernanceCenterCards(counts = {}) {
+  const items = [
+    { label: '待审批', value: counts.pendingApprovals, severity: counts.pendingApprovals ? 'warn' : 'info', target: 'approval' },
+    { label: '预算事件', value: counts.openBudgetIncidents, severity: counts.openBudgetIncidents ? 'warn' : 'info', target: 'budget' },
+    { label: '委派队列', value: (counts.queuedDelegations || 0) + (counts.failedDelegations || 0), severity: counts.failedDelegations ? 'error' : 'info', target: 'delegation' },
+    { label: '自驾任务', value: (counts.queuedAutopilotJobs || 0) + (counts.runningAutopilotJobs || 0), severity: counts.runningAutopilotJobs ? 'warn' : 'info', target: 'autopilot_job' },
+    { label: '治理 Run', value: counts.governedAgentRuns, severity: counts.governedAgentRuns ? 'info' : 'info', target: 'agent_run' },
+    { label: '硬阻塞', value: counts.hardBlockers, severity: counts.hardBlockers ? 'error' : 'info', target: 'blockers' },
+  ];
+  return `<section class="governance-center-kpis">
+    ${items.map(item => `<button class="governance-center-kpi sev-${governanceCenterSeverityClass(item.severity)}" data-gov-center-target="${escapeHtml(item.target)}">
+      <span class="k">${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(governanceCenterMetric(item.value))}</strong>
+    </button>`).join('')}
+  </section>`;
+}
+
+function renderGovernanceCenterNextActions(actions = []) {
+  if (!actions.length) {
+    return `<section class="governance-center-section">
+      <h3>Next Actions</h3>
+      <div class="governance-center-empty">当前没有阻塞性治理动作。</div>
+    </section>`;
+  }
+  return `<section class="governance-center-section">
+    <h3>Next Actions</h3>
+    <div class="governance-center-action-list">
+      ${actions.map(action => `<button class="governance-center-action sev-${governanceCenterSeverityClass(action.severity)}" data-gov-center-open="${escapeHtml(action.targetKind || '')}" data-gov-center-id="${escapeHtml(action.targetId || '')}">
+        <span>${escapeHtml(governanceActionLabel(action))}</span>
+        <code>${escapeHtml(action.targetId || action.targetKind || '-')}</code>
+      </button>`).join('')}
+    </div>
+  </section>`;
+}
+
+function renderGovernanceCenterBlockers(blockers = []) {
+  if (!blockers.length) {
+    return `<section class="governance-center-section">
+      <h3>Open Items</h3>
+      <div class="governance-center-empty">没有待处理审批、预算、委派或调度事项。</div>
+    </section>`;
+  }
+  return `<section class="governance-center-section">
+    <h3>Open Items</h3>
+    <div class="governance-center-item-list">
+      ${blockers.map(item => `<button class="governance-center-item sev-${governanceCenterSeverityClass(item.severity)}" data-gov-center-open="${escapeHtml(item.kind || '')}" data-gov-center-id="${escapeHtml(item.id || '')}">
+        <span class="kind">${escapeHtml(governanceKindLabel(item.kind))}</span>
+        <span class="title" title="${escapeHtml(item.title || item.id || '')}">${escapeHtml(item.title || item.id || '-')}</span>
+        <span class="status">${escapeHtml(item.status || '-')}</span>
+      </button>`).join('')}
+    </div>
+  </section>`;
+}
+
+function governanceCenterBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${n} B`;
+}
+
+function governanceShortHash(value) {
+  const text = String(value || '');
+  return text ? text.slice(0, 10) : '-';
+}
+
+function stagedDiffReviewText(diff = {}) {
+  const summary = diff?.summary || {};
+  if (!diff?.id && !diff?.sha256 && !summary.fileCount) return '';
+  return `+${Number(summary.totalAdditions || 0)}/-${Number(summary.totalRemovals || 0)} · ${Number(summary.newFileCount || 0)} new · ${Number(summary.existingFileCount || 0)} existing · ${Number(summary.verificationCoveredFileCount || 0)}/${Number(summary.fileCount || 0)} verified · ${Number(summary.uncoveredFileCount || 0)} uncovered · ${Number(summary.highRiskFileCount || 0)} high risk · ${governanceShortHash(diff.sha256 || diff.id)}`;
+}
+
+function stagedDiffFileMeta(file = {}) {
+  const coverage = file.commandCoverage || {};
+  const status = file.coverageStatus || coverage.status || '-';
+  const verifyCount = Number(file.verificationCommandCount ?? coverage.verificationCommandCount ?? 0)
+    + Number(file.projectWideVerificationCommandCount ?? coverage.projectWideVerificationCommandCount ?? 0);
+  const evidenceCount = Number(file.workEvidenceCommandCount ?? coverage.workEvidenceCommandCount ?? 0)
+    + Number(file.projectWideWorkEvidenceCommandCount ?? coverage.projectWideWorkEvidenceCommandCount ?? 0);
+  const risk = `${file.riskLevel || '-'}#${Number(file.riskRank || 0) || '-'} score ${Number(file.riskScore || 0)}`;
+  return `coverage ${status} · verify ${verifyCount} · evidence ${evidenceCount} · risk ${risk}`;
+}
+
+function governanceCommandKey(command = '') {
+  const text = String(command || '');
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `cmd-${(hash >>> 0).toString(16)}`;
+}
+
+function governanceCommandChips(file = {}) {
+  const coverage = file.commandCoverage || {};
+  const items = [
+    ...(Array.isArray(coverage.verificationCommands) ? coverage.verificationCommands.map(command => ({ kind: 'verify', command })) : []),
+    ...(Array.isArray(coverage.projectWideVerificationCommands) ? coverage.projectWideVerificationCommands.map(command => ({ kind: 'verify-all', command })) : []),
+    ...(Array.isArray(coverage.workEvidenceCommands) ? coverage.workEvidenceCommands.map(command => ({ kind: 'evidence', command })) : []),
+    ...(Array.isArray(coverage.projectWideWorkEvidenceCommands) ? coverage.projectWideWorkEvidenceCommands.map(command => ({ kind: 'evidence-all', command })) : []),
+  ].filter(item => item.command?.command);
+  if (!items.length) return '';
+  return `<div class="governance-center-command-links">
+    ${items.map(item => `<button type="button" class="governance-center-command-chip" data-gov-center-command-jump="${escapeHtml(governanceCommandKey(item.command.command))}" title="${escapeHtml(item.command.command)}">${escapeHtml(item.kind)}</button>`).join('')}
+  </div>`;
+}
+
+function governanceRiskReasons(file = {}) {
+  const reasons = Array.isArray(file.riskReasons) ? file.riskReasons : [];
+  if (!reasons.length) return '';
+  return `<details class="governance-center-risk-explain">
+    <summary>Risk reasons</summary>
+    <div>${reasons.map(item => `<span>+${Number(item.points || 0)} ${escapeHtml(item.reason || '')}</span>`).join('')}</div>
+  </details>`;
+}
+
+function governanceCoverageExplanations(file = {}) {
+  const coverage = file.commandCoverage || {};
+  const explanations = Array.isArray(file.coverageExplanations)
+    ? file.coverageExplanations
+    : Array.isArray(coverage.coverageExplanations) ? coverage.coverageExplanations : [];
+  if (!explanations.length) return '';
+  return `<details class="governance-center-coverage-explain">
+    <summary>Coverage explanation</summary>
+    <div>${explanations.map(item => `<span><b>${escapeHtml(item.kind || 'coverage')}</b> ${escapeHtml(item.status || '-')} ${item.command ? `<code>${escapeHtml(item.command)}</code>` : ''} ${escapeHtml(item.reason || '')}</span>`).join('')}</div>
+  </details>`;
+}
+
+function orderedGovernanceReviewFiles(files = [], stagedDiff = {}) {
+  const rankMap = new Map((stagedDiff.prioritizedFiles || []).map((item, index) => [`${item.operation || ''}:${item.path || ''}`, Number(item.riskRank || index + 1)]));
+  return [...files].sort((a, b) => {
+    const ar = Number(a.riskRank || rankMap.get(`${a.operation || ''}:${a.path || ''}`) || 999);
+    const br = Number(b.riskRank || rankMap.get(`${b.operation || ''}:${b.path || ''}`) || 999);
+    return ar - br || String(a.path || '').localeCompare(String(b.path || ''));
+  });
+}
+
+function renderGovernanceCoverageFilter(files = []) {
+  const statuses = ['verified', 'project_wide_verified', 'evidence_only', 'uncovered', 'blocked'];
+  const counts = files.reduce((acc, file) => {
+    const status = file.coverageStatus || file.commandCoverage?.status || 'uncovered';
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  return `<div class="governance-center-coverage-filter" data-gov-center-coverage-filter>
+    <span>Coverage filter</span>
+    <button type="button" class="is-active" data-gov-center-coverage-status="all">All ${files.length}</button>
+    ${statuses.map(status => `<button type="button" data-gov-center-coverage-status="${escapeHtml(status)}">${escapeHtml(status)} ${counts[status] || 0}</button>`).join('')}
+  </div>`;
+}
+
+function renderGovernanceResumeReview(approval = {}) {
+  const review = approval.resumeReview;
+  if (!approval.canApproveResume || !review) return '';
+  const stagedDiff = review.stagedDiffReview || review.diffReview || {};
+  const files = orderedGovernanceReviewFiles(Array.isArray(review.fileChanges) ? review.fileChanges : [], stagedDiff);
+  const commands = Array.isArray(review.commands) ? review.commands : [];
+  const workCommands = Array.isArray(review.workEvidenceCommands) ? review.workEvidenceCommands : [];
+  const risks = Array.isArray(review.risks) ? review.risks : [];
+  const gate = review.gate || {};
+  const stagedDiffText = stagedDiffReviewText(stagedDiff);
+  return `<div class="governance-center-resume-review" data-gov-center-resume-review="${escapeHtml(approval.id)}">
+    <div class="governance-center-review-head">
+      <span>Preflight Review</span>
+      <span class="${review.safeToResume ? 'sev-info' : 'sev-error'}">${review.safeToResume ? 'safe manifest' : 'needs attention'}</span>
+    </div>
+    <div class="governance-center-review-stats">
+      <span>${Number(review.fileChangeCount || files.length)} files</span>
+      <span>${Number(review.commandCount || commands.length)} verify cmds</span>
+      <span>${Number(review.workEvidenceCommandCount || workCommands.length)} evidence cmds</span>
+      <span>Gate ${escapeHtml(gate.id || review.reviewGateId || '-')}</span>
+    </div>
+    ${stagedDiffText ? `<div class="governance-center-review-diff" data-gov-center-staged-diff="${escapeHtml(stagedDiff.id || '')}">
+      <strong>Staged Diff</strong>
+      <span>${escapeHtml(stagedDiffText)}</span>
+    </div>` : ''}
+    ${renderGovernanceCoverageFilter(files)}
+    <div class="governance-center-review-note" data-gov-center-coverage-empty hidden>No files match this coverage filter.</div>
+    ${files.map(file => `<details class="governance-center-review-file" data-gov-center-review-file="${escapeHtml(file.path || '')}" data-gov-center-coverage="${escapeHtml(file.coverageStatus || file.commandCoverage?.status || 'uncovered')}" open>
+      <summary class="governance-center-review-file-row">
+        <span class="op">${escapeHtml(file.operation || '-')}</span>
+        <span class="risk ${escapeHtml(safeClassToken(file.riskLevel || 'low'))}">#${Number(file.riskRank || 0) || '-'} ${escapeHtml(file.riskLevel || 'low')}</span>
+        <code>${escapeHtml(file.path || '-')}</code>
+        ${file.diffStats ? `<span>+${Number(file.diffStats.additions || 0)}/-${Number(file.diffStats.removals || 0)}</span>` : ''}
+        <span>${governanceCenterBytes(file.contentBytes)}</span>
+        <span>sha ${escapeHtml(governanceShortHash(file.contentSha256))}</span>
+      </summary>
+      ${Array.isArray(file.attentionFlags) && file.attentionFlags.length
+        ? `<div class="governance-center-review-note">flags ${file.attentionFlags.map(escapeHtml).join(' · ')}</div>`
+        : ''}
+      ${file.coverageStatus || file.commandCoverage ? `<div class="governance-center-review-note">${escapeHtml(stagedDiffFileMeta(file))}</div>` : ''}
+      ${governanceCoverageExplanations(file)}
+      ${governanceCommandChips(file)}
+      ${governanceRiskReasons(file)}
+      ${file.summary ? `<div class="governance-center-review-note">${escapeHtml(file.summary)}</div>` : ''}
+      ${file.reason && !file.ok ? `<div class="governance-center-review-risk">${escapeHtml(file.reason)}</div>` : ''}
+      ${Array.isArray(file.previewLines) && file.previewLines.length
+        ? `<pre class="governance-center-diff-preview">${file.previewLines.map(line => escapeHtml(line)).join('\n')}</pre>`
+        : `<div class="governance-center-review-note">${escapeHtml(file.previewSkipped || 'No preview lines')}</div>`}
+    </details>`).join('')}
+    ${commands.length || workCommands.length ? `<div class="governance-center-review-commands">
+      ${[...workCommands, ...commands].map(cmd => `<code class="${cmd.ok ? '' : 'is-risk'}" data-gov-center-command-id="${escapeHtml(governanceCommandKey(cmd.command || ''))}" title="${escapeHtml(cmd.reason || '')}">${escapeHtml(cmd.command || '')}</code>`).join('')}
+    </div>` : ''}
+    ${risks.length ? `<div class="governance-center-review-risk">${risks.map(escapeHtml).join(' · ')}</div>` : ''}
+  </div>`;
+}
+
+function renderGovernanceCenterApprovals(approvals = []) {
+  if (!approvals.length) {
+    return `<section class="governance-center-section">
+      <h3>Approval Actions</h3>
+      <div class="governance-center-empty">当前没有 pending approval。</div>
+    </section>`;
+  }
+  return `<section class="governance-center-section">
+    <h3>Approval Actions</h3>
+    <div class="governance-center-approval-list">
+      ${approvals.map((approval) => {
+        const reviewGate = approval.resumeReview?.gate || {};
+        const canResumeWithGate = approval.canApproveResume
+          && approval.resumeReview?.safeToResume !== false
+          && Boolean(reviewGate.id || approval.resumeReview?.reviewGateId);
+        return `<div class="governance-center-approval ${approval.canApproveResume ? 'sev-warn' : ''}">
+        <button class="governance-center-approval-main" data-gov-center-open="approval" data-gov-center-id="${escapeHtml(approval.id)}">
+          <span class="title">${escapeHtml(approval.title || approval.type || approval.id)}</span>
+          <span class="meta">${escapeHtml(approval.type || '-')} · ${escapeHtml(approval.action || 'manual')} · ${escapeHtml(approval.resumeRunId || approval.agentRunId || '-')}</span>
+        </button>
+        ${approval.canApproveResume ? `<button class="cxbtn cxbtn-primary cxbtn-sm" data-gov-center-approve-resume="${escapeHtml(approval.id)}" data-gov-center-run="${escapeHtml(approval.resumeRunId)}" data-gov-center-review-gate="${escapeHtml(reviewGate.id || approval.resumeReview?.reviewGateId || '')}" data-gov-center-review-sha="${escapeHtml(reviewGate.sha256 || approval.resumeReview?.reviewSha256 || '')}" ${canResumeWithGate ? '' : 'disabled'}>批准并续跑</button>` : `<button class="cxbtn cxbtn-secondary cxbtn-sm" data-gov-center-open="approval" data-gov-center-id="${escapeHtml(approval.id)}">打开审批</button>`}
+        ${renderGovernanceResumeReview(approval)}
+      </div>`;
+      }).join('')}
+    </div>
+  </section>`;
+}
+
+function renderGovernanceCenterBudgetIncidents(incidents = []) {
+  if (!incidents.length) {
+    return `<section class="governance-center-section">
+      <h3>Budget Actions</h3>
+      <div class="governance-center-empty">当前没有 open budget incident。</div>
+    </section>`;
+  }
+  return `<section class="governance-center-section">
+    <h3>Budget Actions</h3>
+    <div class="governance-center-budget-list">
+      ${incidents.map(incident => {
+        const usage = `${fmtBudgetMetric(incident.metric, incident.observedAmount)} / ${fmtBudgetMetric(incident.metric, incident.limitAmount)}`;
+        const scope = budgetScopeLabel(incident.scopeType, incident.scopeId);
+        const hard = incident.thresholdType === 'hard_stop';
+        return `<div class="governance-center-budget ${hard ? 'sev-error' : 'sev-warn'}">
+          <button class="governance-center-budget-main" data-gov-center-open="budget" data-gov-center-id="${escapeHtml(incident.id)}">
+            <span class="title">${escapeHtml(scope)}</span>
+            <span class="meta">${escapeHtml(incident.thresholdType || '-')} · ${escapeHtml(usage)}</span>
+          </button>
+          <button class="cxbtn cxbtn-secondary cxbtn-sm" data-gov-center-resolve-budget="${escapeHtml(incident.id)}">标记已处理</button>
+        </div>`;
+      }).join('')}
+    </div>
+  </section>`;
+}
+
+function renderGovernanceCenterRuns(runs = []) {
+  if (!runs.length) {
+    return `<section class="governance-center-section">
+      <h3>Agent Runs</h3>
+      <div class="governance-center-empty">最近没有带治理链路的 Agent Run。</div>
+    </section>`;
+  }
+  return `<section class="governance-center-section">
+    <h3>Agent Runs</h3>
+    <div class="governance-center-run-list">
+      ${runs.map(run => `<button class="governance-center-run" data-gov-center-open="agent_run" data-gov-center-id="${escapeHtml(run.id)}">
+        <span class="title">${escapeHtml(run.taskId || run.id)}</span>
+        <span class="meta">${escapeHtml(run.status || '-')} · ${escapeHtml(run.sourceType || '-')} · ${escapeHtml(run.deferReason || 'no defer')}</span>
+        <span class="ids">${[run.approvalId, run.budgetIncidentId, run.delegationId].filter(Boolean).map(escapeHtml).join(' · ') || '-'}</span>
+      </button>`).join('')}
+    </div>
+  </section>`;
+}
+
+function renderGovernanceCenterActivity(events = []) {
+  if (!events.length) {
+    return `<section class="governance-center-section">
+      <h3>Recent Activity</h3>
+      <div class="governance-center-empty">最近没有治理审计事件。</div>
+    </section>`;
+  }
+  return `<section class="governance-center-section">
+    <h3>Recent Activity</h3>
+    <div class="governance-center-activity-list">
+      ${events.map(event => `<button class="governance-center-activity" data-gov-center-open="${event.agentRunId ? 'agent_run' : 'activity'}" data-gov-center-id="${escapeHtml(event.agentRunId || event.entityId || event.id || '')}">
+        <span class="action">${escapeHtml(event.action || '-')}</span>
+        <span class="meta">${escapeHtml(event.entityType || '-')} · ${escapeHtml(event.entityId || '-')} · ${governanceCenterTime(event.ts)}</span>
+      </button>`).join('')}
+    </div>
+  </section>`;
+}
+
+function renderGovernanceCenter() {
+  const root = $('#governanceCenterBody');
+  if (!root) return;
+  if (governanceCenterState.error) {
+    root.innerHTML = `<div class="muted small" style="padding:20px;color:var(--color-danger-alt);">加载失败：${escapeHtml(governanceCenterState.error)}</div>`;
+    return;
+  }
+  const summary = governanceCenterState.summary || {};
+  const counts = summary.counts || {};
+  const sections = summary.sections || {};
+  root.innerHTML = `
+    <div class="governance-center-toolbar">
+      <div>
+        <strong>本地治理总控</strong>
+        <span>${summary.generatedAt ? `更新于 ${governanceCenterTime(summary.generatedAt)}` : '等待数据'}</span>
+      </div>
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="btnGovernanceCenterRefresh">刷新</button>
+    </div>
+    ${renderGovernanceCenterCards(counts)}
+    <div class="governance-center-grid">
+      ${renderGovernanceCenterNextActions(summary.nextActions || [])}
+      ${renderGovernanceCenterApprovals(sections.approvals || [])}
+      ${renderGovernanceCenterBudgetIncidents(sections.budgetIncidents || [])}
+      ${renderGovernanceCenterBlockers(summary.blockers || [])}
+      ${renderGovernanceCenterRuns(sections.agentRuns || [])}
+      ${renderGovernanceCenterActivity(sections.activityEvents || [])}
+    </div>
+  `;
+  $('#btnGovernanceCenterRefresh')?.addEventListener('click', refreshGovernanceCenter);
+  root.querySelectorAll('[data-gov-center-open]').forEach(btn => {
+    btn.addEventListener('click', () => openGovernanceCenterTarget(btn.dataset.govCenterOpen, btn.dataset.govCenterId));
+  });
+  root.querySelectorAll('[data-gov-center-target]').forEach(btn => {
+    btn.addEventListener('click', () => openGovernanceCenterTarget(btn.dataset.govCenterTarget, ''));
+  });
+  root.querySelectorAll('[data-gov-center-resolve-budget]').forEach(btn => {
+    btn.addEventListener('click', () => resolveGovernanceCenterBudgetIncident(btn.dataset.govCenterResolveBudget, btn));
+  });
+  root.querySelectorAll('[data-gov-center-approve-resume]').forEach(btn => {
+    btn.addEventListener('click', () => approveAndResumeGovernanceRun(btn.dataset.govCenterApproveResume, btn.dataset.govCenterRun, btn, {
+      reviewGateId: btn.dataset.govCenterReviewGate,
+      reviewSha256: btn.dataset.govCenterReviewSha,
+    }));
+  });
+  root.querySelectorAll('[data-gov-center-command-jump]').forEach(btn => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const id = btn.dataset.govCenterCommandJump;
+      const target = id ? root.querySelector(`[data-gov-center-command-id="${CSS.escape(id)}"]`) : null;
+      if (!target) return;
+      root.querySelectorAll('.governance-center-review-commands code.is-highlighted')
+        .forEach(node => node.classList.remove('is-highlighted'));
+      target.classList.add('is-highlighted');
+      target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  });
+  root.querySelectorAll('[data-gov-center-coverage-filter]').forEach(filter => {
+    filter.addEventListener('click', (event) => {
+      const btn = event.target?.closest?.('[data-gov-center-coverage-status]');
+      if (!btn) return;
+      const status = btn.dataset.govCenterCoverageStatus || 'all';
+      const review = filter.closest('[data-gov-center-resume-review]');
+      if (!review) return;
+      filter.querySelectorAll('[data-gov-center-coverage-status]').forEach(node => node.classList.toggle('is-active', node === btn));
+      const files = [...review.querySelectorAll('[data-gov-center-review-file]')];
+      let visible = 0;
+      for (const file of files) {
+        const matches = status === 'all' || file.dataset.govCenterCoverage === status;
+        file.hidden = !matches;
+        if (matches) visible += 1;
+      }
+      const empty = review.querySelector('[data-gov-center-coverage-empty]');
+      if (empty) empty.hidden = visible > 0;
+    });
+  });
+}
+
+async function approveAndResumeGovernanceRun(approvalId, runId, btn = null, options = {}) {
+  if (!approvalId || !runId) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '续跑中…';
+  }
+  try {
+    const preview = await api(`/api/agent-runs/${encodeURIComponent(runId)}/approval-resume-preview?approvalId=${encodeURIComponent(approvalId)}`);
+    const currentGate = preview.resumeReviewGate || preview.resumeReview?.gate || {};
+    if (!currentGate.id || !currentGate.sha256) {
+      throw new Error('Preflight review gate missing');
+    }
+    if (preview.resumeReview?.safeToResume === false || currentGate.safeToResume === false) {
+      throw new Error('Preflight review is not safe to resume');
+    }
+    if ((options.reviewGateId && options.reviewGateId !== currentGate.id)
+      || (options.reviewSha256 && options.reviewSha256 !== currentGate.sha256)) {
+      throw new Error('Preflight review gate changed; refresh and review again');
+    }
+    await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: 'Governance Center approve and resume' }),
+    });
+    const result = await api(`/api/agent-runs/${encodeURIComponent(runId)}/approval-resume`, {
+      method: 'POST',
+      body: JSON.stringify({
+        approvalId,
+        requestedBy: 'owner',
+        reviewGateId: currentGate.id,
+        reviewSha256: currentGate.sha256,
+      }),
+    });
+    toast(result.archive?.summary || '审批已通过，Agent Run 已续跑', 'success', 2200);
+    closeGovernanceCenterModal();
+    await openAgentRunFromActivity(runId);
+  } catch (e) {
+    toast('批准续跑失败：' + (e.message || e), 'error', 3500);
+    await refreshGovernanceCenter();
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || '批准并续跑';
+    }
+  }
+}
+
+async function resolveGovernanceCenterBudgetIncident(id, btn = null) {
+  if (!id) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '处理中…';
+  }
+  try {
+    await api(`/api/budgets/incidents/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ source: 'governance_center' }),
+    });
+    toast('预算事件已处理', 'success', 1500);
+    await refreshGovernanceCenter();
+    if (overviewState.shown) refreshOverview();
+  } catch (e) {
+    toast('处理失败：' + e.message, 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || '标记已处理';
+    }
+  }
+}
+
+async function openGovernanceCenterTarget(kind, id = '') {
+  closeGovernanceCenterModal();
+  if (kind === 'approval') return openApprovalModal(id || null);
+  if (kind === 'budget' || kind === 'blockers') return showOverviewArea();
+  if (kind === 'delegation') {
+    if (id && typeof delegationState !== 'undefined') delegationState.activeId = id;
+    return openDelegationModal();
+  }
+  if (kind === 'autopilot_job') return openAutopilotModal();
+  if (kind === 'agent_run' && id) return openAgentRunFromActivity(id);
+  if (kind === 'activity') return openActivityModal(id ? { entityId: id } : {});
+  return openActivityModal({ q: id || kind || '' });
+}
+
+$('#btnGovernance')?.addEventListener('click', () => openGovernanceCenterModal());
+document.querySelectorAll('[data-close-governance-center]').forEach(el => el.addEventListener('click', closeGovernanceCenterModal));
+
 async function cleanOldMetrics() {
   // 默认建议：3 个月前的删
   const now = new Date();
@@ -6725,6 +7246,7 @@ const agentRegistryState = {
   codeContextEvidence: [],
   codeContextGraph: null,
   codebaseMap: null,
+  codebaseQuestionAnswer: null,
   memberRole: 'dev',
   runs: [],
   runsLoading: false,
@@ -6734,7 +7256,20 @@ const agentRegistryState = {
   runFilters: {
     status: '',
     roomId: '',
+    sessionId: '',
     agentProfileId: '',
+    sourceType: '',
+    approvalId: '',
+    delegationId: '',
+    budgetIncidentId: '',
+    deferReason: '',
+    approvalResumeGateId: '',
+    approvalResumeGateSha256: '',
+    hasGovernance: false,
+  },
+  modelSkillCenter: {
+    providersLoaded: false,
+    skillsLoaded: false,
   },
 };
 const AGENT_POLICY_OPTIONS = {
@@ -6799,6 +7334,7 @@ function renderAgentRegistryTabs() {
   const tabs = [
     ['profiles', 'Profiles'],
     ['dispatch', 'Dispatch'],
+    ['models', 'Models/Skills'],
     ['runs', 'Runs'],
     ['policies', 'Policies'],
   ];
@@ -6809,6 +7345,7 @@ function renderAgentRegistryTabs() {
 
 function renderAgentRegistryActiveTab(snapshot) {
   if (agentRegistryState.activeTab === 'profiles') return renderAgentProfilesTab(snapshot);
+  if (agentRegistryState.activeTab === 'models') return renderAgentModelSkillCenterTab(snapshot);
   if (agentRegistryState.activeTab === 'runs') return renderAgentRunsTab();
   if (agentRegistryState.activeTab === 'policies') return renderAgentPoliciesTab(snapshot);
   return renderAgentDispatchTab(snapshot);
@@ -6835,6 +7372,7 @@ function renderAgentDispatchTab(snapshot) {
     </section>
     <section class="agent-registry-lab">
       <h3>Dispatch Preview</h3>
+      ${renderAgentDispatchWorkflow()}
       <div class="agent-preview-form">
         <select id="agentPreviewRole" aria-label="预演角色">
           ${['pm', 'dev', 'qa', 'architect', 'judge', 'shipper', 'designer', 'observer'].map(role => `<option value="${role}" ${agentRegistryState.memberRole === role ? 'selected' : ''}>${role}</option>`).join('')}
@@ -6842,10 +7380,12 @@ function renderAgentDispatchTab(snapshot) {
         <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentPreviewLoadChanged">当前变更</button>
         <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentPreviewLoadCodebase">工程地图</button>
         <button class="cxbtn cxbtn-primary cxbtn-sm" id="agentPreviewRun">预演分派</button>
+        <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentPreviewCreateRun">创建 Run Draft</button>
       </div>
       <textarea id="agentPreviewText" rows="5" placeholder="输入一个任务，查看会命中哪些 tag、profile 和 skill">${escapeHtml(agentRegistryState.text)}</textarea>
       <textarea id="agentPreviewFiles" rows="4" placeholder="可选：粘贴受影响文件路径，每行一个；用于观察工程上下文如何影响分派">${escapeHtml(agentRegistryState.affectedFiles)}</textarea>
       <div id="agentPreviewFilesInfo" class="agent-preview-files-info">${renderAgentChangedFilesInfo(agentRegistryState.changedFilesInfo)}</div>
+      <div id="agentPreviewQuestionInfo">${renderAgentCodebaseQuestionAnswer(agentRegistryState.codebaseQuestionAnswer)}</div>
       <div id="agentPreviewResult" class="agent-preview-result">
         ${agentRegistryState.classification ? renderAgentClassification(agentRegistryState.classification) : '<div class="agent-empty">输入任务后点击预演。</div>'}
       </div>
@@ -6863,17 +7403,307 @@ function renderAgentPoliciesTab(snapshot) {
   </section>`;
 }
 
+function modelSkillProviderRole(providerId = '') {
+  const id = String(providerId || '').toLowerCase();
+  if (id.includes('codex')) return 'implementation / verification';
+  if (id.includes('claude') || id === 'ccr') return 'planning / architecture review';
+  if (id.includes('ollama')) return 'local privacy / offline checks';
+  if (id.includes('gemini')) return 'research / large context';
+  if (id.includes('minimax')) return 'Chinese writing / draft review';
+  return 'custom local adapter';
+}
+
+function renderModelOptionChips(providerId = '') {
+  const options = (MODEL_OPTIONS[providerId] || [])
+    .filter(Boolean)
+    .slice(0, 5);
+  if (options.length === 0) return '<span class="missing">custom model</span>';
+  return options.map(option => `<span>${escapeHtml(option)}</span>`).join('');
+}
+
+function modelSkillModelCount(providerId = '') {
+  return (MODEL_OPTIONS[providerId] || []).filter(Boolean).length;
+}
+
+function modelSkillPreferredModel(providerId = '') {
+  return (MODEL_OPTIONS[providerId] || []).find(Boolean) || 'adapter default';
+}
+
+function modelSkillPickProvider(providers = [], preferred = []) {
+  for (const key of preferred) {
+    const found = providers.find(provider => String(provider.id || '').toLowerCase().includes(key));
+    if (found) return found;
+  }
+  return providers[0] || null;
+}
+
+function buildModelSkillRecommendations(providers = []) {
+  const cases = [
+    ['implementation', ['codex', 'claude'], 'source changes and local verification'],
+    ['verification', ['codex', 'gemini-cli', 'ollama'], 'tests, diff checks and repeatable evidence'],
+    ['architecture', ['claude', 'codex'], 'cross-file design review and tradeoffs'],
+    ['governance', ['codex', 'claude'], 'approval, budget, audit and gate reasoning'],
+    ['research', ['gemini-cli', 'gemini', 'claude'], 'large-context local research support'],
+    ['privacy/local', ['ollama'], 'offline or local-only checks when configured'],
+  ];
+  return cases.map(([label, preferred, reason]) => {
+    const provider = modelSkillPickProvider(providers, preferred);
+    return {
+      label,
+      provider,
+      model: provider ? modelSkillPreferredModel(provider.id) : 'no active provider',
+      reason,
+      source: provider ? 'active adapter + local model list' : 'no matching active adapter',
+    };
+  });
+}
+
+function buildSkillSourceRows(profiles = [], rules = []) {
+  const installed = new Map((roomSkillsCache || []).map(skill => [skill.name, skill]));
+  const rows = new Map();
+  function ensure(name) {
+    if (!rows.has(name)) {
+      const skill = installed.get(name) || {};
+      rows.set(name, {
+        name,
+        displayName: skill.displayName || name,
+        bodyLen: Number(skill.bodyLen || 0),
+        updatedAt: skill.updatedAt || '',
+        installed: installed.has(name),
+        profileIds: [],
+        dispatchTags: [],
+      });
+    }
+    return rows.get(name);
+  }
+  for (const profile of profiles) {
+    for (const skill of profile.skillCoverage || []) {
+      ensure(skill.name).profileIds.push(profile.id);
+    }
+  }
+  for (const rule of rules) {
+    for (const name of rule.skillHints || []) {
+      ensure(name).dispatchTags.push(rule.tag);
+    }
+  }
+  for (const skill of roomSkillsCache || []) ensure(skill.name);
+  return [...rows.values()].sort((a, b) => {
+    if (a.installed !== b.installed) return a.installed ? 1 : -1;
+    const ar = a.profileIds.length + a.dispatchTags.length;
+    const br = b.profileIds.length + b.dispatchTags.length;
+    return br - ar || a.name.localeCompare(b.name);
+  });
+}
+
+function skillSourceRiskLabels(row = {}) {
+  const risks = [];
+  const sourceCount = (row.profileIds || []).length + (row.dispatchTags || []).length;
+  if (!row.installed) risks.push(['missing', 'missing']);
+  if (sourceCount === 0) risks.push(['missing', 'not injected']);
+  if (sourceCount >= 5) risks.push(['missing', 'multi-source']);
+  if (Number(row.bodyLen || 0) > 50_000) risks.push(['missing', 'large prompt']);
+  if (risks.length === 0) risks.push(['ok', 'ok']);
+  return risks;
+}
+
+function renderAgentModelSkillCenterTab(snapshot) {
+  if (!agentRegistryState.modelSkillCenter.providersLoaded) {
+    agentRegistryState.modelSkillCenter.providersLoaded = true;
+    refreshRoomProviders().then(() => {
+      if (agentRegistryState.activeTab === 'models') renderAgentRegistryModal();
+    });
+  }
+  if (!agentRegistryState.modelSkillCenter.skillsLoaded) {
+    agentRegistryState.modelSkillCenter.skillsLoaded = true;
+    refreshRoomSkills().then(() => {
+      if (agentRegistryState.activeTab === 'models') renderAgentRegistryModal();
+    });
+  }
+
+  const profiles = snapshot.profiles || [];
+  const rules = snapshot.rules || [];
+  const providers = roomProvidersCache || [];
+  const activeProviderIds = new Set(providers.map(provider => provider.id).filter(Boolean));
+  const knownProviders = Object.keys(MODEL_OPTIONS);
+  const availableProviderIds = knownProviders.filter(id => !activeProviderIds.has(id));
+  const installedSkillNames = new Set((roomSkillsCache || []).map(skill => skill.name));
+  const missingSkillNames = snapshot.missingSkillNames || [];
+  const dispatchSkillHints = [...new Set(rules.flatMap(rule => rule.skillHints || []))].sort();
+  const missingDispatchHints = dispatchSkillHints.filter(name => !installedSkillNames.has(name));
+  const boundSkillCount = profiles.reduce((sum, profile) => sum + (profile.skillCoverage || []).length, 0);
+  const installedBoundSkillCount = profiles.reduce(
+    (sum, profile) => sum + (profile.skillCoverage || []).filter(skill => skill.installed && skill.enabled).length,
+    0,
+  );
+  const recommendations = buildModelSkillRecommendations(providers);
+  const skillSourceRows = buildSkillSourceRows(profiles, rules);
+  const sourceRiskCount = skillSourceRows.filter(row => skillSourceRiskLabels(row).some(([cls]) => cls === 'missing')).length;
+
+  return `<section class="agent-registry-section agent-model-skill-center" data-agent-model-center>
+    <div class="agent-model-center-head">
+      <div>
+        <h3>Model / Skill Center</h3>
+        <p>Local status only · no secrets shown · provider config is read-only here</p>
+      </div>
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentModelSkillRefresh" type="button">刷新状态</button>
+    </div>
+    <div class="agent-model-kpis">
+      <span><strong>${providers.length}</strong> active providers</span>
+      <span><strong>${knownProviders.length}</strong> local model lists</span>
+      <span><strong>${roomSkillsCache.length}</strong> enabled skills</span>
+      <span class="${missingSkillNames.length ? 'is-warn' : ''}"><strong>${missingSkillNames.length}</strong> missing bindings</span>
+      <span class="${missingDispatchHints.length ? 'is-warn' : ''}"><strong>${missingDispatchHints.length}</strong> missing dispatch hints</span>
+      <span class="${sourceRiskCount ? 'is-warn' : ''}"><strong>${sourceRiskCount}</strong> skill source risks</span>
+    </div>
+    <div class="agent-model-grid">
+      <section class="agent-model-panel">
+        <h4>Provider Model Status</h4>
+        <div class="agent-provider-list">
+          ${providers.length ? providers.map(provider => `
+            <article class="agent-provider-row is-active">
+              <div class="agent-provider-head">
+                <strong>${escapeHtml(provider.displayName || provider.id)}</strong>
+                <code>${escapeHtml(provider.id)}</code>
+              </div>
+              <div class="agent-provider-meta">
+                <span>active local adapter</span>
+                <span>${escapeHtml(modelSkillProviderRole(provider.id))}</span>
+                <span>${modelSkillModelCount(provider.id)} local model hints</span>
+                <span>No live ping</span>
+              </div>
+              <div class="agent-model-chip-list">${renderModelOptionChips(provider.id)}</div>
+            </article>
+          `).join('') : '<div class="agent-empty">No active providers reported by local room adapter pool.</div>'}
+        </div>
+        ${availableProviderIds.length ? `
+          <div class="agent-provider-available">
+            <h5>Configured option lists</h5>
+            <div class="agent-model-chip-list">
+              ${availableProviderIds.map(id => `<span title="${escapeHtml(modelSkillProviderRole(id))}">${escapeHtml(id)}</span>`).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </section>
+      <section class="agent-model-panel">
+        <h4>Model Recommendations</h4>
+        <div class="agent-model-recommendation-list">
+          ${recommendations.map(item => `
+            <article class="agent-model-recommendation-row ${item.provider ? '' : 'is-missing'}">
+              <div class="agent-provider-head">
+                <strong>${escapeHtml(item.label)}</strong>
+                <code>${escapeHtml(item.provider?.id || 'inactive')}</code>
+              </div>
+              <div class="agent-provider-meta">
+                <span>${escapeHtml(item.provider?.displayName || 'no active provider')}</span>
+                <span>${escapeHtml(item.model)}</span>
+                <span>source: ${escapeHtml(item.source)}</span>
+              </div>
+              <p>${escapeHtml(item.reason)}</p>
+            </article>
+          `).join('')}
+        </div>
+      </section>
+      <section class="agent-model-panel">
+        <h4>Skill Injection Matrix</h4>
+        <div class="agent-skill-matrix-summary">
+          <span>${installedBoundSkillCount}/${boundSkillCount} bound skills installed</span>
+          <span>${dispatchSkillHints.length} dispatch hints</span>
+        </div>
+        <div class="agent-skill-matrix">
+          ${profiles.map(profile => renderAgentSkillMatrixRow(profile)).join('') || '<div class="agent-empty">No profiles.</div>'}
+        </div>
+        <div class="agent-skill-gap-list">
+          <h5>Missing bindings</h5>
+          <div class="agent-model-chip-list">
+            ${missingSkillNames.length ? missingSkillNames.map(name => `<span class="missing">${escapeHtml(name)}</span>`).join('') : '<span class="ok">none</span>'}
+          </div>
+          <h5>Missing dispatch hints</h5>
+          <div class="agent-model-chip-list">
+            ${missingDispatchHints.length ? missingDispatchHints.map(name => `<span class="missing">${escapeHtml(name)}</span>`).join('') : '<span class="ok">none</span>'}
+          </div>
+        </div>
+      </section>
+      <section class="agent-model-panel agent-skill-source-panel">
+        <h4>Skill Source & Risk</h4>
+        <div class="agent-skill-matrix-summary">
+          <span>${skillSourceRows.length} tracked skills</span>
+          <span>${sourceRiskCount} source risks</span>
+          <span>explicit conflict metadata not exposed by list API</span>
+        </div>
+        <div class="agent-skill-source-list">
+          ${skillSourceRows.map(row => renderSkillSourceRiskRow(row)).join('') || '<div class="agent-empty">No skills reported by local registry.</div>'}
+        </div>
+      </section>
+    </div>
+  </section>`;
+}
+
+function renderSkillSourceRiskRow(row) {
+  const profileText = (row.profileIds || []).slice(0, 6).join(', ') || 'none';
+  const tagText = (row.dispatchTags || []).slice(0, 8).join(', ') || 'none';
+  return `<article class="agent-skill-source-row" data-agent-skill-source="${escapeHtml(row.name)}">
+    <div class="agent-skill-matrix-head">
+      <strong>${escapeHtml(row.displayName || row.name)}</strong>
+      <code>${escapeHtml(row.name)}</code>
+    </div>
+    <div class="agent-provider-meta">
+      <span>profiles: ${escapeHtml(profileText)}</span>
+      <span>dispatch: ${escapeHtml(tagText)}</span>
+      <span>${Number(row.bodyLen || 0)} chars</span>
+    </div>
+    <div class="agent-model-chip-list">
+      ${skillSourceRiskLabels(row).map(([cls, label]) => `<span class="${cls}">${escapeHtml(label)}</span>`).join('')}
+    </div>
+  </article>`;
+}
+
+function renderAgentSkillMatrixRow(profile) {
+  const coverage = profile.skillCoverage || [];
+  const installed = coverage.filter(skill => skill.installed && skill.enabled).length;
+  const missing = coverage.filter(skill => !skill.installed || !skill.enabled);
+  const policy = profile.governance || {};
+  return `<article class="agent-skill-matrix-row" data-agent-skill-profile="${escapeHtml(profile.id)}">
+    <div class="agent-skill-matrix-head">
+      <strong>${escapeHtml(profile.title || profile.id)}</strong>
+      <code>${escapeHtml(profile.id)}</code>
+    </div>
+    <div class="agent-provider-meta">
+      ${(profile.roles || []).map(role => `<span>${escapeHtml(role)}</span>`).join('') || '<span>role fallback</span>'}
+      <span>${installed}/${coverage.length} skills</span>
+      <span>${escapeHtml(policy.approvalPolicy || 'approval inherited')}</span>
+    </div>
+    <div class="agent-model-chip-list">
+      ${coverage.length ? coverage.map(skill => `<span class="${skill.installed && skill.enabled ? 'ok' : 'missing'}">${escapeHtml(skill.name)}</span>`).join('') : '<span class="missing">no bound skills</span>'}
+    </div>
+    ${missing.length ? `<div class="agent-skill-matrix-note">${missing.length} missing or disabled skill bindings need local registry attention.</div>` : ''}
+  </article>`;
+}
+
 function bindAgentRegistryModalEvents() {
   const root = $('#agentRegistryModalBody');
   $('#agentRegistryRefresh')?.addEventListener('click', refreshAgentRegistry);
+  $('#agentModelSkillRefresh')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '刷新中…';
+    agentRegistryState.modelSkillCenter.providersLoaded = true;
+    agentRegistryState.modelSkillCenter.skillsLoaded = true;
+    roomSkillsLoaded = false;
+    await Promise.all([refreshRoomProviders(), refreshRoomSkills()]);
+    renderAgentRegistryModal();
+  });
   document.querySelectorAll('[data-agent-tab]').forEach((btn) => {
     btn.addEventListener('click', () => setAgentRegistryTab(btn.dataset.agentTab));
   });
   $('#agentPreviewRole')?.addEventListener('change', (e) => {
     agentRegistryState.memberRole = e.target.value;
+    agentRegistryState.classification = null;
+    refreshAgentDispatchWorkflow();
   });
   $('#agentPreviewText')?.addEventListener('input', (e) => {
     agentRegistryState.text = e.target.value;
+    agentRegistryState.classification = null;
+    refreshAgentDispatchWorkflow();
   });
   $('#agentPreviewFiles')?.addEventListener('input', (e) => {
     agentRegistryState.affectedFiles = e.target.value;
@@ -6881,12 +7711,18 @@ function bindAgentRegistryModalEvents() {
     agentRegistryState.codeContextEvidence = [];
     agentRegistryState.codeContextGraph = null;
     agentRegistryState.codebaseMap = null;
+    agentRegistryState.codebaseQuestionAnswer = null;
+    agentRegistryState.classification = null;
     const info = $('#agentPreviewFilesInfo');
     if (info) info.innerHTML = '';
+    const questionInfo = $('#agentPreviewQuestionInfo');
+    if (questionInfo) questionInfo.innerHTML = '';
+    refreshAgentDispatchWorkflow();
   });
   $('#agentPreviewLoadChanged')?.addEventListener('click', (e) => loadAgentChangedFiles(e.currentTarget));
   $('#agentPreviewLoadCodebase')?.addEventListener('click', (e) => loadAgentCodebaseMap(e.currentTarget));
   $('#agentPreviewRun')?.addEventListener('click', runAgentPreview);
+  $('#agentPreviewCreateRun')?.addEventListener('click', (e) => createAgentRunFromIdea(e.currentTarget));
   root.querySelectorAll('[data-agent-policy-save]').forEach((btn) => {
     btn.addEventListener('click', () => saveAgentPolicy(btn.dataset.agentPolicySave, btn));
   });
@@ -6914,7 +7750,16 @@ function renderAgentRunsTab() {
         ${['', 'queued', 'running', 'succeeded', 'failed', 'deferred', 'cancelled'].map(status => `<option value="${status}" ${f.status === status ? 'selected' : ''}>${status || 'all status'}</option>`).join('')}
       </select>
       <input id="agentRunRoomFilter" type="text" placeholder="roomId" value="${escapeHtml(f.roomId)}" />
+      <input id="agentRunSessionFilter" type="text" placeholder="sessionId" value="${escapeHtml(f.sessionId)}" />
       <input id="agentRunProfileFilter" type="text" placeholder="agentProfileId" value="${escapeHtml(f.agentProfileId)}" />
+      <input id="agentRunSourceFilter" type="text" placeholder="sourceType" value="${escapeHtml(f.sourceType)}" />
+      <input id="agentRunApprovalFilter" type="text" placeholder="approvalId" value="${escapeHtml(f.approvalId)}" />
+      <input id="agentRunDelegationFilter" type="text" placeholder="delegationId" value="${escapeHtml(f.delegationId)}" />
+      <input id="agentRunBudgetFilter" type="text" placeholder="budgetIncidentId" value="${escapeHtml(f.budgetIncidentId)}" />
+      <input id="agentRunDeferFilter" type="text" placeholder="deferReason" value="${escapeHtml(f.deferReason)}" />
+      <input id="agentRunGateFilter" type="text" placeholder="reviewGateId" value="${escapeHtml(f.approvalResumeGateId)}" />
+      <input id="agentRunGateShaFilter" type="text" placeholder="reviewSha256" value="${escapeHtml(f.approvalResumeGateSha256)}" />
+      <label class="agent-run-toggle"><input id="agentRunGovernanceFilter" type="checkbox" ${f.hasGovernance ? 'checked' : ''} /><span>治理链</span></label>
       <button class="cxbtn cxbtn-secondary cxbtn-sm" id="agentRunsClear">清空</button>
       <button class="cxbtn cxbtn-primary cxbtn-sm" id="agentRunsRefresh">${agentRegistryState.runsLoading ? '加载中…' : '刷新 Runs'}</button>
     </div>
@@ -6947,20 +7792,234 @@ function agentRunDiagnosticsCount(run = {}) {
 function renderAgentRunRow(run) {
   const active = agentRegistryState.activeRunId === run.id;
   const diagnostics = agentRunDiagnosticsCount(run);
+  const lineage = run.lineageSummary || {};
+  const governanceParts = [
+    lineage.approvalCount ? `${lineage.approvalCount} approval` : '',
+    lineage.delegationCount ? `${lineage.delegationCount} delegation` : '',
+    lineage.budgetIncidentCount ? `${lineage.budgetIncidentCount} budget` : '',
+    lineage.blockerCount ? `${lineage.blockerCount} blocker` : '',
+  ].filter(Boolean).join(' · ');
   return `<button class="agent-run-row ${active ? 'is-active' : ''}" data-agent-run-id="${escapeHtml(run.id)}" type="button">
     <span class="agent-run-status status-${escapeHtml(run.status || 'unknown')}">${escapeHtml(run.status || '-')}</span>
     <strong>${escapeHtml(run.taskId || run.sourceType || run.id)}</strong>
     <em>${escapeHtml(run.agentProfileId || '-')} · ${escapeHtml(run.roomId || '-')}</em>
-    <span>${escapeHtml(agentRunMetricText(run))}${diagnostics ? ` · ${diagnostics} diagnostics` : ''}</span>
+    <span>${escapeHtml(agentRunMetricText(run))}${diagnostics ? ` · ${diagnostics} diagnostics` : ''}${governanceParts ? ` · ${escapeHtml(governanceParts)}` : ''}</span>
     <small>${activityTime(run.updatedAt || run.createdAt)}</small>
   </button>`;
+}
+
+function renderWorkflowStep(label, status, meta = '') {
+  return `<div class="agent-workflow-step is-${escapeHtml(status || 'pending')}">
+    <strong>${escapeHtml(label)}</strong>
+    <span>${escapeHtml(meta || status || '-')}</span>
+  </div>`;
+}
+
+function renderAgentDispatchWorkflow() {
+  const hasIdea = Boolean((agentRegistryState.text || '').trim());
+  const hasContext = Boolean((agentRegistryState.affectedFiles || '').trim() || agentRegistryState.codebaseMap || agentRegistryState.codebaseQuestionAnswer);
+  const hasPreview = Boolean(agentRegistryState.classification);
+  const profile = agentRegistryState.classification?.profile?.id || '-';
+  const next = !hasIdea ? '输入一句任务目标'
+    : !hasPreview ? '预演分派'
+      : '创建 Run Draft';
+  return `<div class="agent-main-path" data-agent-main-path="dispatch">
+    <div class="agent-main-path-head">
+      <strong>Idea-to-Archive Path</strong>
+      <span>Next: ${escapeHtml(next)}</span>
+    </div>
+    <div class="agent-workflow-steps">
+      ${renderWorkflowStep('Idea', hasIdea ? 'done' : 'current', hasIdea ? 'ready' : 'input')}
+      ${renderWorkflowStep('Code Context', hasContext ? 'done' : 'pending', hasContext ? 'local evidence' : 'optional')}
+      ${renderWorkflowStep('Dispatch Preview', hasPreview ? 'done' : (hasIdea ? 'current' : 'pending'), hasPreview ? profile : 'agent/skill')}
+      ${renderWorkflowStep('Run Draft', hasPreview ? 'current' : 'pending', 'governed run')}
+    </div>
+  </div>`;
+}
+
+function refreshAgentDispatchWorkflow() {
+  const node = document.querySelector('[data-agent-main-path="dispatch"]');
+  if (node) node.outerHTML = renderAgentDispatchWorkflow();
+}
+
+function latestIdeaRunStage(timeline = null, stage = '') {
+  const archives = Array.isArray(timeline?.archives) ? timeline.archives : [];
+  return archives.some((archive) => archive.evidence?.external?.stage === stage);
+}
+
+function latestIdeaRunArchive(timeline = null, stage = '') {
+  const archives = Array.isArray(timeline?.archives) ? timeline.archives : [];
+  for (const archive of archives.slice().reverse()) {
+    if (!stage || archive.evidence?.external?.stage === stage) return archive;
+  }
+  return null;
+}
+
+function ideaRunArchiveSummary(archive = null, artifacts = []) {
+  if (!archive) return null;
+  const external = archive.evidence?.external || {};
+  const fileCount = Array.isArray(external.fileChanges)
+    ? external.fileChanges.length
+    : Array.isArray(archive.evidence?.files) ? archive.evidence.files.length : 0;
+  const blockers = archive.governance?.summary?.blockerCount ?? archive.governance?.blockers?.length ?? 0;
+  return {
+    id: archive.id || '',
+    status: archive.status || 'archived',
+    summary: archive.summary || archive.id || 'Execution archive recorded.',
+    toolResultCount: Number(archive.verification?.toolResultCount || 0),
+    fileCount: Number(fileCount || 0),
+    artifactCount: Array.isArray(artifacts) ? artifacts.length : 0,
+    blockerCount: Number(blockers || 0),
+  };
+}
+
+function ideaRunWorkflowState(run = {}, timeline = null) {
+  const messages = Array.isArray(timeline?.messages) ? timeline.messages : [];
+  const toolResults = Array.isArray(timeline?.toolResults) ? timeline.toolResults : [];
+  const archives = Array.isArray(timeline?.archives) ? timeline.archives : [];
+  const artifacts = Array.isArray(timeline?.artifacts) ? timeline.artifacts : [];
+  const manifestDraft = latestIdeaRunManifestDraft(timeline);
+  const hasManifestDraft = Boolean(manifestDraft);
+  const hasPatchDraft = Boolean(manifestDraft?.patchQuality || messages.some((message) => message.payload?.manifestDraft?.patchQuality));
+  const hasApproval = Boolean(run.approvalId || run.details?.approvalId);
+  const deferReason = run.deferReason || run.details?.deferReason || '';
+  const isDeferredApproval = run.status === 'deferred' && (/approval/i.test(deferReason) || hasApproval);
+  const hasGate = Boolean(run.details?.approvalResumeGateAudit);
+  const finalArchive = latestIdeaRunArchive(timeline, 'idea_final_archive') || (['succeeded', 'failed', 'cancelled'].includes(run.status) ? latestIdeaRunArchive(timeline) : null);
+  const hasFinalArchive = Boolean(finalArchive) || latestIdeaRunStage(timeline, 'idea_final_archive') || ['succeeded', 'failed', 'cancelled'].includes(run.status);
+  const hasVerification = toolResults.length > 0 || archives.some((archive) => Number(archive.verification?.toolResultCount) > 0);
+  const hasArtifacts = artifacts.length > 0;
+  const dispatchMeta = run.agentProfileId || (run.skills || []).join(', ') || 'profile';
+  const finished = ['succeeded', 'failed', 'cancelled'].includes(run.status);
+  const nextLabel = isDeferredApproval
+    ? 'Preflight Review 等待审批续跑'
+    : !hasManifestDraft && !hasFinalArchive
+      ? 'Generate Manifest 或 Generate Patch'
+      : hasManifestDraft && !hasFinalArchive
+        ? 'Auto Work + Verify'
+        : hasGate
+          ? 'Gate Audit Report / Archive Report'
+          : 'Archive evidence ready';
+  return {
+    hasManifestDraft,
+    hasPatchDraft,
+    hasApproval,
+    isDeferredApproval,
+    hasGate,
+    hasFinalArchive,
+    hasVerification,
+    hasArtifacts,
+    dispatchMeta,
+    nextLabel,
+    finished,
+    runId: run.id,
+    approvalId: run.approvalId || run.details?.approvalId || '',
+    archiveSummary: ideaRunArchiveSummary(finalArchive, artifacts),
+    steps: [
+      { label: 'Idea', status: 'done', meta: run.taskId || run.sourceId || 'captured' },
+      { label: 'Dispatch', status: 'done', meta: dispatchMeta },
+      { label: 'Manifest/Patch', status: hasManifestDraft || hasFinalArchive ? 'done' : 'current', meta: hasPatchDraft ? 'patch quality' : (hasManifestDraft ? 'manifest draft' : 'draft needed') },
+      { label: 'Work + Verify', status: hasFinalArchive ? 'done' : (hasManifestDraft && !isDeferredApproval ? 'current' : 'pending'), meta: hasVerification ? 'verification evidence' : 'local verify' },
+      { label: 'Preflight', status: hasGate ? 'done' : (isDeferredApproval ? 'current' : 'pending'), meta: hasGate ? 'gate accepted' : (isDeferredApproval ? 'approval required' : 'if needed') },
+      { label: 'Archive', status: hasFinalArchive ? 'done' : 'pending', meta: hasArtifacts ? 'artifacts linked' : 'final evidence' },
+    ],
+  };
+}
+
+function ideaRunWorkflowActions(state = {}) {
+  const runId = state.runId || '';
+  const actions = { primary: null, secondary: [] };
+  if (!runId) return actions;
+  const action = (label, attrs = {}, variant = 'secondary') => ({ label, attrs, variant });
+  if (state.isDeferredApproval) {
+    actions.primary = action('Open Preflight Review', { 'data-agent-run-governance-review': runId }, 'primary');
+    if (state.approvalId) actions.secondary.push(action('打开审批', { 'data-agent-run-approval': state.approvalId }, 'tertiary'));
+    actions.secondary.push(action('Activity', { 'data-agent-run-activity': runId }, 'tertiary'));
+    return actions;
+  }
+  if (!state.hasManifestDraft && !state.finished) {
+    actions.primary = action('Generate Manifest', { 'data-agent-run-idea-generate-manifest': runId }, 'primary');
+    actions.secondary.push(action('Generate Patch', { 'data-agent-run-idea-generate-patch': runId }, 'secondary'));
+    actions.secondary.push(action('Run Custom Manifest', { 'data-agent-run-idea-manifest': runId }, 'secondary'));
+    actions.secondary.push(action('Auto Work + Verify', { 'data-agent-run-idea-auto': runId }, 'secondary'));
+    actions.secondary.push(action('Record Completion', { 'data-agent-run-idea-complete': runId }, 'tertiary'));
+    return actions;
+  }
+  if (state.hasManifestDraft && !state.finished) {
+    actions.primary = action('Auto Work + Verify', { 'data-agent-run-idea-auto': runId }, 'primary');
+    actions.secondary.push(action('Edit Manifest', { 'data-agent-run-idea-manifest': runId }, 'secondary'));
+    actions.secondary.push(action('Record Completion', { 'data-agent-run-idea-complete': runId }, 'tertiary'));
+    return actions;
+  }
+  if (state.hasGate) {
+    actions.primary = action('Gate Audit Report', { 'data-agent-run-gate-audit': runId }, 'primary');
+    actions.secondary.push(action('Archive Report', { 'data-agent-run-gate-audit-archive': runId }, 'secondary'));
+    actions.secondary.push(action('Activity', { 'data-agent-run-activity': runId }, 'tertiary'));
+    return actions;
+  }
+  actions.primary = action('Review Archive', { 'data-agent-run-review-archive': runId }, 'primary');
+  if (state.hasArtifacts) actions.secondary.push(action('Open Artifacts', { 'data-agent-run-open-artifacts': runId }, 'secondary'));
+  actions.secondary.push(action('Add Archive Note', { 'data-agent-run-archive': runId }, 'secondary'));
+  actions.secondary.push(action('Activity', { 'data-agent-run-activity': runId }, 'tertiary'));
+  return actions;
+}
+
+function renderAgentWorkflowButton(action = null, options = {}) {
+  if (!action) return '';
+  const attrs = Object.entries(action.attrs || {})
+    .map(([key, value]) => `${key}="${escapeHtml(value)}"`)
+    .join(' ');
+  const marker = options.primary ? 'data-agent-main-next="true"' : 'data-agent-main-secondary="true"';
+  const variant = action.variant === 'primary' ? 'cxbtn-primary'
+    : action.variant === 'tertiary' ? 'cxbtn-tertiary'
+      : 'cxbtn-secondary';
+  return `<button class="cxbtn ${variant} cxbtn-sm ${options.primary ? 'agent-main-next-btn' : ''}" ${marker} ${attrs}>${escapeHtml(action.label || 'Open')}</button>`;
+}
+
+function renderIdeaRunWorkflow(run = {}, timeline = null) {
+  if (run.sourceType !== 'idea_to_archive') return '';
+  const state = ideaRunWorkflowState(run, timeline);
+  const actions = ideaRunWorkflowActions(state);
+  const archiveSummary = state.archiveSummary;
+  return `<div class="agent-run-block agent-main-path" data-agent-main-path="run">
+    <div class="agent-main-path-head">
+      <strong>Idea-to-Archive Path</strong>
+      <span>Next: ${escapeHtml(state.nextLabel)}</span>
+    </div>
+    <div class="agent-workflow-steps">
+      ${state.steps.map((step) => renderWorkflowStep(step.label, step.status, step.meta)).join('')}
+    </div>
+    ${archiveSummary ? `<div class="agent-main-archive-summary" data-agent-main-archive-summary>
+      <div>
+        <strong>Final archive</strong>
+        <span>${escapeHtml(archiveSummary.summary)}</span>
+      </div>
+      <div class="agent-main-archive-stats">
+        <span>${escapeHtml(archiveSummary.status)}</span>
+        <span>${escapeHtml(archiveSummary.toolResultCount)} tools</span>
+        <span>${escapeHtml(archiveSummary.fileCount)} files</span>
+        <span>${escapeHtml(archiveSummary.artifactCount)} artifacts</span>
+        <span>${escapeHtml(archiveSummary.blockerCount)} blockers</span>
+      </div>
+    </div>` : ''}
+    <div class="agent-main-path-actions">
+      <span class="agent-main-path-action-label">Recommended next</span>
+      ${renderAgentWorkflowButton(actions.primary, { primary: true })}
+      ${actions.secondary.length ? `<span class="agent-main-path-action-label">Other actions</span>${actions.secondary.map(item => renderAgentWorkflowButton(item)).join('')}` : ''}
+    </div>
+  </div>`;
 }
 
 function renderAgentRunDetail(run, timeline = null) {
   const messages = timeline?.messages || [];
   const toolResults = timeline?.toolResults || [];
   const activityEvents = timeline?.activityEvents || [];
+  const governanceLineage = timeline?.governanceLineage || null;
+  const archives = timeline?.archives || messages.filter(message => message.kind === 'archive' && message.payload?.archive).map(message => ({ ...message.payload.archive, messageId: message.id }));
+  const artifacts = timeline?.artifacts || [];
   const diagnostics = run.details?.diagnostics || [];
+  const budgetIncidentId = run.budgetIncidentId || run.details?.budgetIncidentId || governanceLineage?.budgetIncidents?.[0]?.id || '';
+  const isIdeaRun = run.sourceType === 'idea_to_archive';
   return `<div class="agent-run-detail-inner">
     <div class="agent-run-detail-head">
       <div>
@@ -6971,21 +8030,175 @@ function renderAgentRunDetail(run, timeline = null) {
     </div>
     <div class="agent-run-meta-grid">
       <div><b>Room</b><code>${escapeHtml(run.roomId || '-')}</code></div>
+      <div><b>Session</b><code>${escapeHtml(run.sessionId || '-')}</code></div>
       <div><b>Profile</b><code>${escapeHtml(run.agentProfileId || '-')}</code></div>
       <div><b>Adapter</b><code>${escapeHtml(run.adapterId || '-')}</code></div>
       <div><b>Model</b><code>${escapeHtml(run.modelId || '-')}</code></div>
+      <div><b>Source</b><code>${escapeHtml(run.sourceType || '-')} / ${escapeHtml(run.sourceId || '-')}</code></div>
+      <div><b>Defer</b><code>${escapeHtml(run.deferReason || run.details?.deferReason || '-')}</code></div>
       <div><b>Approval</b><code>${escapeHtml(run.approvalId || run.details?.approvalId || '-')}</code></div>
       <div><b>Delegation</b><code>${escapeHtml(run.delegationId || run.details?.delegationId || '-')}</code></div>
+      <div><b>Budget</b><code>${escapeHtml(budgetIncidentId || '-')}</code></div>
+      <div><b>Next</b><code>${escapeHtml(governanceLineage?.nextAction?.type || run.lineageSummary?.nextActionType || '-')}</code></div>
     </div>
     <div class="agent-run-actions">
       ${run.approvalId || run.details?.approvalId ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-approval="${escapeHtml(run.approvalId || run.details?.approvalId)}">打开审批</button>` : ''}
       ${run.delegationId || run.details?.delegationId ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-delegation="${escapeHtml(run.delegationId || run.details?.delegationId)}">打开委派</button>` : ''}
+      ${budgetIncidentId ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-budget="${escapeHtml(budgetIncidentId)}">预算 Activity</button>` : ''}
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" data-agent-run-replay="${escapeHtml(run.id)}">Replay Plan</button>
+      <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-replay-result="${escapeHtml(run.id)}">Replay Result</button>
+      ${!isIdeaRun ? `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-archive="${escapeHtml(run.id)}">Archive Run</button>` : ''}
       <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-activity="${escapeHtml(run.id)}">Activity</button>
     </div>
+    ${governanceLineage ? renderAgentRunLineage(governanceLineage) : ''}
+    ${renderIdeaRunWorkflow(run, timeline)}
+    ${renderAgentRunApprovalResumeGate(run.details?.approvalResumeGateAudit, run.id)}
+    ${renderAgentRunSessionSummary(timeline?.sessionTimeline)}
+    ${renderAgentCodebaseQuestionAnswer(run.details?.codebaseQuestionAnswer)}
+    ${archives.length ? renderAgentRunArchives(archives) : ''}
+    ${artifacts.length ? renderAgentRunArtifacts(artifacts, run.id) : ''}
     ${diagnostics.length ? `<div class="agent-run-block"><h4>Diagnostics</h4>${diagnostics.slice(0, 6).map(item => `<div class="agent-run-line"><strong>${escapeHtml(item.code || 'diagnostic')}</strong><span>${escapeHtml(item.message || '')}</span></div>`).join('')}</div>` : ''}
     <div class="agent-run-block"><h4>Messages</h4>${messages.length ? messages.slice(-12).map(renderAgentRunMessage).join('') : '<div class="agent-empty">No messages.</div>'}</div>
     <div class="agent-run-block"><h4>Tool Results</h4>${toolResults.length ? toolResults.slice(-8).map(renderAgentRunToolResult).join('') : '<div class="agent-empty">No tool results.</div>'}</div>
     <div class="agent-run-block"><h4>Activity</h4>${activityEvents.length ? activityEvents.slice(-10).map(renderAgentRunActivity).join('') : '<div class="agent-empty">No related activity loaded.</div>'}</div>
+  </div>`;
+}
+
+function renderAgentRunSessionSummary(sessionTimeline = null) {
+  if (!sessionTimeline?.counts?.runs) return '';
+  const counts = sessionTimeline.counts || {};
+  const governance = sessionTimeline.governance || {};
+  const evidenceChain = sessionTimeline.evidenceChain || {};
+  const chainSummary = evidenceChain.summary || {};
+  const statusText = Object.entries(sessionTimeline.statusCounts || {})
+    .map(([key, value]) => `${key}:${value}`)
+    .join(', ') || '-';
+  const sourceText = Object.entries(sessionTimeline.sourceTypeCounts || {})
+    .map(([key, value]) => `${key}:${value}`)
+    .join(', ') || '-';
+  const blockers = (governance.blockers || [])
+    .slice(0, 4)
+    .map(item => `${item.runId || '-'} ${item.kind}:${item.id || '-'}`)
+    .join('; ') || '-';
+  const nextActions = (governance.nextActions || [])
+    .slice(0, 4)
+    .map(item => `${item.runId || '-'} ${item.type || '-'}`)
+    .join('; ') || '-';
+  const recentRuns = (sessionTimeline.runs || []).slice(-6).reverse();
+  const evidenceItems = (evidenceChain.items || []).slice(-8).reverse();
+  const evidenceKindText = Object.entries(chainSummary.kindCounts || {})
+    .map(([key, value]) => `${key}:${value}`)
+    .join(', ') || '-';
+  return `<div class="agent-run-block agent-run-session">
+    <div class="agent-run-block-head">
+      <h4>Session Timeline</h4>
+      <span>
+        <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-session-export="${escapeHtml(sessionTimeline.sessionId || '')}" type="button">Export Session</button>
+        <button class="cxbtn cxbtn-secondary cxbtn-sm" data-agent-run-session-archive="${escapeHtml(sessionTimeline.sessionId || '')}" type="button">Archive Session</button>
+      </span>
+    </div>
+    <div class="agent-run-line"><strong>session</strong><span>${escapeHtml(sessionTimeline.sessionId || '-')}</span></div>
+    <div class="agent-run-line"><strong>counts</strong><span>${counts.runs || 0} runs · ${counts.messages || 0} messages · ${counts.toolResults || 0} tools · ${counts.archives || 0} archives · ${counts.activityEvents || 0} activity</span></div>
+    <div class="agent-run-line"><strong>status</strong><span>${escapeHtml(statusText)}</span></div>
+    <div class="agent-run-line"><strong>source</strong><span>${escapeHtml(sourceText)}</span></div>
+    <div class="agent-run-line"><strong>blockers</strong><span>${escapeHtml(blockers)}</span></div>
+    <div class="agent-run-line"><strong>next</strong><span>${escapeHtml(nextActions)}</span></div>
+    <div class="agent-run-line"><strong>evidence</strong><span>${chainSummary.itemCount || 0} items · ${chainSummary.codebaseQuestionCount || 0} code answers · ${chainSummary.approvalResumeGateCount || 0} gates</span></div>
+    <div class="agent-run-line"><strong>evidence kinds</strong><span>${escapeHtml(evidenceKindText)}</span></div>
+    <div class="agent-run-session-list">
+      ${recentRuns.map(run => `<button class="agent-run-session-chip ${agentRegistryState.activeRunId === run.id ? 'is-active' : ''}" data-agent-run-id="${escapeHtml(run.id)}" type="button">
+        <span>${escapeHtml(run.status || '-')}</span>
+        <strong>${escapeHtml(run.taskId || run.sourceType || run.id)}</strong>
+      </button>`).join('')}
+    </div>
+    ${evidenceItems.length ? `<div class="agent-run-evidence-chain">
+      <h5>Session Evidence Chain</h5>
+      ${evidenceItems.map(item => `<div class="agent-run-evidence-item">
+        <code>#${item.sequence || '-'}</code>
+        <strong>${escapeHtml(item.kind || '-')}</strong>
+        <span>${escapeHtml(item.title || item.id || '-')}</span>
+        <em>${escapeHtml(item.status || item.subkind || '-')}</em>
+      </div>`).join('')}
+    </div>` : ''}
+  </div>`;
+}
+
+function renderAgentRunArchives(archives = []) {
+  return `<div class="agent-run-block agent-run-archive">
+    <h4>Execution Archive</h4>
+    ${archives.slice(-3).map((archive) => {
+      const blockers = (archive.governance?.blockers || []).map(item => `${item.kind}:${item.id || '-'}`).join(', ') || '-';
+      const tools = archive.verification?.toolResultCount || 0;
+      const external = archive.evidence?.external || {};
+      const fileChanges = Array.isArray(external.fileChanges) ? external.fileChanges.length : 0;
+      const artifacts = Array.isArray(external.evidenceArtifacts) ? external.evidenceArtifacts.length : 0;
+      return `<div class="agent-run-line">
+        <strong>${escapeHtml(archive.status || 'archived')}</strong>
+        <span>${escapeHtml(archive.summary || archive.id || '-')} · tools ${tools} · file changes ${fileChanges} · artifacts ${artifacts} · blockers ${escapeHtml(blockers)}</span>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderAgentRunArtifacts(artifacts = [], runId = '') {
+  return `<div class="agent-run-block agent-run-artifacts">
+    <div class="agent-run-block-head">
+      <h4>Execution Artifacts</h4>
+      <span>${artifacts.length} recorded</span>
+    </div>
+    <div class="agent-run-artifact-list">
+      ${artifacts.slice(-8).reverse().map((artifact) => {
+        const size = artifact.size ? governanceCenterBytes(artifact.size) : '-';
+        const hash = artifact.sha256 ? String(artifact.sha256).slice(0, 12) : '-';
+        const ownerRunId = artifact.runId || runId;
+        return `<div class="agent-run-artifact-row">
+          <div>
+            <strong>${escapeHtml(artifact.kind || 'artifact')}</strong>
+            <code>${escapeHtml(artifact.path || '-')}</code>
+            <span>${escapeHtml(size)} · sha ${escapeHtml(hash)}${artifact.sessionId ? ` · session ${escapeHtml(artifact.sessionId)}` : ''}${artifact.gateId ? ` · gate ${escapeHtml(artifact.gateId)}` : ''}</span>
+          </div>
+          <div class="agent-run-artifact-actions">
+            <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-artifact-copy="${escapeHtml(artifact.path || '')}" type="button">Copy Path</button>
+            ${artifact.downloadable ? `<button class="cxbtn cxbtn-secondary cxbtn-sm" data-agent-run-artifact-download="${escapeHtml(artifact.id || '')}" data-agent-run-artifact-run="${escapeHtml(ownerRunId || '')}" type="button">Open Artifact</button>` : '<span class="agent-run-artifact-muted">not downloadable</span>'}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+function renderAgentRunLineage(lineage = {}) {
+  const renderItems = (label, items) => {
+    const text = (items || []).map(item => `${item.id}${item.status ? `:${item.status}` : ''}`).join(', ') || '-';
+    return `<div class="agent-run-line"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(text)}</span></div>`;
+  };
+  const blockers = (lineage.blockers || []).map(item => `${item.kind}:${item.id || '-'} · ${item.reason || ''}`).join('; ') || '-';
+  return `<div class="agent-run-block agent-run-lineage">
+    <h4>Governance Chain</h4>
+    ${renderItems('approvals', lineage.approvals)}
+    ${renderItems('delegations', lineage.delegations)}
+    ${renderItems('budget', lineage.budgetIncidents)}
+    ${renderItems('autopilot', lineage.autopilotJobs)}
+    <div class="agent-run-line"><strong>blockers</strong><span>${escapeHtml(blockers)}</span></div>
+    <div class="agent-run-line"><strong>next</strong><span>${escapeHtml(lineage.nextAction?.label || lineage.nextAction?.type || '-')}</span></div>
+  </div>`;
+}
+
+function renderAgentRunApprovalResumeGate(audit = null, runId = '') {
+  if (!audit || typeof audit !== 'object') return '';
+  const counts = audit.counts || {};
+  const files = Array.isArray(audit.files) ? audit.files : [];
+  const commands = Array.isArray(audit.commands) ? audit.commands : [];
+  const workCommands = Array.isArray(audit.workEvidenceCommands) ? audit.workEvidenceCommands : [];
+  const stagedDiffText = stagedDiffReviewText(audit.stagedDiffReview || audit.diffReview || {});
+  return `<div class="agent-run-block agent-run-approval-gate" data-agent-run-approval-gate>
+    <h4>Approval Resume Gate</h4>
+    <div class="agent-run-line"><strong>${escapeHtml(audit.status || 'reviewed')}</strong><span>${escapeHtml(audit.id || '-')} · ${escapeHtml((audit.sha256 || '').slice(0, 12) || '-')} · approval ${escapeHtml(audit.approvalId || '-')}</span></div>
+    <div class="agent-run-line"><strong>counts</strong><span>${escapeHtml(counts.fileChanges || 0)} files · ${escapeHtml(counts.commands || 0)} verify · ${escapeHtml(counts.workEvidenceCommands || 0)} evidence · ${escapeHtml(counts.risks || 0)} risks</span></div>
+    ${stagedDiffText ? `<div class="agent-run-line"><strong>staged diff</strong><span>${escapeHtml(stagedDiffText)}</span></div>` : ''}
+    ${files.length ? `<div class="agent-run-line"><strong>files</strong><span>${escapeHtml(files.map(file => `${file.operation || '-'} ${file.path || '-'}`).join('; '))}</span></div>` : ''}
+    ${commands.length || workCommands.length ? `<div class="agent-run-line"><strong>commands</strong><span>${escapeHtml([...commands, ...workCommands].map(item => item.command).filter(Boolean).join('; '))}</span></div>` : ''}
+    ${runId ? `<div class="agent-run-line"><strong>audit</strong><span><button class="cxbtn cxbtn-tertiary cxbtn-sm" data-agent-run-gate-audit="${escapeHtml(runId)}">Gate Audit Report</button> <button class="cxbtn cxbtn-secondary cxbtn-sm" data-agent-run-gate-audit-archive="${escapeHtml(runId)}">Archive Report</button></span></div>` : ''}
   </div>`;
 }
 
@@ -7020,12 +8233,61 @@ function bindAgentRunsEvents(root) {
     agentRegistryState.runFilters.roomId = e.target.value.trim();
     refreshAgentRuns();
   });
+  $('#agentRunSessionFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.sessionId = e.target.value.trim();
+    refreshAgentRuns();
+  });
   $('#agentRunProfileFilter')?.addEventListener('change', (e) => {
     agentRegistryState.runFilters.agentProfileId = e.target.value.trim();
     refreshAgentRuns();
   });
+  $('#agentRunSourceFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.sourceType = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunApprovalFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.approvalId = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunDelegationFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.delegationId = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunBudgetFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.budgetIncidentId = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunDeferFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.deferReason = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunGateFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.approvalResumeGateId = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunGateShaFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.approvalResumeGateSha256 = e.target.value.trim();
+    refreshAgentRuns();
+  });
+  $('#agentRunGovernanceFilter')?.addEventListener('change', (e) => {
+    agentRegistryState.runFilters.hasGovernance = e.target.checked;
+    refreshAgentRuns();
+  });
   $('#agentRunsClear')?.addEventListener('click', () => {
-    agentRegistryState.runFilters = { status: '', roomId: '', agentProfileId: '' };
+    agentRegistryState.runFilters = {
+      status: '',
+      roomId: '',
+      sessionId: '',
+      agentProfileId: '',
+      sourceType: '',
+      approvalId: '',
+      delegationId: '',
+      budgetIncidentId: '',
+      deferReason: '',
+      approvalResumeGateId: '',
+      approvalResumeGateSha256: '',
+      hasGovernance: false,
+    };
     refreshAgentRuns();
   });
   $('#agentRunsRefresh')?.addEventListener('click', () => refreshAgentRuns());
@@ -7041,9 +8303,539 @@ function bindAgentRunsEvents(root) {
       openDelegationModal();
     });
   });
-  root.querySelectorAll('[data-agent-run-activity]').forEach((btn) => {
-    btn.addEventListener('click', () => openActivityModal({ agentOnly: true, entityType: 'agent_run', entityId: btn.dataset.agentRunActivity }));
+  root.querySelectorAll('[data-agent-run-budget]').forEach((btn) => {
+    btn.addEventListener('click', () => openActivityModal({ q: btn.dataset.agentRunBudget }));
   });
+  root.querySelectorAll('[data-agent-run-replay]').forEach((btn) => {
+    btn.addEventListener('click', () => planAgentRunReplay(btn.dataset.agentRunReplay, btn));
+  });
+  root.querySelectorAll('[data-agent-run-replay-result]').forEach((btn) => {
+    btn.addEventListener('click', () => archiveAgentRunReplayResult(btn.dataset.agentRunReplayResult, btn));
+  });
+  root.querySelectorAll('[data-agent-run-idea-auto]').forEach((btn) => {
+    btn.addEventListener('click', () => autoVerifyIdeaRun(btn.dataset.agentRunIdeaAuto, btn));
+  });
+  root.querySelectorAll('[data-agent-run-idea-generate-manifest]').forEach((btn) => {
+    btn.addEventListener('click', () => generateIdeaRunManifest(btn.dataset.agentRunIdeaGenerateManifest, btn));
+  });
+  root.querySelectorAll('[data-agent-run-idea-generate-patch]').forEach((btn) => {
+    btn.addEventListener('click', () => generateIdeaRunPatchManifest(btn.dataset.agentRunIdeaGeneratePatch, btn));
+  });
+  root.querySelectorAll('[data-agent-run-idea-manifest]').forEach((btn) => {
+    btn.addEventListener('click', () => editIdeaRunManifest(btn.dataset.agentRunIdeaManifest, btn));
+  });
+  root.querySelectorAll('[data-agent-run-idea-complete]').forEach((btn) => {
+    btn.addEventListener('click', () => completeIdeaRunExecution(btn.dataset.agentRunIdeaComplete, btn));
+  });
+  root.querySelectorAll('[data-agent-run-governance-review]').forEach((btn) => {
+    btn.addEventListener('click', () => openGovernanceCenterForAgentRun(btn.dataset.agentRunGovernanceReview, btn));
+  });
+  root.querySelectorAll('[data-agent-run-review-archive]').forEach((btn) => {
+    btn.addEventListener('click', () => focusAgentRunBlock('.agent-run-archive', btn, 'Execution Archive'));
+  });
+  root.querySelectorAll('[data-agent-run-open-artifacts]').forEach((btn) => {
+    btn.addEventListener('click', () => focusAgentRunBlock('.agent-run-artifacts', btn, 'Execution Artifacts'));
+  });
+  root.querySelectorAll('[data-agent-run-archive]').forEach((btn) => {
+    btn.addEventListener('click', () => archiveAgentRun(btn.dataset.agentRunArchive, btn));
+  });
+  root.querySelectorAll('[data-agent-run-gate-audit]').forEach((btn) => {
+    btn.addEventListener('click', () => openAgentRunGateAuditReport(btn.dataset.agentRunGateAudit, btn));
+  });
+  root.querySelectorAll('[data-agent-run-gate-audit-archive]').forEach((btn) => {
+    btn.addEventListener('click', () => archiveAgentRunGateAuditReport(btn.dataset.agentRunGateAuditArchive, btn));
+  });
+  root.querySelectorAll('[data-agent-run-activity]').forEach((btn) => {
+    btn.addEventListener('click', () => openActivityModal({ agentOnly: true, agentRunId: btn.dataset.agentRunActivity }));
+  });
+  root.querySelectorAll('[data-agent-run-session-export]').forEach((btn) => {
+    btn.addEventListener('click', () => openAgentRunSessionExport(btn.dataset.agentRunSessionExport, btn));
+  });
+  root.querySelectorAll('[data-agent-run-session-archive]').forEach((btn) => {
+    btn.addEventListener('click', () => archiveAgentRunSessionEvidence(btn.dataset.agentRunSessionArchive, btn));
+  });
+  root.querySelectorAll('[data-agent-run-artifact-copy]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const path = btn.dataset.agentRunArtifactCopy || '';
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(path).then(() => toast('Artifact path copied', 'success', 1400)).catch(() => fallbackCopy(path));
+      } else {
+        fallbackCopy(path);
+      }
+    });
+  });
+  root.querySelectorAll('[data-agent-run-artifact-download]').forEach((btn) => {
+    btn.addEventListener('click', () => openAgentRunArtifact(btn.dataset.agentRunArtifactRun, btn.dataset.agentRunArtifactDownload, btn));
+  });
+}
+
+async function openAgentRunSessionExport(sessionId, btn = null) {
+  if (!sessionId) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Exporting…';
+  }
+  try {
+    const headers = { Accept: 'text/markdown' };
+    const token = getOwnerToken();
+    if (token) headers['X-Panel-Owner-Token'] = token;
+    const response = await fetch(`/api/agent-runs/session/${encodeURIComponent(sessionId)}?format=markdown`, { headers });
+    if (!response.ok) throw new Error(await response.text());
+    const markdown = await response.text();
+    await promptModal({
+      title: 'Session Evidence Export',
+      message: `Agent Run session ${sessionId}`,
+      multiline: true,
+      value: markdown,
+      confirmLabel: '关闭',
+    });
+  } catch (e) {
+    toast('Session evidence export 失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Export Session';
+    }
+  }
+}
+
+async function archiveAgentRunSessionEvidence(sessionId, btn = null) {
+  if (!sessionId) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Archiving…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/session/${encodeURIComponent(sessionId)}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({
+        requestedBy: 'owner',
+        runId: agentRegistryState.activeRunId || undefined,
+      }),
+    });
+    toast(`Session evidence archived: ${result.artifact?.path || 'done'}`, 'success', 2200);
+    await loadAgentRunDetail(result.run?.id || agentRegistryState.activeRunId);
+  } catch (e) {
+    toast('Session evidence 归档失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Archive Session';
+    }
+  }
+}
+
+async function openAgentRunGateAuditReport(id, btn = null) {
+  if (!id) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+  }
+  try {
+    const headers = { Accept: 'text/markdown' };
+    const token = getOwnerToken();
+    if (token) headers['X-Panel-Owner-Token'] = token;
+    const response = await fetch(`/api/agent-runs/${encodeURIComponent(id)}/approval-resume-gate-audit?format=markdown`, { headers });
+    if (!response.ok) throw new Error(await response.text());
+    const report = await response.text();
+    await promptModal({
+      title: 'Gate Audit Report',
+      message: 'Approval resume gate 对账报告',
+      multiline: true,
+      value: report,
+      confirmLabel: '关闭',
+    });
+  } catch (e) {
+    toast('Gate audit report 加载失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Gate Audit Report';
+    }
+  }
+}
+
+async function archiveAgentRunGateAuditReport(id, btn = null) {
+  if (!id) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Archiving…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/approval-resume-gate-audit/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ requestedBy: 'owner' }),
+    });
+    toast(`Gate audit report archived: ${result.artifact?.path || 'done'}`, 'success', 2200);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('Gate audit report 归档失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Archive Report';
+    }
+  }
+}
+
+async function openAgentRunArtifact(runId, artifactId, btn = null) {
+  if (!runId || !artifactId) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Opening…';
+  }
+  try {
+    const headers = { Accept: 'text/markdown' };
+    const token = getOwnerToken();
+    if (token) headers['X-Panel-Owner-Token'] = token;
+    const response = await fetch(`/api/agent-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/download`, { headers });
+    if (!response.ok) throw new Error(await response.text());
+    const artifactPath = response.headers.get('X-Xike-Artifact-Path') || '';
+    const markdown = await response.text();
+    await promptModal({
+      title: 'Agent Run Artifact',
+      message: artifactPath || `Agent Run ${runId}`,
+      multiline: true,
+      value: markdown,
+      confirmLabel: '关闭',
+    });
+  } catch (e) {
+    toast('Artifact 打开失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Open Artifact';
+    }
+  }
+}
+
+function focusAgentRunBlock(selector, btn = null, label = 'section') {
+  const block = document.querySelector(selector);
+  if (!block) {
+    toast(`${label} 暂无可聚焦内容`, 'warning', 1800);
+    return;
+  }
+  document.querySelectorAll('.agent-run-block.is-highlighted').forEach(node => node.classList.remove('is-highlighted'));
+  block.classList.add('is-highlighted');
+  block.scrollIntoView({ block: 'center', inline: 'nearest' });
+  setTimeout(() => block.classList.remove('is-highlighted'), 2200);
+  if (btn) btn.blur();
+}
+
+async function openGovernanceCenterForAgentRun(runId, btn = null) {
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Opening…';
+  }
+  try {
+    await openGovernanceCenterModal();
+    if (runId) {
+      const target = document.querySelector(`#governanceCenterBody [data-gov-center-run="${CSS.escape(runId)}"]`)
+        || document.querySelector(`#governanceCenterBody [data-gov-center-id="${CSS.escape(runId)}"]`);
+      if (target) {
+        target.scrollIntoView({ block: 'center', inline: 'nearest' });
+        target.classList.add('is-highlighted');
+        setTimeout(() => target.classList.remove('is-highlighted'), 2200);
+      }
+    }
+  } catch (e) {
+    toast('打开 Preflight Review 失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Open Preflight Review';
+    }
+  }
+}
+
+async function planAgentRunReplay(id, btn = null) {
+  if (!id) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Planning…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/replay-plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestedBy: 'owner' }),
+    });
+    toast(result.replayPlan?.summary || 'Replay plan recorded', 'success', 1800);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('Replay plan 失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Replay Plan';
+    }
+  }
+}
+
+async function archiveAgentRunReplayResult(id, btn = null) {
+  if (!id) return;
+  const summary = await promptModal({
+    title: 'Replay Result',
+    message: '结果摘要',
+    multiline: true,
+    value: 'Replay result recorded.',
+    confirmLabel: '归档',
+  });
+  if (summary == null) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Archiving…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/replay-result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestedBy: 'owner', status: 'recorded', summary }),
+    });
+    toast(result.replayResult?.summary || 'Replay result archived', 'success', 1800);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('Replay result 失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Replay Result';
+    }
+  }
+}
+
+async function archiveAgentRun(id, btn = null) {
+  if (!id) return;
+  const summary = await promptModal({
+    title: 'Archive Run',
+    message: '阶段归档摘要',
+    multiline: true,
+    value: 'Execution archive recorded.',
+    confirmLabel: '归档',
+  });
+  if (summary == null) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Archiving…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestedBy: 'owner', summary }),
+    });
+    toast(result.archive?.summary || 'Run archived', 'success', 1800);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('Run archive 失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Archive Run';
+    }
+  }
+}
+
+async function completeIdeaRunExecution(id, btn = null) {
+  if (!id) return;
+  const summary = await promptModal({
+    title: 'Complete Idea Run',
+    message: '执行与验证摘要',
+    multiline: true,
+    value: 'Idea execution completed and verified.',
+    confirmLabel: '完成',
+  });
+  if (summary == null) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Completing…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/idea-execution`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestedBy: 'owner',
+        status: 'succeeded',
+        summary,
+        verificationSummary: summary,
+      }),
+    });
+    toast(result.archive?.summary || 'Idea Run completed', 'success', 1800);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('Idea Run 完成失败：' + (e.message || e), 'error', 3000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Complete Idea Run';
+    }
+  }
+}
+
+async function autoVerifyIdeaRun(id, btn = null) {
+  if (!id) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Verifying…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/idea-auto-execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestedBy: 'owner' }),
+    });
+    toast(result.archive?.summary || 'Idea Run verified and archived', 'success', 2200);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('自动验证失败：' + (e.message || e), 'error', 3500);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Auto Work + Verify';
+    }
+  }
+}
+
+async function generateIdeaRunManifest(id, btn = null) {
+  if (!id) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/idea-manifest-draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestedBy: 'owner' }),
+    });
+    toast(result.manifestDraft?.summary || 'Manifest draft generated', 'success', 2200);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('Manifest 生成失败：' + (e.message || e), 'error', 3500);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Generate Manifest';
+    }
+  }
+}
+
+async function generateIdeaRunPatchManifest(id, btn = null) {
+  if (!id) return;
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/idea-patch-manifest-draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestedBy: 'owner', useModel: false }),
+    });
+    toast(result.manifestDraft?.summary || 'Patch manifest draft generated', 'success', 2200);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('Patch Manifest 生成失败：' + (e.message || e), 'error', 3500);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Generate Patch';
+    }
+  }
+}
+
+function latestIdeaRunManifestDraft(timeline = null) {
+  const messages = Array.isArray(timeline?.messages) ? timeline.messages : [];
+  for (const message of messages.slice().reverse()) {
+    const draft = message.payload?.manifestDraft;
+    if (message.kind === 'manifest_draft' && draft?.manifest && typeof draft.manifest === 'object') return draft;
+  }
+  return null;
+}
+
+function defaultIdeaRunManifestText(run = null) {
+  const timeline = agentRegistryState.runTimeline?.run?.id === run?.id ? agentRegistryState.runTimeline : null;
+  const manifestDraft = latestIdeaRunManifestDraft(timeline);
+  if (manifestDraft?.manifest) return JSON.stringify(manifestDraft.manifest, null, 2);
+  const manifest = {
+    fileChanges: [],
+    workEvidenceCommands: [
+      'git status --porcelain=v1',
+      'git diff --stat',
+    ],
+    commands: [
+      'git diff --check',
+      'npm test',
+    ],
+    evidenceArtifacts: [],
+  };
+  const approvalId = run?.approvalId || run?.details?.approvalId;
+  if (approvalId) manifest.approvalId = approvalId;
+  return JSON.stringify(manifest, null, 2);
+}
+
+function parseIdeaRunManifestText(text) {
+  const value = String(text || '').trim();
+  if (!value) return {};
+  const manifest = JSON.parse(value);
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error('manifest must be a JSON object');
+  }
+  return manifest;
+}
+
+async function editIdeaRunManifest(id, btn = null) {
+  if (!id) return;
+  const manifestText = await promptModal({
+    title: 'Idea Manifest',
+    message: 'JSON manifest',
+    multiline: true,
+    value: defaultIdeaRunManifestText(agentRegistryState.runTimeline?.run?.id === id ? agentRegistryState.runTimeline.run : null),
+    confirmLabel: 'Run Manifest',
+  });
+  if (manifestText == null) return;
+  let manifest;
+  try {
+    manifest = parseIdeaRunManifestText(manifestText);
+  } catch (e) {
+    toast('Manifest JSON 无效：' + (e.message || e), 'error', 3500);
+    return;
+  }
+  const oldText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Running…';
+  }
+  try {
+    const result = await api(`/api/agent-runs/${encodeURIComponent(id)}/idea-auto-execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...manifest, requestedBy: 'owner' }),
+    });
+    toast(result.archive?.summary || 'Idea manifest executed', 'success', 2200);
+    await loadAgentRunDetail(id);
+  } catch (e) {
+    toast('Manifest 执行失败：' + (e.message || e), 'error', 3500);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Edit Manifest';
+    }
+  }
 }
 
 async function refreshAgentRuns() {
@@ -7056,7 +8848,16 @@ async function refreshAgentRuns() {
     const f = agentRegistryState.runFilters;
     if (f.status) params.set('status', f.status);
     if (f.roomId) params.set('roomId', f.roomId);
+    if (f.sessionId) params.set('sessionId', f.sessionId);
     if (f.agentProfileId) params.set('agentProfileId', f.agentProfileId);
+    if (f.sourceType) params.set('sourceType', f.sourceType);
+    if (f.approvalId) params.set('approvalId', f.approvalId);
+    if (f.delegationId) params.set('delegationId', f.delegationId);
+    if (f.budgetIncidentId) params.set('budgetIncidentId', f.budgetIncidentId);
+    if (f.deferReason) params.set('deferReason', f.deferReason);
+    if (f.approvalResumeGateId) params.set('approvalResumeGateId', f.approvalResumeGateId);
+    if (f.approvalResumeGateSha256) params.set('approvalResumeGateSha256', f.approvalResumeGateSha256);
+    if (f.hasGovernance) params.set('hasGovernance', 'true');
     const result = await api('/api/agent-runs?' + params.toString());
     agentRegistryState.runs = result.runs || [];
     if (!agentRegistryState.activeRunId || !agentRegistryState.runs.some(run => run.id === agentRegistryState.activeRunId)) {
@@ -7078,17 +8879,29 @@ async function loadAgentRunDetail(id) {
   agentRegistryState.runTimeline = null;
   renderAgentRegistryModal();
   try {
-    const timeline = await api(`/api/agent-runs/${encodeURIComponent(id)}`);
-    let activityEvents = [];
-    try {
-      const exported = await api(`/api/agent-runs/${encodeURIComponent(id)}/export?format=json`);
-      activityEvents = exported.export?.activityEvents || [];
-    } catch {}
-    agentRegistryState.runTimeline = { ...timeline, activityEvents };
+    agentRegistryState.runTimeline = await api(`/api/agent-runs/${encodeURIComponent(id)}?includeSession=true&sessionLimit=80`);
+    const run = agentRegistryState.runTimeline?.run;
+    if (run && !agentRegistryState.runs.some(item => item.id === run.id)) {
+      agentRegistryState.runs = [run, ...agentRegistryState.runs].slice(0, 80);
+    }
   } catch (e) {
     agentRegistryState.runError = e.message || '加载 Agent Run 失败';
   }
   renderAgentRegistryModal();
+}
+
+async function openAgentRunFromActivity(id) {
+  if (!id) return;
+  closeActivityModal();
+  agentRegistryState.activeTab = 'runs';
+  agentRegistryState.activeRunId = id;
+  $('#agentRegistryModal').style.display = 'flex';
+  if (!agentRegistryState.snapshot) {
+    await refreshAgentRegistry();
+  } else {
+    renderAgentRegistryModal();
+  }
+  await loadAgentRunDetail(id);
 }
 
 function renderAgentProfileCard(profile, { showPolicyEditor = false } = {}) {
@@ -7218,7 +9031,7 @@ async function runAgentPreview() {
   agentRegistryState.memberRole = role;
   if (!text) {
     root.innerHTML = '<div class="agent-empty">先输入任务文本。</div>';
-    return;
+    return null;
   }
   root.innerHTML = '<div class="muted small">预演中…</div>';
   try {
@@ -7230,15 +9043,70 @@ async function runAgentPreview() {
           affectedFiles: parseAgentPreviewFiles(affectedFilesText),
           evidence: agentRegistryState.codeContextEvidence || [],
           symbolGraph: agentRegistryState.codeContextGraph || {},
+          codebaseQuestionAnswer: sanitizeCodebaseQuestionAnswer(agentRegistryState.codebaseQuestionAnswer),
         },
         member: { adapterId: 'preview', role, displayName: `Preview ${role}` },
         room: { name: 'Agent Preview', topic: text, skills: [] },
       }),
     });
     agentRegistryState.classification = result;
+    if (result.codebaseQuestionAnswer) agentRegistryState.codebaseQuestionAnswer = result.codebaseQuestionAnswer;
     root.innerHTML = renderAgentClassification(result);
+    refreshAgentDispatchWorkflow();
+    return result;
   } catch (e) {
     root.innerHTML = `<div class="agent-empty error">预演失败：${escapeHtml(e.message)}</div>`;
+    return null;
+  }
+}
+
+async function createAgentRunFromIdea(button = null) {
+  const text = ($('#agentPreviewText')?.value || '').trim();
+  const affectedFilesText = ($('#agentPreviewFiles')?.value || '').trim();
+  const role = $('#agentPreviewRole')?.value || 'dev';
+  if (!text) {
+    toast('先输入任务文本', 'warning', 1800);
+    return null;
+  }
+  const oldText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Creating…';
+  }
+  try {
+    const classification = agentRegistryState.classification || await runAgentPreview();
+    if (!classification) throw new Error('分派预演失败，无法创建 Run Draft');
+    const affectedFiles = parseAgentPreviewFiles(affectedFilesText);
+    const result = await api('/api/agent-runs/idea', {
+      method: 'POST',
+      body: JSON.stringify({
+        idea: text,
+        role,
+        affectedFiles,
+        classification,
+        roomId: roomState?.activeId || '',
+        sessionId: state.activeId || '',
+        agentProfileId: classification.profile?.id || '',
+        agentProfileTitle: classification.profile?.title || '',
+        codebaseQuestionAnswer: sanitizeCodebaseQuestionAnswer(agentRegistryState.codebaseQuestionAnswer || classification.codebaseQuestionAnswer),
+      }),
+    });
+    toast('Idea-to-Archive Run Draft 已创建', 'success', 1800);
+    agentRegistryState.activeTab = 'runs';
+    agentRegistryState.activeRunId = result.run?.id || '';
+    agentRegistryState.runTimeline = null;
+    agentRegistryState.runs = result.run ? [result.run, ...agentRegistryState.runs.filter(run => run.id !== result.run.id)].slice(0, 80) : agentRegistryState.runs;
+    renderAgentRegistryModal();
+    if (result.run?.id) await loadAgentRunDetail(result.run.id);
+    return result;
+  } catch (e) {
+    toast('创建 Run Draft 失败：' + (e.message || e), 'error', 3000);
+    return null;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = oldText || '创建 Run Draft';
+    }
   }
 }
 
@@ -7261,6 +9129,87 @@ function renderAgentChangedFilesInfo(info = null) {
   return `<span>${escapeHtml(info.count || 0)} changed files${tags}${evidence}</span>`;
 }
 
+function sanitizeCodebaseQuestionAnswer(answer = null) {
+  if (!answer || typeof answer !== 'object') return null;
+  const citations = Array.isArray(answer.citations) ? answer.citations.slice(0, 6).map((item, index) => {
+    const id = String(item.id || `C${index + 1}`).slice(0, 20).trim() || `C${index + 1}`;
+    const path = String(item.path || '').slice(0, 300).trim();
+    const line = Math.max(1, Number(item.line) || 1);
+    const label = String(item.label || (path ? `${path}:${line}` : id)).slice(0, 340).trim();
+    return {
+      id,
+      path,
+      line,
+      label,
+      kind: String(item.kind || 'file').slice(0, 100).trim() || 'file',
+      anchor: String(item.anchor || '').slice(0, 180).trim(),
+      parser: String(item.parser || 'unknown').slice(0, 80).trim() || 'unknown',
+      score: Number(item.score || 0),
+      semanticScore: Number.isFinite(Number(item.semanticScore)) ? Number(item.semanticScore) : null,
+      reasons: Array.isArray(item.reasons) ? item.reasons.map(reason => String(reason || '').slice(0, 120).trim()).filter(Boolean).slice(0, 4) : [],
+      snippet: String(item.snippet || '').slice(0, 260).trim(),
+      evidenceCount: Math.max(0, Number(item.evidenceCount) || 0),
+      graphReferenceCount: Math.max(0, Number(item.graphReferenceCount) || 0),
+      typeImplementationCount: Math.max(0, Number(item.typeImplementationCount) || 0),
+      routeUsageCount: Math.max(0, Number(item.routeUsageCount) || 0),
+      routeToTestChainCount: Math.max(0, Number(item.routeToTestChainCount) || 0),
+      unresolvedReferenceCount: Math.max(0, Number(item.unresolvedReferenceCount) || 0),
+      citationPathCount: Math.max(0, Number(item.citationPathCount) || 0),
+    };
+  }).filter(item => item.path || item.label) : [];
+  const question = String(answer.question || '').slice(0, 500).trim();
+  const text = String(answer.answer || '').slice(0, 1200).trim();
+  if (!question && !text && !citations.length) return null;
+  const coverage = answer.coverage && typeof answer.coverage === 'object' ? answer.coverage : {};
+  return {
+    ok: answer.ok !== false,
+    mode: String(answer.mode || 'local-codebase-question').slice(0, 80),
+    generatedBy: String(answer.generatedBy || 'CodebaseIndexStore').slice(0, 120),
+    question,
+    confidence: String(answer.confidence || 'unknown').slice(0, 40),
+    answer: text,
+    answerLines: Array.isArray(answer.answerLines) ? answer.answerLines.map(line => String(line || '').slice(0, 360).trim()).filter(Boolean).slice(0, 6) : [],
+    citations,
+    coverage: {
+      resultCount: Math.max(0, Number(coverage.resultCount) || 0),
+      citedResultCount: Math.max(0, Number(coverage.citedResultCount) || citations.length),
+      uniqueFileCount: Math.max(0, Number(coverage.uniqueFileCount) || new Set(citations.map(item => item.path).filter(Boolean)).size),
+      evidenceItemCount: Math.max(0, Number(coverage.evidenceItemCount) || 0),
+      graphReferenceCount: Math.max(0, Number(coverage.graphReferenceCount) || 0),
+      typeImplementationCount: Math.max(0, Number(coverage.typeImplementationCount) || 0),
+      routeUsageCount: Math.max(0, Number(coverage.routeUsageCount) || 0),
+      routeToTestChainCount: Math.max(0, Number(coverage.routeToTestChainCount) || 0),
+      unresolvedReferenceCount: Math.max(0, Number(coverage.unresolvedReferenceCount) || 0),
+      citationPathCount: Math.max(0, Number(coverage.citationPathCount) || 0),
+    },
+    nextActions: Array.isArray(answer.nextActions) ? answer.nextActions.map(item => String(item || '').slice(0, 180).trim()).filter(Boolean).slice(0, 6) : [],
+    limitations: Array.isArray(answer.limitations) ? answer.limitations.map(item => String(item || '').slice(0, 180).trim()).filter(Boolean).slice(0, 6) : [],
+  };
+}
+
+function renderAgentCodebaseQuestionAnswer(answer = null) {
+  const item = sanitizeCodebaseQuestionAnswer(answer);
+  if (!item) return '';
+  const coverage = item.coverage || {};
+  const citations = item.citations || [];
+  const extra = [
+    coverage.routeToTestChainCount ? `${coverage.routeToTestChainCount} route-test chains` : '',
+    coverage.unresolvedReferenceCount ? `${coverage.unresolvedReferenceCount} unresolved refs` : '',
+  ].filter(Boolean).join(' · ');
+  return `<section class="agent-code-question-answer" data-agent-code-question-answer>
+    <div class="agent-code-context-head">
+      <strong>Code Question Answer</strong>
+      <span>${escapeHtml(item.confidence)} confidence · ${escapeHtml(coverage.uniqueFileCount || 0)} files · ${escapeHtml(citations.length)} citations${extra ? ` · ${escapeHtml(extra)}` : ''}</span>
+    </div>
+    ${item.question ? `<div class="agent-code-question-text"><strong>Question</strong><span>${escapeHtml(item.question)}</span></div>` : ''}
+    ${item.answer ? `<div class="agent-code-question-text"><strong>Answer</strong><span>${escapeHtml(item.answer)}</span></div>` : ''}
+    ${item.limitations?.length ? `<div class="agent-code-question-text"><strong>Limits</strong><span>${escapeHtml(item.limitations.slice(0, 3).join(' · '))}</span></div>` : ''}
+    ${citations.length ? `<div class="agent-code-question-citations">
+      ${citations.slice(0, 6).map(citation => `<span title="${escapeHtml((citation.reasons || []).join(', '))}">${escapeHtml(citation.id)} ${escapeHtml(citation.label)}</span>`).join('')}
+    </div>` : ''}
+  </section>`;
+}
+
 async function loadAgentChangedFiles(button = null) {
   try {
     if (button) button.disabled = true;
@@ -7272,6 +9221,8 @@ async function loadAgentChangedFiles(button = null) {
     agentRegistryState.codeContextEvidence = result.codeContextEvidence || [];
     agentRegistryState.codeContextGraph = result.codeContextGraph || null;
     agentRegistryState.codebaseMap = null;
+    agentRegistryState.codebaseQuestionAnswer = null;
+    agentRegistryState.classification = null;
     agentRegistryState.changedFilesInfo = {
       count: paths.length,
       tags: result.codeContextSignals?.tags || [],
@@ -7285,6 +9236,8 @@ async function loadAgentChangedFiles(button = null) {
     agentRegistryState.codeContextEvidence = [];
     agentRegistryState.codeContextGraph = null;
     agentRegistryState.changedFilesInfo = { error: e.message || '读取当前变更失败' };
+    agentRegistryState.codebaseQuestionAnswer = null;
+    agentRegistryState.classification = null;
     const info = $('#agentPreviewFilesInfo');
     if (info) info.innerHTML = renderAgentChangedFilesInfo(agentRegistryState.changedFilesInfo);
   } finally {
@@ -7308,6 +9261,8 @@ async function loadAgentCodebaseMap(button = null) {
     agentRegistryState.codeContextEvidence = map.evidence || [];
     agentRegistryState.codeContextGraph = map.symbolGraph || null;
     agentRegistryState.codebaseMap = map;
+    agentRegistryState.codebaseQuestionAnswer = null;
+    agentRegistryState.classification = null;
     agentRegistryState.changedFilesInfo = {
       mode: 'codebase-map',
       count: paths.length,
@@ -7323,6 +9278,8 @@ async function loadAgentCodebaseMap(button = null) {
     agentRegistryState.codeContextEvidence = [];
     agentRegistryState.codeContextGraph = null;
     agentRegistryState.codebaseMap = null;
+    agentRegistryState.codebaseQuestionAnswer = null;
+    agentRegistryState.classification = null;
     agentRegistryState.changedFilesInfo = { error: e.message || '构建工程地图失败' };
     const info = $('#agentPreviewFilesInfo');
     if (info) info.innerHTML = renderAgentChangedFilesInfo(agentRegistryState.changedFilesInfo);
@@ -7357,6 +9314,7 @@ function renderAgentClassification(result) {
       `).join('') : '<div class="agent-empty">没有命中 tag，会走角色 fallback。</div>'}
     </div>
     ${renderAgentCodeContext(result.codeContextSignals)}
+    ${renderAgentCodebaseQuestionAnswer(result.codebaseQuestionAnswer || agentRegistryState.codebaseQuestionAnswer)}
     ${renderAgentCodebaseMap(agentRegistryState.codebaseMap)}
     ${renderAgentSymbolGraph(result.codeContextGraph || agentRegistryState.codeContextGraph, result.codeContextGraphSummary || agentRegistryState.codebaseMap?.symbolGraphSummary)}
     ${renderAgentCodeEvidence(result.codeContextEvidence, result.codeContextEvidenceSummary)}
@@ -7424,6 +9382,8 @@ function renderAgentSymbolGraph(graph = null, summary = null) {
   const refs = Array.isArray(data.references) ? data.references : [];
   const routes = Array.isArray(data.routes) ? data.routes : [];
   const usages = Array.isArray(data.routeUsages) ? data.routeUsages : [];
+  const routeChains = Array.isArray(data.routeTestChains) ? data.routeTestChains : [];
+  const unresolved = Array.isArray(data.unresolvedReferences) ? data.unresolvedReferences : [];
   if (definitions.length === 0 && routes.length === 0) return '';
   const meta = summary || data;
   const topDefinitions = definitions
@@ -7433,7 +9393,7 @@ function renderAgentSymbolGraph(graph = null, summary = null) {
   return `<div class="agent-symbol-graph">
     <div class="agent-code-context-head">
       <strong>Symbol Graph</strong>
-      <span>${escapeHtml(meta.definitionCount || definitions.length)} defs · ${escapeHtml(meta.referenceCount || refs.length)} refs · ${escapeHtml(meta.callCount || refs.filter(item => item.kind === 'call').length)} calls · ${escapeHtml(meta.routeUsageCount || usages.length)} route uses</span>
+      <span>${escapeHtml(meta.definitionCount || definitions.length)} defs · ${escapeHtml(meta.referenceCount || refs.length)} refs · ${escapeHtml(meta.callCount || refs.filter(item => item.kind === 'call').length)} calls · ${escapeHtml(meta.typeImplementationCount || refs.filter(item => item.kind === 'type-implementation').length)} type impl · ${escapeHtml(meta.routeUsageCount || usages.length)} route uses · ${escapeHtml(meta.routeToTestChainCount || routeChains.length)} route-test · ${escapeHtml(meta.unresolvedReferenceCount || unresolved.length)} unresolved</span>
     </div>
     <div class="agent-symbol-list">
       ${topDefinitions.map(item => `<div class="agent-symbol-row">
@@ -7517,6 +9477,7 @@ const codebaseCenterState = {
   loading: false,
   cwd: '',
   lastResult: null,
+  questionAnswer: null,
 };
 
 function codebaseCenterCwd() {
@@ -7542,7 +9503,19 @@ function codebaseStatusText(status = null) {
     `${status.focusFileCount || 0} focus`,
   ];
   if (status.evidenceSummary?.symbolCount) parts.push(`${status.evidenceSummary.symbolCount} symbols`);
+  if (status.evidenceSummary?.parserCounts) {
+    const parsers = Object.entries(status.evidenceSummary.parserCounts)
+      .filter(([, count]) => Number(count) > 0)
+      .slice(0, 2)
+      .map(([parser, count]) => `${parser}:${count}`)
+      .join('/');
+    if (parsers) parts.push(`parsers ${parsers}`);
+  }
+  if (status.symbolGraphSummary?.typeImplementationCount) parts.push(`${status.symbolGraphSummary.typeImplementationCount} type impl`);
   if (status.symbolGraphSummary?.routeUsageCount) parts.push(`${status.symbolGraphSummary.routeUsageCount} route uses`);
+  if (status.symbolGraphSummary?.routeToTestChainCount) parts.push(`${status.symbolGraphSummary.routeToTestChainCount} route-test chains`);
+  if (status.symbolGraphSummary?.unresolvedReferenceCount) parts.push(`${status.symbolGraphSummary.unresolvedReferenceCount} unresolved refs`);
+  if (status.vectorSummary?.rowCount) parts.push(`${status.vectorSummary.rowCount} vectors`);
   return parts.join(' · ');
 }
 
@@ -7551,6 +9524,7 @@ function renderCodebaseCenter() {
   if (!root) return;
   const status = codebaseCenterState.status;
   const results = codebaseCenterState.results || [];
+  const answer = codebaseCenterState.questionAnswer;
   root.innerHTML = `
     <div class="codebase-center-head">
       <label>
@@ -7566,9 +9540,11 @@ function renderCodebaseCenter() {
     <div class="codebase-query-bar">
       <input id="codebaseQueryInput" type="search" value="${escapeHtml(codebaseCenterState.query)}" placeholder="查询代码问题，例如：RoomAdapter 在哪里处理预算？" />
       <button class="cxbtn cxbtn-secondary cxbtn-sm" id="codebaseRebuildBtn">${codebaseCenterState.loading === 'rebuild' ? '重建中…' : 'Rebuild'}</button>
+      <button class="cxbtn cxbtn-secondary cxbtn-sm" id="codebaseQuestionBtn">${codebaseCenterState.loading === 'question' ? '回答中…' : 'Answer'}</button>
       <button class="cxbtn cxbtn-primary cxbtn-sm" id="codebaseQueryBtn">${codebaseCenterState.loading === 'query' ? '查询中…' : 'Query'}</button>
     </div>
     ${codebaseCenterState.error ? `<div class="agent-empty error">${escapeHtml(codebaseCenterState.error)}</div>` : ''}
+    ${answer ? renderCodebaseQuestionAnswer(answer) : ''}
     <div class="codebase-result-actions">
       <span>${escapeHtml(results.length)} results</span>
       <button class="cxbtn cxbtn-tertiary cxbtn-sm" id="codebaseAddAll" ${results.length ? '' : 'disabled'}>添加结果到 Dispatch Preview</button>
@@ -7587,7 +9563,7 @@ function renderCodebaseResult(item, idx) {
   return `<article class="codebase-result-card">
     <div class="codebase-result-title">
       <strong>${escapeHtml(item.path || '-')}<span>:${escapeHtml(item.line || 1)}</span></strong>
-      <em>score ${escapeHtml(item.score || 0)} · ${escapeHtml(item.parser || 'unknown')}</em>
+      <em>score ${escapeHtml(item.score || 0)}${item.semanticScore !== undefined ? ` · vector ${escapeHtml(Number(item.semanticScore).toFixed(3))}` : ''} · ${escapeHtml(item.parser || 'unknown')}</em>
     </div>
     <div class="codebase-result-meta">
       <span>${escapeHtml(item.kind || 'file')}</span>
@@ -7607,6 +9583,30 @@ function renderCodebaseResult(item, idx) {
   </article>`;
 }
 
+function renderCodebaseQuestionAnswer(answer = {}) {
+  const citations = Array.isArray(answer.citations) ? answer.citations : [];
+  const lines = Array.isArray(answer.answerLines) ? answer.answerLines : [];
+  const coverage = answer.coverage || {};
+  const limitations = Array.isArray(answer.limitations) ? answer.limitations : [];
+  const chainText = coverage.routeToTestChainCount ? ` · ${Number(coverage.routeToTestChainCount || 0)} route-test chains` : '';
+  const unresolvedText = coverage.unresolvedReferenceCount ? ` · ${Number(coverage.unresolvedReferenceCount || 0)} unresolved refs` : '';
+  return `<section class="codebase-question-answer" data-codebase-question-answer>
+    <div class="codebase-question-head">
+      <strong>Local Code Answer</strong>
+      <span>${escapeHtml(answer.confidence || 'unknown')} confidence</span>
+      <span>${Number(coverage.uniqueFileCount || 0)} files · ${Number(coverage.evidenceItemCount || 0)} evidence${coverage.typeImplementationCount ? ` · ${Number(coverage.typeImplementationCount || 0)} type impl` : ''}${chainText}${unresolvedText}</span>
+    </div>
+    <p>${escapeHtml(answer.answer || '')}</p>
+    ${limitations.length ? `<div class="codebase-question-limitations">${limitations.slice(0, 4).map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}
+    ${lines.length ? `<ol class="codebase-question-lines">
+      ${lines.slice(0, 6).map(line => `<li>${escapeHtml(line)}</li>`).join('')}
+    </ol>` : ''}
+    ${citations.length ? `<div class="codebase-question-citations">
+      ${citations.slice(0, 6).map(item => `<span title="${escapeHtml((item.reasons || []).join(', '))}">${escapeHtml(item.id)} ${escapeHtml(item.label)}</span>`).join('')}
+    </div>` : ''}
+  </section>`;
+}
+
 function bindCodebaseCenterEvents(root) {
   $('#codebaseCenterCwd')?.addEventListener('change', (e) => {
     codebaseCenterState.cwd = e.target.value.trim();
@@ -7619,6 +9619,7 @@ function bindCodebaseCenterEvents(root) {
     if (e.key === 'Enter') runCodebaseQuery();
   });
   $('#codebaseRebuildBtn')?.addEventListener('click', rebuildCodebaseIndex);
+  $('#codebaseQuestionBtn')?.addEventListener('click', runCodebaseQuestion);
   $('#codebaseQueryBtn')?.addEventListener('click', runCodebaseQuery);
   $('#codebaseAddAll')?.addEventListener('click', () => addCodebaseResultsToDispatch(codebaseCenterState.results));
   $('#codebaseOpenDispatch')?.addEventListener('click', openDispatchPreviewFromCodebase);
@@ -7660,6 +9661,7 @@ async function rebuildCodebaseIndex() {
     });
     codebaseCenterState.status = result.status || null;
     codebaseCenterState.lastResult = result.map || null;
+    codebaseCenterState.questionAnswer = null;
     toast('Codebase Index 已重建', 'success', 1600);
   } catch (e) {
     codebaseCenterState.error = e.message || '重建 Codebase Index 失败';
@@ -7678,6 +9680,7 @@ async function runCodebaseQuery() {
   }
   codebaseCenterState.loading = 'query';
   codebaseCenterState.error = '';
+  codebaseCenterState.questionAnswer = null;
   renderCodebaseCenter();
   try {
     const result = await api('/api/codebase-index/query', {
@@ -7701,6 +9704,40 @@ async function runCodebaseQuery() {
   }
 }
 
+async function runCodebaseQuestion() {
+  const question = (codebaseCenterState.query || '').trim();
+  if (!question) {
+    codebaseCenterState.error = '请输入代码问题。';
+    renderCodebaseCenter();
+    return;
+  }
+  codebaseCenterState.loading = 'question';
+  codebaseCenterState.error = '';
+  renderCodebaseCenter();
+  try {
+    const result = await api('/api/codebase-index/question', {
+      method: 'POST',
+      body: JSON.stringify({
+        cwd: codebaseCenterCwd(),
+        question,
+        maxResults: 8,
+        focusLimit: 24,
+      }),
+    });
+    codebaseCenterState.results = result.results || [];
+    codebaseCenterState.questionAnswer = result.answer || null;
+    codebaseCenterState.status = result.status || codebaseCenterState.status;
+    codebaseCenterState.lastResult = result;
+  } catch (e) {
+    codebaseCenterState.error = e.message || '回答代码问题失败';
+    codebaseCenterState.questionAnswer = null;
+    codebaseCenterState.results = [];
+  } finally {
+    codebaseCenterState.loading = false;
+    renderCodebaseCenter();
+  }
+}
+
 function codebaseResultToEvidence(item) {
   if (!item?.path) return null;
   return {
@@ -7715,9 +9752,10 @@ function codebaseResultToEvidence(item) {
   };
 }
 
-function addCodebaseResultsToDispatch(items = []) {
+function addCodebaseResultsToDispatch(items = [], options = {}) {
   const list = (items || []).filter(item => item?.path);
   if (!list.length) return;
+  const questionAnswer = sanitizeCodebaseQuestionAnswer(options.questionAnswer || codebaseCenterState.questionAnswer);
   const existing = parseAgentPreviewFiles(agentRegistryState.affectedFiles);
   const paths = [...new Set([...existing, ...list.map(item => item.path)])].slice(0, 40);
   const evidenceByPath = new Map((agentRegistryState.codeContextEvidence || []).map(item => [item.path, item]));
@@ -7729,6 +9767,8 @@ function addCodebaseResultsToDispatch(items = []) {
   agentRegistryState.codeContextEvidence = [...evidenceByPath.values()].slice(0, 24);
   agentRegistryState.codeContextGraph = null;
   agentRegistryState.codebaseMap = null;
+  agentRegistryState.codebaseQuestionAnswer = questionAnswer;
+  agentRegistryState.classification = null;
   agentRegistryState.changedFilesInfo = {
     mode: 'codebase-query',
     count: paths.length,
@@ -7745,6 +9785,12 @@ function addCodebaseResultsToDispatch(items = []) {
 
 async function openDispatchPreviewFromCodebase() {
   codebaseCenterState.query = ($('#codebaseQueryInput')?.value || codebaseCenterState.query || '').trim();
+  const questionAnswer = sanitizeCodebaseQuestionAnswer(codebaseCenterState.questionAnswer);
+  if (questionAnswer) {
+    agentRegistryState.codebaseQuestionAnswer = questionAnswer;
+    agentRegistryState.classification = null;
+  }
+  if (codebaseCenterState.query) agentRegistryState.text = codebaseCenterState.query;
   closeCodebaseCenterModal();
   agentRegistryState.activeTab = 'dispatch';
   await openAgentRegistryModal();
@@ -7935,6 +9981,9 @@ const activityState = {
     taskId: '',
     entityType: '',
     entityId: '',
+    agentRunId: '',
+    approvalResumeGateId: '',
+    approvalResumeGateSha256: '',
     severity: '',
     status: '',
     agentOnly: false,
@@ -7961,6 +10010,9 @@ function activitySearchText(e) {
   return [
     e.id, e.action, e.tag, e.roomId, e.sessionId, e.taskId,
     e.actorType, e.actorId, e.entityType, e.entityId, e.severity, e.status,
+    ...activityAgentRunIds(e),
+    ...activityApprovalResumeGateIds(e),
+    ...activityApprovalResumeGateSha256s(e),
     JSON.stringify(e.details || {}),
   ].filter(Boolean).join(' ').toLowerCase();
 }
@@ -8000,6 +10052,43 @@ function activityAgentProfileIds(e) {
   ids.push(d.agentProfileId, d.profileId, d.agentProfile?.id, d.agent?.profileId);
   return activityUniqueStrings(ids);
 }
+function activityAgentRunIds(e) {
+  const d = e.details || {};
+  const ids = [];
+  if (e.entityType === 'agent_run' && e.entityId) ids.push(e.entityId);
+  ids.push(d.agentRunId, d.runId, d.agentRun?.id, d.replayPlan?.runId, d.replayResult?.runId);
+  return activityUniqueStrings(ids);
+}
+function activityApprovalResumeGateIds(e) {
+  const d = e.details || {};
+  return activityUniqueStrings([
+    d.approvalResumeGateId,
+    d.reviewGateId,
+    d.resumeReviewGateId,
+    d.approvalResumeReviewGateId,
+    d.approvalResumeGateAudit?.id,
+    d.resumeReviewGateAudit?.id,
+    d.resumeReviewGate?.id,
+    d.resumeReview?.gate?.id,
+  ]);
+}
+function activityApprovalResumeGateSha256s(e) {
+  const d = e.details || {};
+  return activityUniqueStrings([
+    d.approvalResumeGateSha256,
+    d.reviewSha256,
+    d.resumeReviewSha256,
+    d.approvalResumeReviewSha256,
+    d.approvalResumeGateAudit?.sha256,
+    d.resumeReviewGateAudit?.sha256,
+    d.resumeReviewGate?.sha256,
+    d.resumeReview?.gate?.sha256,
+  ]);
+}
+function activityApprovalResumeGateAudit(e) {
+  const d = e.details || {};
+  return d.approvalResumeGateAudit || d.resumeReviewGateAudit || d.resumeReviewGate || d.resumeReview?.gate || null;
+}
 function activitySkillBindings(e) {
   const d = e.details || {};
   return [...activityAsArray(d.agentSkillBindings), ...activityAsArray(d.skillBindings)]
@@ -8025,10 +10114,19 @@ function activityDiagnosticItems(e) {
     .map(item => (typeof item === 'string' ? { code: item } : item))
     .filter(item => item && typeof item === 'object' && (item.code || item.message));
 }
+function activityArtifacts(e) {
+  const d = e.details || {};
+  return activityAsArray(d.artifacts)
+    .filter(item => item && typeof item === 'object' && item.path)
+    .slice(0, 12);
+}
 function isAgentActivityEvent(e) {
   const action = String(e.action || '');
   return action.startsWith('agent.')
+    || activityAgentRunIds(e).length > 0
     || activityAgentProfileIds(e).length > 0
+    || activityApprovalResumeGateIds(e).length > 0
+    || activityApprovalResumeGateSha256s(e).length > 0
     || activitySkillNames(e).length > 0
     || activityDiagnosticItems(e).length > 0;
 }
@@ -8040,7 +10138,7 @@ function filteredActivityEvents() {
 function activityApiParams() {
   const f = activityState.filters;
   const params = new URLSearchParams();
-  for (const key of ['action', 'roomId', 'sessionId', 'taskId', 'entityType', 'entityId', 'severity', 'status']) {
+  for (const key of ['action', 'roomId', 'sessionId', 'taskId', 'entityType', 'entityId', 'agentRunId', 'approvalResumeGateId', 'approvalResumeGateSha256', 'severity', 'status']) {
     if (f[key]) params.set(key, f[key]);
   }
   if (f.agentOnly) params.set('agentOnly', '1');
@@ -8058,10 +10156,25 @@ async function openActivityModal(seed = {}) {
   if (seed.taskId) activityState.filters.taskId = seed.taskId;
   if (seed.entityType) activityState.filters.entityType = seed.entityType;
   if (seed.entityId) activityState.filters.entityId = seed.entityId;
+  if (seed.agentRunId) {
+    activityState.filters.q = '';
+    activityState.filters.entityType = '';
+    activityState.filters.entityId = '';
+    activityState.filters.agentRunId = seed.agentRunId;
+  }
+  if (seed.approvalResumeGateId || seed.reviewGateId) {
+    activityState.filters.q = '';
+    activityState.filters.approvalResumeGateId = seed.approvalResumeGateId || seed.reviewGateId;
+  }
+  if (seed.approvalResumeGateSha256 || seed.reviewSha256) {
+    activityState.filters.q = '';
+    activityState.filters.approvalResumeGateSha256 = seed.approvalResumeGateSha256 || seed.reviewSha256;
+  }
   if (seed.agentOnly) activityState.filters.agentOnly = true;
   if (seed.agentProfileId) activityState.filters.agentProfileId = seed.agentProfileId;
   if (seed.skillName) activityState.filters.skillName = seed.skillName;
   if (seed.diagnosticCode) activityState.filters.diagnosticCode = seed.diagnosticCode;
+  if (seed.q) activityState.filters.q = seed.q;
   await refreshActivity();
 }
 function closeActivityModal() { $('#activityModal').style.display = 'none'; }
@@ -8101,7 +10214,9 @@ function renderActivityModal() {
     && !activityState.filters.action
     && !activityState.filters.agentProfileId
     && !activityState.filters.skillName
-    && !activityState.filters.diagnosticCode;
+    && !activityState.filters.diagnosticCode
+    && !activityState.filters.approvalResumeGateId
+    && !activityState.filters.approvalResumeGateSha256;
 
   root.innerHTML = `
     <div class="activity-filter-presets">
@@ -8119,6 +10234,9 @@ function renderActivityModal() {
       <input id="activityTaskId" type="text" placeholder="taskId" value="${escapeHtml(activityState.filters.taskId)}" />
       <input id="activityEntityType" type="text" placeholder="entityType" value="${escapeHtml(activityState.filters.entityType)}" />
       <input id="activityEntityId" type="text" placeholder="entityId" value="${escapeHtml(activityState.filters.entityId)}" />
+      <input id="activityAgentRunId" type="text" placeholder="agentRunId" value="${escapeHtml(activityState.filters.agentRunId)}" />
+      <input id="activityGateId" type="text" placeholder="reviewGateId" value="${escapeHtml(activityState.filters.approvalResumeGateId)}" />
+      <input id="activityGateSha" type="text" placeholder="reviewSha256" value="${escapeHtml(activityState.filters.approvalResumeGateSha256)}" />
       <input id="activityAgentProfileId" type="text" placeholder="agentProfileId" value="${escapeHtml(activityState.filters.agentProfileId)}" />
       <input id="activitySkillName" type="text" placeholder="skill" value="${escapeHtml(activityState.filters.skillName)}" />
       <input id="activityDiagnosticCode" type="text" placeholder="diagnostic code" value="${escapeHtml(activityState.filters.diagnosticCode)}" />
@@ -8162,6 +10280,9 @@ function renderActivityModal() {
     ['activityTaskId', 'taskId'],
     ['activityEntityType', 'entityType'],
     ['activityEntityId', 'entityId'],
+    ['activityAgentRunId', 'agentRunId'],
+    ['activityGateId', 'approvalResumeGateId'],
+    ['activityGateSha', 'approvalResumeGateSha256'],
     ['activityAgentProfileId', 'agentProfileId'],
     ['activitySkillName', 'skillName'],
     ['activityDiagnosticCode', 'diagnosticCode'],
@@ -8185,7 +10306,7 @@ function renderActivityModal() {
   });
   $('#activityRefresh')?.addEventListener('click', refreshActivity);
   $('#activityClearFilters')?.addEventListener('click', () => {
-    activityState.filters = { q: '', action: '', roomId: '', sessionId: '', taskId: '', entityType: '', entityId: '', severity: '', status: '', agentOnly: false, agentProfileId: '', skillName: '', diagnosticCode: '', limit: 200 };
+    activityState.filters = { q: '', action: '', roomId: '', sessionId: '', taskId: '', entityType: '', entityId: '', agentRunId: '', approvalResumeGateId: '', approvalResumeGateSha256: '', severity: '', status: '', agentOnly: false, agentProfileId: '', skillName: '', diagnosticCode: '', limit: 200 };
     activityState.activeId = null;
     refreshActivity();
   });
@@ -8194,13 +10315,13 @@ function renderActivityModal() {
       const preset = btn.dataset.activityPreset;
       activityState.activeId = null;
       if (preset === 'all') {
-        Object.assign(activityState.filters, { action: '', entityType: '', entityId: '', agentOnly: false, agentProfileId: '', skillName: '', diagnosticCode: '' });
+        Object.assign(activityState.filters, { action: '', entityType: '', entityId: '', agentRunId: '', approvalResumeGateId: '', approvalResumeGateSha256: '', agentOnly: false, agentProfileId: '', skillName: '', diagnosticCode: '' });
       } else if (preset === 'agent') {
-        Object.assign(activityState.filters, { action: '', agentOnly: true, diagnosticCode: '' });
+        Object.assign(activityState.filters, { action: '', approvalResumeGateId: '', approvalResumeGateSha256: '', agentOnly: true, diagnosticCode: '' });
       } else if (preset === 'diagnostics') {
-        Object.assign(activityState.filters, { action: 'agent.skill_diagnostics', agentOnly: true });
+        Object.assign(activityState.filters, { action: 'agent.skill_diagnostics', approvalResumeGateId: '', approvalResumeGateSha256: '', agentOnly: true });
       } else if (preset === 'metrics') {
-        Object.assign(activityState.filters, { action: 'metrics.recorded', agentOnly: true, diagnosticCode: '' });
+        Object.assign(activityState.filters, { action: 'metrics.recorded', approvalResumeGateId: '', approvalResumeGateSha256: '', agentOnly: true, diagnosticCode: '' });
       }
       refreshActivity();
     });
@@ -8225,6 +10346,22 @@ function renderActivityModal() {
       selectRoom(id);
     });
   });
+  root.querySelectorAll('[data-activity-open-run]').forEach(btn => {
+    btn.addEventListener('click', () => openAgentRunFromActivity(btn.dataset.activityOpenRun));
+  });
+  root.querySelectorAll('[data-activity-artifact-copy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const path = btn.dataset.activityArtifactCopy || '';
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(path).then(() => toast('Artifact path copied', 'success', 1400)).catch(() => fallbackCopy(path));
+      } else {
+        fallbackCopy(path);
+      }
+    });
+  });
+  root.querySelectorAll('[data-activity-artifact-download]').forEach(btn => {
+    btn.addEventListener('click', () => openAgentRunArtifact(btn.dataset.activityArtifactRun, btn.dataset.activityArtifactDownload, btn));
+  });
 }
 
 function renderActivityItem(e) {
@@ -8248,18 +10385,68 @@ function renderActivityItem(e) {
 
 function renderActivityItemAgentHint(e) {
   if (!isAgentActivityEvent(e)) return '';
+  const run = activityAgentRunIds(e)[0];
   const profile = activityAgentProfileIds(e)[0];
+  const gate = activityApprovalResumeGateIds(e)[0];
   const skillCount = activitySkillNames(e).length;
   const diagnosticCount = activityDiagnosticItems(e).length;
   const parts = [];
+  if (run) parts.push(run);
+  if (gate) parts.push(gate);
   if (profile) parts.push(profile);
   if (skillCount) parts.push(`${skillCount} skills`);
   if (diagnosticCount) parts.push(`${diagnosticCount} diagnostics`);
   return `<span class="activity-agent-hint">${parts.map(part => `<span>${escapeHtml(part)}</span>`).join('')}</span>`;
 }
 
+function renderActivityRunButtons(runIds = []) {
+  return runIds.length
+    ? `<span class="activity-chip-line">${runIds.map(id => `<button class="cxbtn cxbtn-tertiary cxbtn-sm" data-activity-open-run="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join('')}</span>`
+    : '';
+}
+
+function renderActivityApprovalResumeGatePanel(e) {
+  const gateIds = activityApprovalResumeGateIds(e);
+  const hashes = activityApprovalResumeGateSha256s(e);
+  const audit = activityApprovalResumeGateAudit(e) || {};
+  if (!gateIds.length && !hashes.length) return '';
+  const counts = audit.counts || {};
+  const countsText = [
+    counts.fileChanges !== undefined ? `files ${counts.fileChanges}` : '',
+    counts.commands !== undefined ? `commands ${counts.commands}` : '',
+    counts.workEvidenceCommands !== undefined ? `evidence ${counts.workEvidenceCommands}` : '',
+    counts.risks !== undefined ? `risks ${counts.risks}` : '',
+  ].filter(Boolean).join(' · ') || '-';
+  const safeText = audit.safeToResume === true ? 'safe' : (audit.safeToResume === false ? 'blocked' : '-');
+  const statusText = [audit.status, safeText].filter(Boolean).join(' · ') || '-';
+  const filePaths = activityAsArray(audit.files).map(file => file?.path).filter(Boolean).slice(0, 4);
+  const commandNames = [
+    ...activityAsArray(audit.commands),
+    ...activityAsArray(audit.workEvidenceCommands),
+  ].map(command => command?.command).filter(Boolean).slice(0, 4);
+  const stagedDiffText = stagedDiffReviewText(audit.stagedDiffReview || audit.diffReview || {});
+  return `
+    <div class="activity-agent-panel">
+      <div class="activity-agent-panel-head">
+        <strong>Approval Resume Gate</strong>
+        <span>${escapeHtml(statusText)}</span>
+      </div>
+      <div class="activity-agent-grid">
+        <div class="k">Gate</div><div class="v">${gateIds.map(id => `<code>${escapeHtml(id)}</code>`).join(' ') || '-'}</div>
+        <div class="k">SHA</div><div class="v">${hashes.map(sha => `<code>${escapeHtml(String(sha).slice(0, 16))}</code>`).join(' ') || '-'}</div>
+        <div class="k">Runs</div><div class="v">${renderActivityRunButtons(activityAgentRunIds(e)) || '-'}</div>
+        <div class="k">Counts</div><div class="v">${escapeHtml(countsText)}</div>
+        ${stagedDiffText ? `<div class="k">Staged Diff</div><div class="v">${escapeHtml(stagedDiffText)}</div>` : ''}
+        ${filePaths.length ? `<div class="k">Files</div><div class="v activity-chip-line">${filePaths.map(path => `<span>${escapeHtml(path)}</span>`).join('')}</div>` : ''}
+        ${commandNames.length ? `<div class="k">Commands</div><div class="v activity-chip-line">${commandNames.map(command => `<span>${escapeHtml(command)}</span>`).join('')}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
 function renderActivityAgentPanel(e) {
   if (!isAgentActivityEvent(e)) return '';
+  const runIds = activityAgentRunIds(e);
   const profiles = activityAgentProfileIds(e);
   const tags = activityDispatchTags(e);
   const skills = activitySkillNames(e);
@@ -8297,6 +10484,7 @@ function renderActivityAgentPanel(e) {
         <span>${diagnostics.length ? `${diagnostics.length} diagnostics` : 'no diagnostics'}</span>
       </div>
       <div class="activity-agent-grid">
+        <div class="k">Runs</div><div class="v">${renderActivityRunButtons(runIds) || '-'}</div>
         <div class="k">Profile</div><div class="v"><code>${escapeHtml(profileText)}</code></div>
         <div class="k">Tags</div><div class="v activity-chip-line">${tagsHtml}</div>
         <div class="k">Skills</div><div class="v activity-chip-line">${skillsHtml}</div>
@@ -8306,8 +10494,41 @@ function renderActivityAgentPanel(e) {
   `;
 }
 
+function renderActivityArtifactPanel(e) {
+  const artifacts = activityArtifacts(e);
+  if (!artifacts.length) return '';
+  const eventRunId = activityAgentRunIds(e)[0] || '';
+  return `
+    <div class="activity-agent-panel">
+      <div class="activity-agent-panel-head">
+        <strong>Archive Artifacts</strong>
+        <span>${artifacts.length} recorded</span>
+      </div>
+      <div class="activity-artifact-list">
+        ${artifacts.map((artifact) => {
+          const runId = artifact.runId || eventRunId;
+          const size = artifact.size ? governanceCenterBytes(artifact.size) : '-';
+          const hash = artifact.sha256 ? String(artifact.sha256).slice(0, 12) : '-';
+          return `<div class="activity-artifact-row">
+            <div>
+              <strong>${escapeHtml(artifact.kind || 'artifact')}</strong>
+              <code>${escapeHtml(artifact.path || '-')}</code>
+              <span>${escapeHtml(size)} · sha ${escapeHtml(hash)}${artifact.sessionId ? ` · session ${escapeHtml(artifact.sessionId)}` : ''}${artifact.gateId ? ` · gate ${escapeHtml(artifact.gateId)}` : ''}</span>
+            </div>
+            <div class="activity-artifact-actions">
+              <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-activity-artifact-copy="${escapeHtml(artifact.path || '')}" type="button">Copy Path</button>
+              ${artifact.downloadable && artifact.id && runId ? `<button class="cxbtn cxbtn-secondary cxbtn-sm" data-activity-artifact-download="${escapeHtml(artifact.id)}" data-activity-artifact-run="${escapeHtml(runId)}" type="button">Open Artifact</button>` : '<span>not downloadable</span>'}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderActivityDetail(e) {
   const details = JSON.stringify(e.details || {}, null, 2);
+  const runButtons = renderActivityRunButtons(activityAgentRunIds(e));
   return `
     <div class="activity-detail-grid">
       <div class="k">ID</div><div class="v">${escapeHtml(e.id)}</div>
@@ -8317,11 +10538,14 @@ function renderActivityDetail(e) {
       <div class="k">状态</div><div class="v">${escapeHtml(e.status || '-')}</div>
       <div class="k">Actor</div><div class="v">${escapeHtml(e.actorType || '-')} / ${escapeHtml(e.actorId || '-')}</div>
       <div class="k">Entity</div><div class="v">${escapeHtml(e.entityType || '-')} / ${escapeHtml(e.entityId || '-')}</div>
+      <div class="k">Agent Run</div><div class="v">${runButtons || '-'}</div>
       <div class="k">Room</div><div class="v">${e.roomId ? `<code>${escapeHtml(e.roomId)}</code> <button class="cxbtn cxbtn-tertiary cxbtn-sm" data-activity-open-room="${escapeHtml(e.roomId)}">打开房间</button>` : '-'}</div>
       <div class="k">Session</div><div class="v">${e.sessionId ? `<code>${escapeHtml(e.sessionId)}</code>` : '-'}</div>
       <div class="k">Task</div><div class="v">${e.taskId ? `<code>${escapeHtml(e.taskId)}</code>` : '-'}</div>
     </div>
+    ${renderActivityApprovalResumeGatePanel(e)}
     ${renderActivityAgentPanel(e)}
+    ${renderActivityArtifactPanel(e)}
     <pre class="activity-json"><code>${escapeHtml(details)}</code></pre>
   `;
 }

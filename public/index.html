@@ -46,6 +46,7 @@
       <section class="brand-action-group" aria-label="治理">
         <div class="brand-action-title">治理</div>
         <div class="brand-action-grid">
+          <button class="theme-toggle nav-action" id="btnGovernance" title="治理中心：统一查看审批、预算、委派、Autopilot 和 Agent Run 阻塞" aria-label="打开治理中心"><span class="nav-icon">🧷</span><span class="nav-label">治理</span></button>
           <button class="theme-toggle nav-action" id="btnApprovals" title="审批中心：查看并处理危险命令、预算覆盖等人工确认事项" aria-label="打开审批中心"><span class="nav-icon">🛡</span><span class="nav-label">审批</span></button>
           <button class="theme-toggle nav-action" id="btnActivity" title="审计时间线：查看 AI 输出、工具调用、审批、预算和错误事件" aria-label="打开审计时间线"><span class="nav-icon">📜</span><span class="nav-label">审计</span></button>
           <button class="theme-toggle nav-action" id="btnDelegations" title="委派中心：管理跨房间任务委派队列" aria-label="打开委派中心"><span class="nav-icon">🧭</span><span class="nav-label">委派</span></button>
@@ -649,6 +650,19 @@
           <button class="btn-icon" data-close-approval aria-label="关闭" title="关闭（ESC）">✕</button>
         </div>
         <div class="approval-modal-body" id="approvalModalBody">
+          <div class="muted small" style="padding:20px;">加载中…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="governanceCenterModal" style="display:none;">
+      <div class="modal-bg" data-close-governance-center></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>治理中心</h2>
+          <button class="btn-icon" data-close-governance-center aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="governance-center-modal-body" id="governanceCenterBody">
           <div class="muted small" style="padding:20px;">加载中…</div>
         </div>
       </div>
