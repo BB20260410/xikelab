@@ -140,10 +140,30 @@ function graphEvidence(map, result) {
   return { definitions, references, routeUsages, routeTestChains, unresolvedReferences };
 }
 
-function citationPathsFromGraph(graph = {}) {
+function baseName(p = '') {
+  const s = String(p || '');
+  const idx = s.lastIndexOf('/');
+  return idx >= 0 ? s.slice(idx + 1) : s;
+}
+
+// 把 route 链串成人类可读的引用路径，如：
+// route POST /api/x -> createX (routes.js:12) -> XStore.create (store.js:30) -> test x.test.js:5
+function readableChainPath(chain = {}) {
+  const parts = [`route ${chain.route || '?'}`];
+  for (const step of chain.path || []) {
+    const loc = step.path ? `${baseName(step.path)}:${step.line || '?'}` : '';
+    const label = step.label || step.kind || '';
+    if (label || loc) parts.push(loc ? `${label} (${loc})` : label);
+  }
+  parts.push(`test ${baseName(chain.testPath)}:${chain.testLine || '?'}`);
+  return parts.join(' -> ');
+}
+
+export function citationPathsFromGraph(graph = {}) {
   return (graph.routeTestChains || []).map((chain) => ({
     kind: 'route-to-test',
     label: `${chain.route} -> ${chain.testPath}:${chain.testLine}`,
+    readable: readableChainPath(chain),
     route: chain.route,
     steps: (chain.path || []).map((step) => ({
       kind: step.kind,
