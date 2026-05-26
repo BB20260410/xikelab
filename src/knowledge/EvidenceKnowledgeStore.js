@@ -71,6 +71,38 @@ export class EvidenceKnowledgeStore {
     return { indexed, skipped };
   }
 
+  // 从现有 store 派生证据并增量索引（让知识库接入真实数据，而非孤岛）。
+  // 只读摘要文本（run message summary/content、tool output summary、activity summary）；
+  // 失败不抛断主流程，依赖 indexItems 的 ref dedupe 做增量。
+  indexFromStores({ agentRunStore, activityLog, limit = 200 } = {}) {
+    const items = [];
+    try {
+      if (agentRunStore?.list) {
+        for (const run of agentRunStore.list({ limit }) || []) {
+          const timeline = agentRunStore.getTimeline?.(run.id);
+          if (!timeline) continue;
+          for (const m of timeline.messages || []) {
+            const content = `${m.summary || ''} ${m.content || ''}`.trim();
+            if (m.id && content) items.push({ refKind: 'agent_message', refId: m.id, content, roomId: run.roomId, sessionId: run.sessionId });
+          }
+          for (const t of timeline.toolResults || []) {
+            const content = `${t.toolName || ''} ${t.outputSummary || t.output_summary || ''}`.trim();
+            if (t.id && content) items.push({ refKind: 'tool_result', refId: t.id, content, roomId: run.roomId, sessionId: run.sessionId });
+          }
+        }
+      }
+    } catch { /* 派生失败不阻断 */ }
+    try {
+      if (activityLog?.list) {
+        for (const e of activityLog.list({ limit }) || []) {
+          const content = `${e.action || ''} ${e.summary || e.message || ''}`.trim();
+          if (e.id && content) items.push({ refKind: 'activity', refId: e.id, content, roomId: e.roomId, sessionId: e.sessionId });
+        }
+      }
+    } catch { /* 派生失败不阻断 */ }
+    return this.indexItems(items);
+  }
+
   search(query, { kind, limit = 20 } = {}) {
     this.ensureSchema();
     const cleaned = sanitizeQuery(query);

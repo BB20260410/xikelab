@@ -58,4 +58,30 @@ describe('EvidenceKnowledgeStore', () => {
     const store = freshStore();
     expect(store.indexItems([{ refKind: 'x' }, { refId: 'y' }, { refKind: 'x', refId: 'z', content: '' }])).toEqual({ indexed: 0, skipped: 0 });
   });
+
+  it('derives and indexes evidence from agent run + activity stores', () => {
+    const store = freshStore();
+    const agentRunStore = {
+      list: () => [{ id: 'r1', roomId: 'room1', sessionId: 's1' }],
+      getTimeline: () => ({
+        messages: [{ id: 'm1', summary: 'applied budget policy enforcement' }],
+        toolResults: [{ id: 't1', toolName: 'npm', outputSummary: 'budget gate test passed' }],
+      }),
+    };
+    const activityLog = { list: () => [{ id: 'e1', action: 'webhook.delivered', summary: 'archived report' }] };
+    const res = store.indexFromStores({ agentRunStore, activityLog });
+    expect(res.indexed).toBe(3);
+    expect(store.search('budget').some((h) => h.refId === 'm1')).toBe(true);
+    expect(store.search('archived').some((h) => h.refKind === 'activity')).toBe(true);
+    // 再次派生应被 ref dedupe 跳过
+    expect(store.indexFromStores({ agentRunStore, activityLog }).indexed).toBe(0);
+  });
+
+  it('survives stores that throw without aborting indexing', () => {
+    const store = freshStore();
+    const badRunStore = { list: () => { throw new Error('boom'); } };
+    const activityLog = { list: () => [{ id: 'e1', summary: 'still indexed' }] };
+    const res = store.indexFromStores({ agentRunStore: badRunStore, activityLog });
+    expect(res.indexed).toBe(1);
+  });
 });
