@@ -22,6 +22,7 @@
 - [xikelab-agent-skill-registry.md](./xikelab-agent-skill-registry.md) — Agent/Skill Registry、Model / Skill Center、Model Recommendations、Skill Source & Risk、Agent Run、Session Timeline、Session Evidence Chain、Session Evidence markdown UI 导出、Session Evidence markdown 文件归档、Governance Center、Approval Actions、Preflight Review、批准并续跑、approve-before-run diff gate、多文件 staged diff review、命令覆盖映射、命令覆盖解释、覆盖状态过滤、风险排序、可折叠 diff 文件、命令反跳、风险解释、approval resume gate audit、gate id/hash 过滤、Activity gate audit 深链、Gate audit report 对账导出与文件归档、gate audit 分区 mismatch、归档 artifact 反查与安全下载、执行前 diff 审查、Idea-to-Archive guided path、Recommended next、Idea-to-Archive action dedupe、final archive summary、Idea-to-Archive、generated work manifest draft、本地 Agent file-change plan、可选模型 source patch manifest、patch quality、work evidence、受治理文件改动、approval resume file change、expanded command policy、artifact evidence、安全自动验证执行器、工程上下文分派、Code Evidence、Codebase Index、dynamic import、route-to-test citation chain、unresolved reference summary、code question、本地答案引用链、Codebase Answer 注入 Dispatch prompt / Run archive、Symbol Graph、类型实现证据、本地向量融合、持久化快照、类型/成员引用链与权限治理
 - [crow5-local-research-evidence-map.md](./crow5-local-research-evidence-map.md) — Crow5 本地研究证据地图、合法吸收边界、Xike Lab 自研替代方案与 P0-P9 路线
 - [crow5-deep-analysis-personal-growth-plan.md](./crow5-deep-analysis-personal-growth-plan.md) — Crow5 深度分析与个人能力提升落地计划
+- [xikelab-remaining-roadmap-plan.md](./xikelab-remaining-roadmap-plan.md) — 未完成方向（P2 收尾 / P0-A / P1 深化 / P4-P9）操作级详细实施计划
 
 ## 🛠 部署 / 运维
 
