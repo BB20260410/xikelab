@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PermissionGovernance, evaluatePermission } from '../../src/permissions/PermissionGovernance.js';
 
 function makeGovernance() {
@@ -272,6 +275,35 @@ describe('PermissionGovernance', () => {
       target: { section: 'watcher', autoMode: true },
     });
     expect(autoResumed).toMatchObject({ decision: 'allow', details: { resumed: true, resumeApprovalId: 'approval-2' } });
+  });
+
+  it('treats a symlink that escapes the project root as an external write (realpath, not just resolve)', () => {
+    const { governance } = makeGovernance();
+    const root = mkdtempSync(join(tmpdir(), 'xikelab-proj-'));
+    const outside = mkdtempSync(join(tmpdir(), 'xikelab-out-'));
+    try {
+      // root/escape 是指向 root 外部目录的 symlink；写 root/escape/secret.txt 实际落在 root 外
+      symlinkSync(outside, join(root, 'escape'));
+      const escaped = governance.evaluatePermission({
+        action: 'file.write',
+        cwd: root,
+        target: { path: join(root, 'escape', 'secret.txt') },
+      });
+      expect(escaped.decision).toBe('ask');
+      expect(escaped.reason).toMatch(/external directory/);
+
+      // 对照：项目内正常路径仍直接放行
+      mkdirSync(join(root, 'src'), { recursive: true });
+      const inside = governance.evaluatePermission({
+        action: 'file.write',
+        cwd: root,
+        target: { path: join(root, 'src', 'a.js') },
+      });
+      expect(inside.decision).toBe('allow');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('does not create duplicate approvals when a pending approval id is retried', () => {

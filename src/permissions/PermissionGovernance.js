@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { resolve, dirname, basename, join, sep } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { approvalStore as defaultApprovalStore } from '../approval/ApprovalStore.js';
 import { activityLog as defaultActivityLog } from '../audit/ActivityLog.js';
 import { agentRunStore as defaultAgentRunStore } from '../agents/AgentRunStore.js';
@@ -39,11 +40,23 @@ function normalizePathLike(value) {
   return text;
 }
 
+// 解析 realpath；路径不存在时回退到「最近已存在父目录的 realpath + 剩余相对部分」，
+// 以便对尚未创建的新文件也能做防 symlink 越界校验，且不因 ENOENT 误拒。
+function realpathOrSelf(p) {
+  try {
+    return realpathSync(p);
+  } catch {
+    const parent = dirname(p);
+    if (!parent || parent === p) return p;
+    return join(realpathOrSelf(parent), basename(p));
+  }
+}
+
 function pathInside(base, target) {
   if (!base || !target) return true;
-  const root = resolve(base);
-  const next = resolve(root, target);
-  return next === root || next.startsWith(root + '/');
+  const root = realpathOrSelf(resolve(base));
+  const next = realpathOrSelf(resolve(resolve(base), target));
+  return next === root || next.startsWith(root + sep);
 }
 
 function hostnameFromUrl(value) {
