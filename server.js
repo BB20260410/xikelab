@@ -112,6 +112,7 @@ import { budgetPolicyStore } from './src/budget/BudgetPolicyStore.js';
 import { delegationStore } from './src/delegation/DelegationStore.js';
 import { activityLog } from './src/audit/ActivityLog.js';
 import { approvalStore } from './src/approval/ApprovalStore.js';
+import { governanceQueueStore } from './src/governance/GovernanceQueueStore.js';
 import { createDangerousCommandApproval, TerminalApprovalGate } from './src/approval/CommandApprovalGate.js';
 import { permissionApprovalIdFromRequest, permissionGovernance, permissionHttpBody, permissionHttpStatus } from './src/permissions/PermissionGovernance.js';
 import { buildProjectContextBundle, formatProjectContextBundle, summarizeProjectContextBundle } from './src/context/ProjectContextBundle.js';
@@ -3918,8 +3919,21 @@ app.put('/api/safety/rate-limit/:key', requireOwnerToken, (req, res) => {
 // S18-2g：7 个 routes 提取
 registerKnowledgeRoutes(app, { knowledgeStore, evidenceKnowledgeStore, agentRunStore, activityLog });
 // A3：run 归档后自动增量索引证据知识库（失败不阻断归档；activity 仍可手动 reindex）
+// C2：run 归档同时把对应治理工作队列项标记 done（源对象状态联动）
 agentRunStore.setArchiveHook((id, { run, timeline } = {}) => {
   try { evidenceKnowledgeStore.indexRunTimeline(run, timeline); } catch { /* 不阻断归档主流程 */ }
+  try { governanceQueueStore.setStateBySource('agent_run', id, 'done', 'run archived'); } catch { /* 不阻断归档 */ }
+});
+
+// C2：审批决议 / 预算 incident 解决 → 联动推进治理工作队列项（dedupe_key = kind:sourceId）
+// 任一终态决议都解除该审批阻塞；预算解决解除该预算阻塞 → 队列项置 done。
+approvalStore.setDecisionHook((id, { status } = {}) => {
+  try { governanceQueueStore.setStateBySource('approval', id, 'done', `approval ${status || 'decided'}`); }
+  catch { /* 联动失败不阻断决议 */ }
+});
+budgetPolicyStore.setIncidentResolveHook((id) => {
+  try { governanceQueueStore.setStateBySource('budget', id, 'done', 'budget incident resolved'); }
+  catch { /* 联动失败不阻断解决 */ }
 });
 
 // ============ v0.55 Sprint 13-C：Skills 系统 ============

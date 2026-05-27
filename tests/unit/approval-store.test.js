@@ -70,4 +70,29 @@ describe('ApprovalStore', () => {
       status: 'approved',
     });
   });
+
+  it('fires decisionHook on terminal decision and swallows hook errors (C2)', () => {
+    const store = new ApprovalStore();
+    const mk = (id) => store.createApproval({ type: 'manual', requesterType: 'session', requesterId: id, payload: { title: id } });
+
+    const calls = [];
+    store.setDecisionHook((id, payload) => { calls.push({ id, payload }); });
+    const a1 = mk('c2-a1');
+    const approved = store.approve(a1.id, { decisionBy: 'owner' });
+    expect(approved.status).toBe('approved');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].id).toBe(a1.id);
+    expect(calls[0].payload).toMatchObject({ status: 'approved' });
+    expect(calls[0].payload.approval.id).toBe(a1.id);
+
+    // 抛错的 hook 不应阻断决议
+    store.setDecisionHook(() => { throw new Error('hook boom'); });
+    const a2 = mk('c2-a2');
+    expect(store.reject(a2.id, { decisionBy: 'owner' }).status).toBe('rejected');
+
+    // 传 null 清除 hook
+    store.setDecisionHook(null);
+    const a3 = mk('c2-a3');
+    expect(() => store.approve(a3.id, { decisionBy: 'owner' })).not.toThrow();
+  });
 });

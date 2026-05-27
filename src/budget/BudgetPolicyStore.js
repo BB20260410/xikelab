@@ -159,6 +159,14 @@ export class BudgetPolicyStore {
   constructor({ logger = console, audit = activityLog } = {}) {
     this.logger = logger;
     this.audit = audit;
+    // 可选 incident 解决钩子（server.js 注入）：预算 incident 解决后联动治理工作队列。
+    // 解耦 budget→governance，失败由 resolveIncident 内 try/catch 吞掉，不阻断解决。
+    this._incidentResolveHook = null;
+  }
+
+  // 注入 incident 解决钩子；传 null 清除。签名 (id, incident) => void
+  setIncidentResolveHook(fn) {
+    this._incidentResolveHook = typeof fn === 'function' ? fn : null;
   }
 
   db() {
@@ -588,6 +596,10 @@ export class BudgetPolicyStore {
       status: 'resolved',
       details: updated,
     });
+    if (this._incidentResolveHook) {
+      try { this._incidentResolveHook(id, updated); }
+      catch { /* 联动失败不阻断解决 */ }
+    }
     return updated;
   }
 }

@@ -65,6 +65,14 @@ export function dangerousCommandDedupeKey({ command, source, requesterId, cwd } 
 export class ApprovalStore {
   constructor({ audit = activityLog } = {}) {
     this.audit = audit;
+    // 可选决议钩子（server.js 注入）：审批 approved/rejected/cancelled 后联动治理工作队列。
+    // 解耦 approval→governance，失败由 decide 内 try/catch 吞掉，不阻断决议。
+    this._decisionHook = null;
+  }
+
+  // 注入决议钩子；传 null 清除。签名 (id, { status, approval }) => void
+  setDecisionHook(fn) {
+    this._decisionHook = typeof fn === 'function' ? fn : null;
   }
 
   db() {
@@ -195,6 +203,10 @@ export class ApprovalStore {
       severity: next === 'approved' ? 'warn' : 'info',
       details: approval,
     });
+    if (this._decisionHook) {
+      try { this._decisionHook(id, { status: next, approval }); }
+      catch { /* 联动失败不阻断决议 */ }
+    }
     return approval;
   }
 

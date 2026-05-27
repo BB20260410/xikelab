@@ -184,4 +184,33 @@ describe('BudgetPolicyStore', () => {
       estimateCalls: 1,
     })).toThrow(BudgetLimitExceededError);
   });
+
+  it('fires incidentResolveHook on resolveIncident and swallows hook errors (C2)', () => {
+    const store = new BudgetPolicyStore({ logger: null });
+    const policy = store.createPolicy({
+      scopeType: 'room', scopeId: 'room-c2', metric: 'usd', windowKind: 'monthly',
+      amount: 1, warnPercent: 0.8, hardStopEnabled: true,
+    });
+    store.recordMetric({ ts: '2026-05-24T00:00:00.000Z', roomId: 'room-c2', adapter: 'codex', estCostUSD: 0.9 });
+    const open = store.listIncidents({ scopeType: 'room', scopeId: 'room-c2', status: 'open' });
+    expect(open.length).toBeGreaterThanOrEqual(1);
+    expect(open[0].policyId).toBe(policy.id);
+
+    const calls = [];
+    store.setIncidentResolveHook((id, incident) => { calls.push({ id, incident }); });
+    const resolved = store.resolveIncident(open[0].id);
+    expect(resolved.status).toBe('resolved');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].id).toBe(open[0].id);
+    expect(calls[0].incident.id).toBe(open[0].id);
+
+    // 抛错的 hook 不应阻断解决；解决不存在的 incident 返回 null（不触发 hook）
+    store.setIncidentResolveHook(() => { throw new Error('hook boom'); });
+    store.recordMetric({ ts: '2026-05-24T00:01:00.000Z', roomId: 'room-c2', adapter: 'codex', estCostUSD: 0.5 });
+    const open2 = store.listIncidents({ scopeType: 'room', scopeId: 'room-c2', status: 'open' });
+    expect(() => store.resolveIncident(open2[0].id)).not.toThrow();
+
+    store.setIncidentResolveHook(null);
+    expect(store.resolveIncident('does-not-exist')).toBeNull();
+  });
 });
