@@ -10046,7 +10046,22 @@ const knowledgeCenterState = {
   indexed: 0,
   error: '',
   loading: false,
+  searched: false,
 };
+
+// 结果区空态文案：区分「检索中 / 已搜 0 命中 / 空库 / 未搜」四态，避免 0 命中误显初始提示
+function knowledgeEmptyText() {
+  const s = knowledgeCenterState;
+  if (s.loading === 'search') return '检索中…';
+  if (s.searched) {
+    const q = (s.query || '').trim();
+    const head = `未找到匹配${q ? `「${escapeHtml(q)}」` : ''}的证据。`;
+    return head + (s.indexed ? '换个关键词，或调整来源筛选。' : '知识库为空，先点「重建索引」。');
+  }
+  return s.indexed
+    ? '输入关键词后检索本地证据（可按来源筛选）。'
+    : '知识库为空，先点「重建索引」，从 Agent Run / 工具结果 / 审计派生本地证据。';
+}
 
 async function openKnowledgeCenterModal() {
   $('#knowledgeCenterModal').style.display = 'flex';
@@ -10082,7 +10097,7 @@ function renderKnowledgeCenter() {
     ${knowledgeCenterState.error ? `<div class="agent-empty error">${escapeHtml(knowledgeCenterState.error)}</div>` : ''}
     <div class="codebase-result-actions"><span>${escapeHtml(hits.length)} 条命中</span></div>
     <div class="codebase-results">
-      ${hits.length ? hits.map(renderKnowledgeHit).join('') : `<div class="agent-empty">${knowledgeCenterState.loading === 'search' ? '检索中…' : '输入关键词后检索本地证据；若无结果可先「重建索引」。'}</div>`}
+      ${hits.length ? hits.map(renderKnowledgeHit).join('') : `<div class="agent-empty">${knowledgeEmptyText()}</div>`}
     </div>
   `;
   bindKnowledgeCenterEvents(root);
@@ -10109,12 +10124,14 @@ function renderKnowledgeHit(hit, idx) {
 function bindKnowledgeCenterEvents(root) {
   $('#knowledgeQueryInput')?.addEventListener('input', (e) => {
     knowledgeCenterState.query = e.target.value;
+    knowledgeCenterState.searched = false; // 改查询词回到中性提示，不再显示上次的「未找到」
   });
   $('#knowledgeQueryInput')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') runKnowledgeSearch();
   });
   $('#knowledgeKindSelect')?.addEventListener('change', (e) => {
     knowledgeCenterState.kind = e.target.value;
+    if ((knowledgeCenterState.query || '').trim()) runKnowledgeSearch(); // 已有查询词 → 按新来源即时重搜
   });
   $('#knowledgeReindexBtn')?.addEventListener('click', runKnowledgeReindex);
   $('#knowledgeSearchBtn')?.addEventListener('click', runKnowledgeSearch);
@@ -10165,6 +10182,7 @@ async function runKnowledgeSearch() {
     knowledgeCenterState.error = e.message || '检索失败';
   } finally {
     knowledgeCenterState.loading = false;
+    knowledgeCenterState.searched = true; // 标记已执行检索 → 0 命中显示「未找到」而非初始提示
     renderKnowledgeCenter();
   }
 }
