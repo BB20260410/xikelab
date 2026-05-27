@@ -326,6 +326,7 @@ export function initSqlite(dbPath = DEFAULT_DB_PATH) {
   `);
   ensureEventsSchema(db);
   ensureAgentRunSchema(db);
+  runMigrations(db, dbPath);
   fs.chmodSync(dbPath, 0o600);
   _db = db;
   _dbPath = dbPath;
@@ -338,6 +339,69 @@ export function getDb() {
 
 export function close() {
   if (_db) { try { _db.close(); } catch {} _db = null; _dbPath = null; }
+}
+
+// ===== Schema 迁移框架（P8/D3）=====
+// 基线 schema 仍由上面的 CREATE TABLE IF NOT EXISTS + ensure*Schema（幂等列补齐）负责；
+// 本框架负责「版本化、有序、一次性」的前向迁移——新 schema 变更走这里，按版本号顺序执行，
+// 每条迁移在独立事务内完成并推进 schema_version（kv），有待执行迁移且库已有数据时先一次性备份。
+export const SCHEMA_MIGRATIONS = [
+  {
+    version: 1,
+    name: 'agent_runs_status_updated_index',
+    up(db) {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_agent_runs_status_updated ON agent_runs(status, updated_at)');
+    },
+  },
+];
+
+function getSchemaVersion(db) {
+  try {
+    const row = db.prepare("SELECT v FROM kv WHERE k = 'schema_version'").get();
+    const v = row ? Number(row.v) : 0;
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  } catch { return 0; }
+}
+
+function setSchemaVersion(db, version) {
+  db.prepare(`
+    INSERT INTO kv(k, v, updated_at) VALUES ('schema_version', ?, strftime('%s','now'))
+    ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at
+  `).run(String(version));
+}
+
+function dbHasData(db) {
+  try {
+    const row = db.prepare('SELECT (SELECT COUNT(*) FROM events) + (SELECT COUNT(*) FROM agent_runs) AS n').get();
+    return Number(row?.n) > 0;
+  } catch { return false; }
+}
+
+function backupDbOnce(dbPath) {
+  try {
+    if (!dbPath || !fs.existsSync(dbPath) || fs.statSync(dbPath).size <= 0) return;
+    const bak = `${dbPath}.bak`;
+    fs.copyFileSync(dbPath, bak);
+    try { fs.chmodSync(bak, 0o600); } catch {}
+  } catch { /* 备份失败不阻断启动 */ }
+}
+
+function runMigrations(db, dbPath) {
+  const latest = SCHEMA_MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);
+  if (latest <= 0) return;
+  const current = getSchemaVersion(db);
+  const pending = SCHEMA_MIGRATIONS
+    .filter((mg) => mg.version > current)
+    .sort((a, b) => a.version - b.version);
+  if (!pending.length) return;
+  // 仅在升级既有数据库（已有数据）时一次性备份，避免给全新空库也产 .bak
+  if (dbHasData(db)) backupDbOnce(dbPath);
+  for (const mg of pending) {
+    db.transaction(() => {
+      mg.up(db);
+      setSchemaVersion(db, mg.version);
+    })();
+  }
 }
 
 // ===== Events API（替代 jsonl 流式追加） =====
