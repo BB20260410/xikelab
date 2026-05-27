@@ -109,4 +109,24 @@ describe('EvidenceKnowledgeStore', () => {
     expect(store.indexRunTimeline(null, null)).toEqual({ indexed: 0, skipped: 0 });
     expect(store.indexRunTimeline({ id: 'r0' }, { messages: [], toolResults: [] })).toEqual({ indexed: 0, skipped: 0 });
   });
+
+  it('redacts secrets before truncation so trailing keys never enter the index (W5 边界)', () => {
+    const store = freshStore();
+    // 长内容(~4200 字符)末尾带密钥(超出 4000 截断点)：redact 在 slice 之前跑 → 密钥不进可搜库
+    const long = 'alpha '.repeat(700);
+    store.indexItems([{ refKind: 'msg', refId: 'long1', content: `${long} sk-DEADBEEFdeadbeef12345678 ghp_aaaaaaaaaaaaaaaaaaaaaaaa` }]);
+    expect(store.search('alpha').length).toBe(1); // 长内容正常可命中
+    expect(store.search('DEADBEEFdeadbeef12345678').length).toBe(0); // 末尾 sk- 密钥已脱敏，不可搜
+    expect(store.search('aaaaaaaaaaaaaaaaaaaaaaaa').length).toBe(0); // ghp_ 密钥已脱敏，不可搜
+  });
+
+  it('caps over-long ref/run field lengths without crashing (W5 边界)', () => {
+    const store = freshStore();
+    const res = store.indexItems([{ refKind: 'k'.repeat(200), refId: 'i'.repeat(500), content: 'capped body', runId: 'r'.repeat(500), roomId: 'm'.repeat(400), sessionId: 's'.repeat(400) }]);
+    expect(res.indexed).toBe(1); // 超长字段被 slice 后仍索引成功
+    const hits = store.search('capped');
+    expect(hits.length).toBe(1);
+    expect(hits[0].refKind.length).toBeLessThanOrEqual(80);
+    expect(hits[0].refId.length).toBeLessThanOrEqual(200);
+  });
 });
