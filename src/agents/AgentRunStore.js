@@ -2205,6 +2205,14 @@ export class AgentRunStore {
   constructor({ logger = console, audit = activityLog } = {}) {
     this.logger = logger;
     this.audit = audit;
+    // 可选归档钩子（server.js 注入）：run 归档后增量索引证据知识库。
+    // 解耦 agents→knowledge，失败由 recordArchive 内 try/catch 吞掉，不阻断归档。
+    this._archiveHook = null;
+  }
+
+  // 注入归档钩子；传 null 清除。签名 (id, { run, timeline }) => void
+  setArchiveHook(fn) {
+    this._archiveHook = typeof fn === 'function' ? fn : null;
   }
 
   db() {
@@ -2732,7 +2740,12 @@ export class AgentRunStore {
         artifacts: archiveArtifactActivitySummary(artifacts),
       },
     });
-    return { archive, message, run: this.get(id) };
+    const result = { archive, message, run: this.get(id) };
+    if (this._archiveHook) {
+      try { this._archiveHook(id, { run: result.run, timeline }); }
+      catch (e) { this.logger?.warn?.('archiveHook 失败（忽略，不阻断归档）:', e?.message || e); }
+    }
+    return result;
   }
 
   recordApprovalResumeGateAudit(id, input = {}) {

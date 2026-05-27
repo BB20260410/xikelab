@@ -84,4 +84,23 @@ describe('EvidenceKnowledgeStore', () => {
     const res = store.indexFromStores({ agentRunStore: badRunStore, activityLog });
     expect(res.indexed).toBe(1);
   });
+
+  it('indexRunTimeline indexes a single run and is idempotent by ref (A3 hook)', () => {
+    const store = freshStore();
+    const run = { id: 'r9', roomId: 'room9', sessionId: 's9' };
+    const timeline = {
+      messages: [{ id: 'm9', summary: 'archived run with budget enforcement' }],
+      toolResults: [{ id: 't9', toolName: 'npm', outputSummary: 'budget gate passed' }],
+    };
+    expect(store.indexRunTimeline(run, timeline)).toEqual({ indexed: 2, skipped: 0 });
+    expect(store.search('budget').some((h) => h.refId === 'm9')).toBe(true);
+    // 同一 run 再次索引（如重复归档）应被 ref dedupe 跳过
+    expect(store.indexRunTimeline(run, timeline)).toEqual({ indexed: 0, skipped: 2 });
+  });
+
+  it('indexRunTimeline tolerates empty / missing timeline', () => {
+    const store = freshStore();
+    expect(store.indexRunTimeline(null, null)).toEqual({ indexed: 0, skipped: 0 });
+    expect(store.indexRunTimeline({ id: 'r0' }, { messages: [], toolResults: [] })).toEqual({ indexed: 0, skipped: 0 });
+  });
 });

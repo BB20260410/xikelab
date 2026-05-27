@@ -183,6 +183,31 @@ describe('AgentRunStore', () => {
     expect(getStats().counts.agent_tool_results).toBe(1);
   });
 
+  it('fires archiveHook with run + timeline and swallows hook errors (A3)', () => {
+    const store = new AgentRunStore({ logger: null });
+    const run = store.create({ roomId: 'room-a3', sessionId: 's-a3', status: 'running' });
+    store.appendMessage(run.id, { kind: 'decision', role: 'agent', summary: 'did the thing' });
+    store.appendToolResult(run.id, { toolName: 'npm test', status: 'passed', outputSummary: 'ok' });
+
+    const calls = [];
+    store.setArchiveHook((id, payload) => { calls.push({ id, payload }); });
+    const archived = store.recordArchive(run.id, {});
+    expect(archived.archive).toBeTruthy();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].id).toBe(run.id);
+    expect(calls[0].payload.run.id).toBe(run.id);
+    expect(calls[0].payload.timeline.messages.some((m) => m.summary === 'did the thing')).toBe(true);
+    expect(calls[0].payload.timeline.toolResults.some((t) => t.toolName === 'npm test')).toBe(true);
+
+    // 抛错的 hook 不应阻断归档
+    store.setArchiveHook(() => { throw new Error('hook boom'); });
+    expect(store.recordArchive(run.id, {}).archive).toBeTruthy();
+
+    // 传 null 清除 hook
+    store.setArchiveHook(null);
+    expect(() => store.recordArchive(run.id, {})).not.toThrow();
+  });
+
   it('records approval resume gate audit on a run timeline', () => {
     const store = new AgentRunStore({ logger: null });
     const run = store.create({

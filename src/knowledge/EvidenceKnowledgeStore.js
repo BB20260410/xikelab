@@ -25,6 +25,22 @@ function sanitizeQuery(q) {
   return String(q || '').replace(/["'(){}*:^[\]~-]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// 把单个 run 的 timeline（messages + toolResults）派生成可索引证据项。
+// indexFromStores（批量）与 indexRunTimeline（单 run 归档钩子）共用，避免重复逻辑。
+function runTimelineToItems(run, timeline) {
+  const items = [];
+  if (!run || !timeline) return items;
+  for (const m of timeline.messages || []) {
+    const content = `${m.summary || ''} ${m.content || ''}`.trim();
+    if (m.id && content) items.push({ refKind: 'agent_message', refId: m.id, content, roomId: run.roomId, sessionId: run.sessionId });
+  }
+  for (const t of timeline.toolResults || []) {
+    const content = `${t.toolName || ''} ${t.outputSummary || t.output_summary || ''}`.trim();
+    if (t.id && content) items.push({ refKind: 'tool_result', refId: t.id, content, roomId: run.roomId, sessionId: run.sessionId });
+  }
+  return items;
+}
+
 export class EvidenceKnowledgeStore {
   constructor({ db } = {}) {
     this._db = db || null;
@@ -81,14 +97,7 @@ export class EvidenceKnowledgeStore {
         for (const run of agentRunStore.list({ limit }) || []) {
           const timeline = agentRunStore.getTimeline?.(run.id);
           if (!timeline) continue;
-          for (const m of timeline.messages || []) {
-            const content = `${m.summary || ''} ${m.content || ''}`.trim();
-            if (m.id && content) items.push({ refKind: 'agent_message', refId: m.id, content, roomId: run.roomId, sessionId: run.sessionId });
-          }
-          for (const t of timeline.toolResults || []) {
-            const content = `${t.toolName || ''} ${t.outputSummary || t.output_summary || ''}`.trim();
-            if (t.id && content) items.push({ refKind: 'tool_result', refId: t.id, content, roomId: run.roomId, sessionId: run.sessionId });
-          }
+          items.push(...runTimelineToItems(run, timeline));
         }
       }
     } catch { /* 派生失败不阻断 */ }
@@ -101,6 +110,12 @@ export class EvidenceKnowledgeStore {
       }
     } catch { /* 派生失败不阻断 */ }
     return this.indexItems(items);
+  }
+
+  // 单 run 归档时的增量索引（供 AgentRunStore archiveHook 调用）。只索引该 run 的证据，
+  // 依赖 indexItems 的 ref dedupe 做幂等；失败由调用方吞掉，不阻断归档主流程。
+  indexRunTimeline(run, timeline) {
+    return this.indexItems(runTimelineToItems(run, timeline));
   }
 
   search(query, { kind, limit = 20 } = {}) {

@@ -3917,6 +3917,10 @@ app.put('/api/safety/rate-limit/:key', requireOwnerToken, (req, res) => {
 // ============ v0.55 Sprint 13-B：知识库（KB）API ============
 // S18-2g：7 个 routes 提取
 registerKnowledgeRoutes(app, { knowledgeStore, evidenceKnowledgeStore, agentRunStore, activityLog });
+// A3：run 归档后自动增量索引证据知识库（失败不阻断归档；activity 仍可手动 reindex）
+agentRunStore.setArchiveHook((id, { run, timeline } = {}) => {
+  try { evidenceKnowledgeStore.indexRunTimeline(run, timeline); } catch { /* 不阻断归档主流程 */ }
+});
 
 // ============ v0.55 Sprint 13-C：Skills 系统 ============
 // S18-2f：6 个 routes 提取
