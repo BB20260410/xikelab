@@ -124,10 +124,11 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
     await page.waitForTimeout(100);
 
     await page.click('#btnGovernance');
+    // governance summary 在大数据下需为所有 deferred run 构建 timeline，给足负载/数据余量
     await page.waitForFunction(() => {
       const body = document.querySelector('#governanceCenterBody')?.textContent || '';
       return body.includes('本地治理总控') && body.includes('Next Actions') && body.includes('Agent Runs');
-    }, null, { timeout: 5000 });
+    }, null, { timeout: 15000 });
     const governanceCenterUi = await page.evaluate(() => ({
       kpis: document.querySelectorAll('.governance-center-kpi').length,
       sections: document.querySelectorAll('.governance-center-section').length,
@@ -310,7 +311,7 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
     track('4a. Agent preview loads git changes', changedFilesLoaded.value.includes('public/app.js') && changedFilesLoaded.info.includes('changed files'));
     await page.fill('#agentPreviewFiles', 'public/app.js\nsrc/agents/AgentRunStore.js');
     await page.click('#agentPreviewRun');
-    await page.waitForSelector('.agent-code-context', { timeout: 5000 });
+    await page.waitForSelector('.agent-code-context', { timeout: 15000 }); // 解析变更文件+建索引，负载下需余量
     const agentCodeContextPreview = await page.evaluate(() => ({
       hasFilesInput: !!document.querySelector('#agentPreviewFiles'),
       hasCodeContext: !!document.querySelector('.agent-code-context'),
@@ -328,8 +329,8 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       return value.includes('src/agents') && info.includes('focus files');
     }, null, { timeout: 5000 });
     await page.click('#agentPreviewRun');
-    await page.waitForSelector('.agent-codebase-map', { timeout: 5000 });
-    await page.waitForSelector('.agent-symbol-graph', { timeout: 5000 });
+    await page.waitForSelector('.agent-codebase-map', { timeout: 15000 });
+    await page.waitForSelector('.agent-symbol-graph', { timeout: 15000 });
     const agentCodebaseMapPreview = await page.evaluate(() => ({
       files: document.querySelector('#agentPreviewFiles')?.value || '',
       info: document.querySelector('#agentPreviewFilesInfo')?.textContent || '',
