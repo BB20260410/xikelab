@@ -5815,6 +5815,7 @@ kbd {
 }
 .codebase-question-head,
 .codebase-question-citations,
+.codebase-question-refkinds,
 .codebase-question-limitations {
   min-width: 0;
   display: flex;
@@ -5828,6 +5829,7 @@ kbd {
 }
 .codebase-question-head span,
 .codebase-question-citations span,
+.codebase-question-refkinds span,
 .codebase-question-limitations span {
   border: 1px solid var(--color-border-light);
   border-radius: 6px;
@@ -5861,6 +5863,15 @@ kbd {
 }
 .codebase-question-limitations span {
   color: var(--color-text-foreground-tertiary);
+}
+.codebase-question-refkinds span {
+  color: var(--color-text-foreground-secondary);
+  font-family: var(--mono);
+}
+.codebase-weak-evidence {
+  color: var(--color-danger, #d9534f);
+  border-color: color-mix(in oklab, var(--color-danger, #d9534f) 35%, var(--color-border-light)) !important;
+  font-weight: 600;
 }
 .codebase-results {
   min-height: 0;

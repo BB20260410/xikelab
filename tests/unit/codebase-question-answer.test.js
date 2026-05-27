@@ -25,4 +25,31 @@ describe('CodebaseQuestionAnswer weak-evidence guard', () => {
     // answerLines 不超出 citation 范围
     expect(out.answerLines.length).toBeLessThanOrEqual(out.citations.length);
   });
+
+  it('aggregates reference kinds into coverage.referenceKindCounts (P0-A summary, D1)', () => {
+    const out = buildCodebaseQuestionAnswer({
+      query: 'where is the room adapter budget callback',
+      resultCount: 1,
+      results: [
+        {
+          path: 'src/room/RoomAdapter.js', line: 20, kind: 'symbol', score: 140,
+          reason: ['symbol:onBudget'],
+          citation: {
+            kind: 'symbol',
+            evidence: [{ kind: 'symbol', line: 20, name: 'onBudget' }],
+            graph: {
+              references: [
+                { kind: 'callback-registration', fromPath: 'src/room/RoomAdapter.js', toPath: 'src/budget/BudgetPolicyStore.js' },
+                { kind: 'callback-registration', fromPath: 'src/room/RoomAdapter.js', toPath: 'src/x.js' },
+                { kind: 'object-property-flow', fromPath: 'src/room/RoomAdapter.js', toPath: 'src/y.js' },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    expect(out.coverage.referenceKindCounts).toMatchObject({ 'callback-registration': 2, 'object-property-flow': 1 });
+    // 有结构级引用证据 → 不应标弱证据
+    expect(out.weakEvidence).toBe(false);
+  });
 });

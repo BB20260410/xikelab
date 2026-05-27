@@ -111,6 +111,15 @@ export function buildCodebaseQuestionAnswer(queryResult = {}) {
   const graphSummary = queryResult.symbolGraphSummary || queryResult.status?.symbolGraphSummary || {};
   const routeToTestChainCount = citations.reduce((sum, item) => sum + item.routeToTestChainCount, 0);
   const unresolvedReferenceCount = citations.reduce((sum, item) => sum + item.unresolvedReferenceCount, 0);
+  // P0-A 证据 summary：按 reference kind 聚合（callback-registration / object-property-flow / type-implementation 等），
+  // 让前端能标注命中的结构级证据类别，而不仅是总数。
+  const referenceKindCounts = {};
+  for (const result of results) {
+    for (const ref of result.citation?.graph?.references || []) {
+      const k = safeString(ref.kind, 80);
+      if (k) referenceKindCounts[k] = (referenceKindCounts[k] || 0) + 1;
+    }
+  }
   const coverage = {
     resultCount: Number(queryResult.resultCount || queryResult.results?.length || 0),
     citedResultCount: citations.length,
@@ -122,6 +131,7 @@ export function buildCodebaseQuestionAnswer(queryResult = {}) {
     routeToTestChainCount: Math.max(routeToTestChainCount, Number(graphSummary.routeToTestChainCount) || 0),
     unresolvedReferenceCount: Math.max(unresolvedReferenceCount, Number(graphSummary.unresolvedReferenceCount) || 0),
     citationPathCount: citations.reduce((sum, item) => sum + item.citationPathCount, 0),
+    referenceKindCounts,
   };
   // 结构级证据（引用/路由/类型/route-test）——纯文本或符号名命中不算，用于标记弱证据
   const structuralEvidenceCount =

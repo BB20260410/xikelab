@@ -9813,13 +9813,22 @@ function renderCodebaseQuestionAnswer(answer = {}) {
   const limitations = Array.isArray(answer.limitations) ? answer.limitations : [];
   const chainText = coverage.routeToTestChainCount ? ` · ${Number(coverage.routeToTestChainCount || 0)} route-test chains` : '';
   const unresolvedText = coverage.unresolvedReferenceCount ? ` · ${Number(coverage.unresolvedReferenceCount || 0)} unresolved refs` : '';
+  const pathText = coverage.citationPathCount ? ` · ${Number(coverage.citationPathCount || 0)} citation paths` : '';
+  // P0-A 证据 summary：把 reference kind 计数渲染成标注 chips（callback-registration / object-property-flow 等）
+  const refKindEntries = Object.entries(coverage.referenceKindCounts || {})
+    .filter(([, n]) => Number(n) > 0)
+    .sort((a, b) => b[1] - a[1]);
   return `<section class="codebase-question-answer" data-codebase-question-answer>
     <div class="codebase-question-head">
       <strong>Local Code Answer</strong>
       <span>${escapeHtml(answer.confidence || 'unknown')} confidence</span>
-      <span>${Number(coverage.uniqueFileCount || 0)} files · ${Number(coverage.evidenceItemCount || 0)} evidence${coverage.typeImplementationCount ? ` · ${Number(coverage.typeImplementationCount || 0)} type impl` : ''}${chainText}${unresolvedText}</span>
+      ${answer.weakEvidence ? '<span class="codebase-weak-evidence" title="无结构级证据或低置信——把引用当线索而非完整实现图">⚠ weak evidence</span>' : ''}
+      <span>${Number(coverage.uniqueFileCount || 0)} files · ${Number(coverage.evidenceItemCount || 0)} evidence${coverage.typeImplementationCount ? ` · ${Number(coverage.typeImplementationCount || 0)} type impl` : ''}${chainText}${unresolvedText}${pathText}</span>
     </div>
     <p>${escapeHtml(answer.answer || '')}</p>
+    ${refKindEntries.length ? `<div class="codebase-question-refkinds" data-codebase-refkinds>
+      ${refKindEntries.slice(0, 8).map(([kind, n]) => `<span title="结构级引用证据">${escapeHtml(kind)} ${Number(n)}</span>`).join('')}
+    </div>` : ''}
     ${limitations.length ? `<div class="codebase-question-limitations">${limitations.slice(0, 4).map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}
     ${lines.length ? `<ol class="codebase-question-lines">
       ${lines.slice(0, 6).map(line => `<li>${escapeHtml(line)}</li>`).join('')}
