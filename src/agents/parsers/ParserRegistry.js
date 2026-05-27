@@ -13,7 +13,13 @@ export class ParserRegistry {
 
   getAdapter(ext) {
     const e = String(ext || '').toLowerCase();
-    return this.adapters.find((a) => a.supports(e)) || null;
+    let best = null;
+    for (const a of this.adapters) {
+      if (!a.supports(e)) continue;
+      // 高 priority 优先；同 priority 保持注册顺序（严格大于才替换 → 最早注册者胜）
+      if (!best || (a.priority || 0) > (best.priority || 0)) best = a;
+    }
+    return best;
   }
 
   list() {

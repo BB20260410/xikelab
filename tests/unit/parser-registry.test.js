@@ -44,4 +44,19 @@ describe('ParserRegistry', () => {
     expect(() => createParserAdapter({ extensions: ['.x'], parse: () => ({}) })).toThrow();
     expect(() => createParserAdapter({ id: 'noparse', extensions: ['.x'] })).toThrow();
   });
+
+  it('selects the highest-priority adapter for a shared extension, ties keep registration order (D2)', () => {
+    const low = createParserAdapter({ id: 'low', extensions: ['.ts'], priority: 0, parse: () => ({ ok: true, parser: 'low' }) });
+    const high = createParserAdapter({ id: 'high', extensions: ['.ts'], priority: 10, parse: () => ({ ok: true, parser: 'high' }) });
+    // high 后注册仍因 priority 胜出（覆盖既有 adapter 而无需改注册顺序）
+    expect(new ParserRegistry([low, high]).getAdapter('.ts').id).toBe('high');
+    // 注册顺序相反，结果一致（取决于 priority 而非顺序）
+    expect(new ParserRegistry([high, low]).getAdapter('.ts').id).toBe('high');
+    // 同 priority → 保持注册顺序（最早者胜）
+    const a = createParserAdapter({ id: 'a', extensions: ['.ts'], priority: 5, parse: () => ({}) });
+    const b = createParserAdapter({ id: 'b', extensions: ['.ts'], priority: 5, parse: () => ({}) });
+    expect(new ParserRegistry([a, b]).getAdapter('.ts').id).toBe('a');
+    // 默认 babel adapter priority 为 0
+    expect(babelParserAdapter.priority).toBe(0);
+  });
 });
