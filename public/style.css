@@ -64,6 +64,17 @@
   --accent-amber: #D97706;
   --accent-red:   #B3322F;
   --accent-green: #2D6E3E;
+  /* 修复：被全 app 引用但拆 CSS 时漏定义的别名 token（引用处此前 color-mix/var 静默失效）。
+     定义为别名 → 随主题跟随对应基础 token；一处修复全部引用点。*/
+  --color-accent-primary:   var(--accent-blue);
+  --color-accent-secondary: var(--accent-amber);
+  --color-text-foreground-primary: var(--color-text-foreground);
+  --color-text-foreground-muted:   var(--color-text-foreground-tertiary);
+  --color-warn-alt: var(--color-warn);
+  --font-mono: var(--mono);
+  --bg: var(--bg-main);
+  --bg-base: var(--bg-top);
+  --bg-hover: var(--bg-surface-hover);
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
   --shadow-lg: 0 4px 16px rgba(0,0,0,0.18);
