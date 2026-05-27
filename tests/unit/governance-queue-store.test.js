@@ -56,6 +56,17 @@ describe('GovernanceQueueStore', () => {
     expect(store.list()).toHaveLength(0);
   });
 
+  it('setStateBySource rejects invalid state and no-ops on unknown source (C2 边界)', () => {
+    const store = new GovernanceQueueStore();
+    store.syncFromBlockers([{ kind: 'approval', id: 'a1', title: 'x', severity: 'warn' }]);
+    // 非法 state → 抛错（与 setState 一致）
+    expect(() => store.setStateBySource('approval', 'a1', 'bogus')).toThrow();
+    // 不存在的 source（kind:id 无匹配）→ 返回 false，不影响既有项
+    expect(store.setStateBySource('approval', 'nope', 'done')).toBe(false);
+    expect(store.setStateBySource('budget', 'a1', 'done')).toBe(false); // kind 不符也无匹配
+    expect(store.list({ state: 'pending_review' })).toHaveLength(1); // 原项未被误改
+  });
+
   it('initialStateForKind maps known kinds with a safe default', () => {
     expect(initialStateForKind('approval')).toBe('pending_review');
     expect(initialStateForKind('budget')).toBe('pending_fix');
