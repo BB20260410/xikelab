@@ -10,6 +10,10 @@ export const CODEBASE_LIMIT_DEFAULTS = Object.freeze({
   maxFileBytes: 500_000,
   maxSnippetChars: 220,
   maxScanMs: 1200,
+  // FTS / vector / snapshot 索引容量上限（P6 刀2：从各 index 文件集中至此，可经 override 调参）
+  maxFtsRows: 2500,
+  maxVectorRows: 1200,
+  maxSnapshotsPerCwd: 48,
 });
 
 export function loadCodebaseLimitOverrides(path = join(homedir(), '.claude-panel', 'codebase-limits.json')) {

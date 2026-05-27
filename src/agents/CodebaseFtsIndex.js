@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import { tokenizeCodebaseQuery } from './CodebaseQueryEngine.js';
+import { CODEBASE_LIMITS } from './codebaseLimits.js';
 
-const MAX_FTS_ROWS = 2500;
+const MAX_FTS_ROWS = CODEBASE_LIMITS.maxFtsRows;
 const MAX_BODY_CHARS = 1200;
 const MAX_QUERY_TOKENS = 24;
 

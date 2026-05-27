@@ -1,7 +1,8 @@
 import { cosineSim, hashEmbed } from '../embeddings/EmbeddingProvider.js';
 import { tokenizeCodebaseQuery } from './CodebaseQueryEngine.js';
+import { CODEBASE_LIMITS } from './codebaseLimits.js';
 
-const MAX_VECTOR_ROWS = 1200;
+const MAX_VECTOR_ROWS = CODEBASE_LIMITS.maxVectorRows;
 const MAX_BODY_CHARS = 1800;
 const MIN_VECTOR_SCORE = 0.14;
 

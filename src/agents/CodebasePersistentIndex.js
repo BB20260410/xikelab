@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { getDb } from '../storage/SqliteStore.js';
+import { CODEBASE_LIMITS } from './codebaseLimits.js';
 
 const SNAPSHOT_VERSION = 1;
-const DEFAULT_MAX_SNAPSHOTS_PER_CWD = 48;
+const DEFAULT_MAX_SNAPSHOTS_PER_CWD = CODEBASE_LIMITS.maxSnapshotsPerCwd;
 
 function safeString(value, max = 4000) {
   if (value === undefined || value === null) return '';
