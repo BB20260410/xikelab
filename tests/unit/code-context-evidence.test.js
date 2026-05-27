@@ -2,7 +2,8 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildCodeContextEvidence, normalizeCodeContextEvidence, summarizeCodeContextEvidence } from '../../src/agents/CodeContextEvidence.js';
+import { buildCodeContextEvidence, buildCodeContextEvidenceFile, normalizeCodeContextEvidence, summarizeCodeContextEvidence } from '../../src/agents/CodeContextEvidence.js';
+import { CODEBASE_LIMITS } from '../../src/agents/codebaseLimits.js';
 
 function tempProject() {
   const dir = join(tmpdir(), `xike-code-evidence-${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -14,6 +15,27 @@ function tempProject() {
 }
 
 describe('CodeContextEvidence', () => {
+  it('bounds per-file parsing by codebaseLimits.maxFileBytes (C3 续)', () => {
+    const { dir, cleanup } = tempProject();
+    try {
+      writeFileSync(join(dir, 'big.js'), 'export const a = 1;\n');
+      // 超过 maxFileBytes → 跳过解析（不产符号），但记录 bytes
+      const skipped = buildCodeContextEvidenceFile({
+        cwd: dir, file: 'big.js',
+        meta: { isFile: () => true, size: CODEBASE_LIMITS.maxFileBytes + 1 },
+      });
+      expect(skipped.bytes).toBe(CODEBASE_LIMITS.maxFileBytes + 1);
+      expect(skipped.symbols).toEqual([]);
+      // 界内 → 正常解析出符号
+      const parsed = buildCodeContextEvidenceFile({
+        cwd: dir, file: 'big.js',
+        meta: { isFile: () => true, size: CODEBASE_LIMITS.maxFileBytes - 1 },
+        text: 'export const a = 1;\n',
+      });
+      expect(parsed.symbols.some((s) => s.name === 'a')).toBe(true);
+    } finally { cleanup(); }
+  });
+
   it('extracts symbols, imports, routes, and tests from changed files', () => {
     const { dir, cleanup } = tempProject();
     try {

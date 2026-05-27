@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { defaultParserRegistry } from './parsers/ParserRegistry.js';
+import { CODEBASE_LIMITS } from './codebaseLimits.js';
 
-const MAX_EVIDENCE_FILES = 24;
-const MAX_FILE_BYTES = 500_000;
+// 与 codebaseLimits 同源（C3 续）：上限可经 ~/.claude-panel/codebase-limits.json 统一覆盖
+const MAX_EVIDENCE_FILES = CODEBASE_LIMITS.maxFocusFiles;
+const MAX_FILE_BYTES = CODEBASE_LIMITS.maxFileBytes;
 const MAX_SYMBOLS_PER_FILE = 16;
 const MAX_IMPORTS_PER_FILE = 18;
 const MAX_EXPORTS_PER_FILE = 18;
