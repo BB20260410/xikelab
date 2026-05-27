@@ -10126,7 +10126,10 @@ function bindKnowledgeCenterEvents(root) {
       const hit = knowledgeCenterState.hits[idx];
       if (!hit) return;
       closeKnowledgeCenterModal();
-      openActivityModal({ q: hit.refId || hit.refKind || '' });
+      // E2：agent_message/tool_result 的 refId 是消息/工具 id（不在 activity 事件里，q 搜不到），
+      // 改按命中的 sessionId 过滤 → 落到该 run 的会话审计上下文；activity 命中按事件 id 检索。
+      if (hit.sessionId) openActivityModal({ sessionId: hit.sessionId });
+      else openActivityModal({ q: hit.refId || hit.refKind || '' });
     });
   });
 }
