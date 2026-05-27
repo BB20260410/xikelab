@@ -23,6 +23,7 @@
     "lint:baseline": "node scripts/eslint-baseline-check.js",
     "perf-check": "node scripts/perf-check.mjs",
     "test:e2e": "node tests/e2e/panel-ui-walkthrough.mjs",
+    "test:e2e:managed": "node scripts/e2e-with-server.mjs",
     "dist:publish": "electron-builder --mac --publish always"
   },
   "dependencies": {
