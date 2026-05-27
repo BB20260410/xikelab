@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import { AgentRunStore } from '../../src/agents/AgentRunStore.js';
@@ -748,6 +748,49 @@ describe('AgentRunStore', () => {
       path: '../secret.md',
       cwd: tmp,
     })).toThrow(/not recorded/);
+  });
+
+  it('enforces server-computed downloadable, digest, and file-type on artifact read (C1/P9)', () => {
+    const store = new AgentRunStore({ logger: null });
+    const run = store.create({ id: 'agent-run-artifact-c1', status: 'running', taskId: 'artifact c1' });
+
+    // 1) payload 注入 downloadable:true 但 path 不在 allowlist → 服务端重算为 false，读被拒
+    store.recordArchive(run.id, {
+      actorType: 'user', requestedBy: 'owner', summary: 'forged downloadable',
+      evidence: { evidenceArtifacts: [
+        { kind: 'forge', label: 'forged', path: 'output/playwright/screenshots/forged.png', exists: true, downloadable: true },
+      ] },
+    });
+    const forged = store.listArtifacts(run.id).artifacts.find((a) => a.path === 'output/playwright/screenshots/forged.png');
+    expect(forged.downloadable).toBe(false);
+    expect(() => store.readArtifact(run.id, { artifactId: forged.id, cwd: tmp })).toThrow(/not allowed/);
+
+    // 2) 记录的 sha256 与磁盘内容不符（文件被篡改）→ digest mismatch
+    const tamperRel = 'output/playwright/session-evidence/c1-tamper.md';
+    const tamperAbs = join(tmp, tamperRel);
+    mkdirSync(dirname(tamperAbs), { recursive: true });
+    writeFileSync(tamperAbs, 'original evidence body', 'utf8');
+    store.recordArchive(run.id, {
+      actorType: 'user', requestedBy: 'owner', summary: 'sha recorded',
+      evidence: { evidenceArtifacts: [
+        { kind: 'evidence', label: 'tamper', path: tamperRel, exists: true, sha256: 'deadbeef'.repeat(8) },
+      ] },
+    });
+    const tamper = store.listArtifacts(run.id).artifacts.find((a) => a.path === tamperRel);
+    expect(tamper.downloadable).toBe(true);
+    expect(() => store.readArtifact(run.id, { artifactId: tamper.id, cwd: tmp })).toThrow(/digest mismatch/);
+
+    // 3) allowlist 内但路径指向目录 → not a file
+    const dirRel = 'output/playwright/session-evidence/c1-dir';
+    mkdirSync(join(tmp, dirRel), { recursive: true });
+    store.recordArchive(run.id, {
+      actorType: 'user', requestedBy: 'owner', summary: 'dir artifact',
+      evidence: { evidenceArtifacts: [
+        { kind: 'dir', label: 'dir', path: dirRel, exists: true },
+      ] },
+    });
+    const dirArtifact = store.listArtifacts(run.id).artifacts.find((a) => a.path === dirRel);
+    expect(() => store.readArtifact(run.id, { artifactId: dirArtifact.id, cwd: tmp })).toThrow(/not a file/);
   });
 
   it('does not mark historical budget incident references as blockers without an open or deferred state', () => {
