@@ -3919,13 +3919,14 @@ app.put('/api/safety/rate-limit/:key', requireOwnerToken, (req, res) => {
 // S18-2g：7 个 routes 提取
 registerKnowledgeRoutes(app, { knowledgeStore, evidenceKnowledgeStore, agentRunStore, activityLog });
 // A3：run 归档后自动增量索引证据知识库（失败不阻断归档；activity 仍可手动 reindex）
-// C2：run 归档同时把对应治理工作队列项标记 done（源对象状态联动）
 agentRunStore.setArchiveHook((id, { run, timeline } = {}) => {
   try { evidenceKnowledgeStore.indexRunTimeline(run, timeline); } catch { /* 不阻断归档主流程 */ }
-  try { governanceQueueStore.setStateBySource('agent_run', id, 'done', 'run archived'); } catch { /* 不阻断归档 */ }
 });
 
 // C2：审批决议 / 预算 incident 解决 → 联动推进治理工作队列项（dedupe_key = kind:sourceId）
+// 队列项由 buildGovernanceSummary 的 blockers 派生，kind 仅 approval/budget/delegation/autopilot_job
+// （无 agent_run），且 blocker.id 即 approvalId / incidentId。run 归档时其 approval/budget 阻塞
+// 已由下列各自 hook 推进，故归档不再单独联动队列（避免对不存在的 kind 做无效写）。
 // 任一终态决议都解除该审批阻塞；预算解决解除该预算阻塞 → 队列项置 done。
 approvalStore.setDecisionHook((id, { status } = {}) => {
   try { governanceQueueStore.setStateBySource('approval', id, 'done', `approval ${status || 'decided'}`); }
