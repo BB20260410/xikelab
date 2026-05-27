@@ -23,8 +23,8 @@
 - `src/agents/AgentRunStore.js:10` `ARCHIVE_ARTIFACT_DOWNLOAD_ROOTS` 白名单（仅 `output/playwright/session-evidence`、`output/playwright/gate-audit-reports`）。
 - `:39` `normalizeArtifactRelPath`：拒 `..`、null 字节、反斜杠归一、去前导 `/`。
 - `:88` `downloadable` **由服务端按路径重算**（`artifactPathDownloadRoot`），**忽略**请求方/payload 注入的 `downloadable` 字段。
-- `:2621` `readArtifact` 链路校验：① artifact 必须已被该 run 记录（不可请求任意路径）→ ② `downloadable` 为真 → ③ relPath 落在 allowlist root → ④ `resolve(cwd, relPath)` 必须 `startsWith(safeRoot)`（逃逸检查）→ ⑤ `existsSync` + `isFile` → ⑥ 内容 `sha256` 与记录不符则抛 `digest mismatch`（防篡改）。
-- 单测覆盖（`tests/unit/agent-run-store.test.js`）：happy path、文件删除、非 allowlist root、`../` traversal、**payload 伪造 downloadable 被忽略**、**sha256 篡改 digest mismatch**、**目录非文件**。
+- `:2621` `readArtifact` 链路校验：① artifact 必须已被该 run 记录（不可请求任意路径）→ ② `downloadable` 为真 → ③ relPath 落在 allowlist root → ④ `resolve(cwd, relPath)` 必须 `startsWith(safeRoot)`（lexical 逃逸检查）→ ⑤ `existsSync` + `isFile` → ⑥ **`realpathSync` 校验真实目标仍在 root 内（防 symlink 越界，E1 加固，与机制 5 对齐）** → ⑦ 内容 `sha256` 与记录不符则抛 `digest mismatch`（防篡改）。
+- 单测覆盖（`tests/unit/agent-run-store.test.js`）：happy path、文件删除、非 allowlist root、`../` traversal、**payload 伪造 downloadable 被忽略**、**sha256 篡改 digest mismatch**、**目录非文件**、**allowlist root 内 symlink 指向外部被 realpath 拒**。
 
 ### 5. Symlink 越界防护（项目上下文扫描）
 - `src/context/ProjectContextBundle.js:81,99`：root 与每个文件均经 `realpathSync` 解析后再判定是否在项目根内，防符号链接逃逸。
@@ -40,7 +40,7 @@
 
 ## 二、残留限制（已知、未来可加固）
 
-1. **`readArtifact` 逃逸检查用 `resolve()` 而非 `realpathSync`**：理论上若 allowlist root 内被放置指向外部的符号链接，且该路径被记录为 artifact，可绕过 `startsWith` 检查。当前缓解：artifact 由系统证据生成流程记录（非请求方注入）、记录时已 normalize。建议后续与机制 5 对齐改用 realpath。
+1. ~~**`readArtifact` 逃逸检查用 `resolve()` 而非 `realpathSync`**~~ **（E1 已修，2026-05-27）**：`readArtifact` 现在在 lexical `startsWith` 之外，额外用 `realpathSync` 校验真实目标仍在 allowlist root 内，allowlist root 内指向外部的符号链接会被拒（单测覆盖）。与机制 5 对齐。
 2. **`redactSecrets` 为模式匹配**：覆盖常见 token 格式，新型/自定义密钥格式可能漏过。脱敏是「尽力而为」的二级防线，不替代「不把密钥写进证据」的源头约束。
 3. **upload allowlist 默认关闭**：未配置时仅 SSRF 私网防护生效，出站可达任意公网 host。需要强约束的场景应显式配置 `upload-allowlist.json`。
 4. **owner-token 落盘明文**：单机威胁模型下以文件权限（`0o600` + 同 UID）为边界，未做额外加密；多用户共享机器场景不在当前威胁模型内。

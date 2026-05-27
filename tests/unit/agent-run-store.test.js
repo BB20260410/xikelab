@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
@@ -791,6 +791,31 @@ describe('AgentRunStore', () => {
     });
     const dirArtifact = store.listArtifacts(run.id).artifacts.find((a) => a.path === dirRel);
     expect(() => store.readArtifact(run.id, { artifactId: dirArtifact.id, cwd: tmp })).toThrow(/not a file/);
+  });
+
+  it('rejects symlink inside allowlist root that points outside via realpath (E1/P9)', () => {
+    const store = new AgentRunStore({ logger: null });
+    const run = store.create({ id: 'agent-run-artifact-symlink', status: 'running', taskId: 'artifact symlink' });
+
+    // allowlist root 之外放一个真实秘密文件
+    const secretAbs = join(tmp, 'secret-outside.md');
+    writeFileSync(secretAbs, 'top secret content', 'utf8');
+    // 在 allowlist root 内放一个指向该秘密文件的符号链接
+    const rootAbs = join(tmp, 'output/playwright/session-evidence');
+    mkdirSync(rootAbs, { recursive: true });
+    const linkRel = 'output/playwright/session-evidence/leak.md';
+    symlinkSync(secretAbs, join(tmp, linkRel));
+
+    store.recordArchive(run.id, {
+      actorType: 'user', requestedBy: 'owner', summary: 'symlink leak',
+      evidence: { evidenceArtifacts: [
+        { kind: 'leak', label: 'leak', path: linkRel, exists: true },
+      ] },
+    });
+    const leak = store.listArtifacts(run.id).artifacts.find((a) => a.path === linkRel);
+    expect(leak.downloadable).toBe(true); // 路径文本在 allowlist 内 → lexical 检查放行
+    // realpath 检测到真实目标在 root 外 → 拒
+    expect(() => store.readArtifact(run.id, { artifactId: leak.id, cwd: tmp })).toThrow(/escapes allowed archive roots/);
   });
 
   it('does not mark historical budget incident references as blockers without an open or deferred state', () => {

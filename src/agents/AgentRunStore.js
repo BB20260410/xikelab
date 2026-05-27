@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve, sep } from 'node:path';
 import { activityLog } from '../audit/ActivityLog.js';
 import { getDb } from '../storage/SqliteStore.js';
 
@@ -2640,6 +2640,19 @@ export class AgentRunStore {
     if (!existsSync(targetPath)) throw new Error('artifact file not found');
     const stat = statSync(targetPath);
     if (!stat.isFile()) throw new Error('artifact path is not a file');
+    // E1：realpath 防 symlink 越界——allowlist root 内若有指向外部的符号链接，lexical 检查挡不住。
+    // 与 ProjectContextBundle 的 realpath 防护对齐。realpath 失败（断链/竞态）一律按越界拒。
+    let realTarget;
+    let realRoot;
+    try {
+      realTarget = realpathSync(targetPath);
+      realRoot = realpathSync(safeRoot);
+    } catch {
+      throw new Error('artifact path escapes allowed archive roots');
+    }
+    if (realTarget !== realRoot && !realTarget.startsWith(`${realRoot}${sep}`)) {
+      throw new Error('artifact path escapes allowed archive roots');
+    }
     const content = readFileSync(targetPath, 'utf8');
     const sha256 = createHash('sha256').update(content).digest('hex');
     if (artifact.sha256 && artifact.sha256 !== sha256) throw new Error('artifact digest mismatch');
