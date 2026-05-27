@@ -59,7 +59,7 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
     const title = await page.title();
     track('1. 首页加载', title === 'Xike Lab', `title="${title}"`);
 
-    const topBtns = ['btnOverview','btnTerminal','btnRooms','btnAgentRegistry','btnCodebaseCenter','btnGovernance','btnPlugins','btnRoomAdapters','btnWebhooks','btnArchive','btnMcp','btnAutopilot','btnApprovals','btnActivity','btnDelegations'];
+    const topBtns = ['btnOverview','btnTerminal','btnRooms','btnAgentRegistry','btnCodebaseCenter','btnKnowledgeCenter','btnGovernance','btnPlugins','btnRoomAdapters','btnWebhooks','btnArchive','btnMcp','btnAutopilot','btnApprovals','btnActivity','btnDelegations'];
     for (const id of topBtns) {
       const btn = await page.$(`#${id}`);
       const visible = btn ? await btn.isVisible() : false;
@@ -74,7 +74,7 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
       track(`3. window.Panel${k}`, v);
     }
 
-    const modalsToTest = ['btnAgentRegistry','btnCodebaseCenter','btnGovernance','btnRoomAdapters','btnWebhooks','btnArchive','btnAutopilot','btnApprovals','btnActivity','btnDelegations','btnMcp'];
+    const modalsToTest = ['btnAgentRegistry','btnCodebaseCenter','btnKnowledgeCenter','btnGovernance','btnRoomAdapters','btnWebhooks','btnArchive','btnAutopilot','btnApprovals','btnActivity','btnDelegations','btnMcp'];
     for (const id of modalsToTest) {
       await page.click(`#${id}`);
       await page.waitForTimeout(300);
@@ -88,6 +88,37 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
 
     await page.keyboard.press('Escape');
     await page.waitForTimeout(100);
+
+    // 4b. 知识库（证据 FTS 检索 P4/A2）：重建索引 → 检索 → 命中跳转审计
+    await page.click('#btnKnowledgeCenter');
+    await page.waitForSelector('#knowledgeQueryInput', { timeout: 3000 });
+    await page.click('#knowledgeReindexBtn');
+    await page.waitForTimeout(700);
+    const kcReindexed = await page.evaluate(() => (document.querySelector('#knowledgeCenterBody')?.textContent || '').includes('已索引'));
+    track('4b. Knowledge Center 重建索引更新状态', kcReindexed);
+    await page.fill('#knowledgeQueryInput', 'session');
+    await page.click('#knowledgeSearchBtn');
+    await page.waitForTimeout(700);
+    const kcSearch = await page.evaluate(() => {
+      const body = document.querySelector('#knowledgeCenterBody')?.textContent || '';
+      const err = document.querySelector('#knowledgeCenterBody .agent-empty.error');
+      return { hasCount: /条命中/.test(body), noError: !err };
+    });
+    track('4b. Knowledge Center 检索链路无报错', kcSearch.hasCount && kcSearch.noError, `hasCount=${kcSearch.hasCount} noError=${kcSearch.noError}`);
+    const kcHit = await page.$('[data-knowledge-open="0"]');
+    if (kcHit) {
+      await page.click('[data-knowledge-open="0"]');
+      await page.waitForTimeout(300);
+      const activityOpen = await page.evaluate(() => document.querySelector('#activityModal')?.style.display === 'flex');
+      track('4b. Knowledge 命中跳转审计时间线', activityOpen);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(100);
+    } else {
+      track('4b. Knowledge 命中跳转审计时间线', true, '(本地无证据数据，跳过跳转校验)');
+    }
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+
     await page.click('#btnGovernance');
     await page.waitForFunction(() => {
       const body = document.querySelector('#governanceCenterBody')?.textContent || '';

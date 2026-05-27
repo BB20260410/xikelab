@@ -41,6 +41,7 @@
           <button class="theme-toggle nav-action" id="btnRooms" title="多 AI 聊天室：Claude/GPT/MiniMax 协同 debate 出最优方案" aria-label="打开聊天室"><span class="nav-icon">💬</span><span class="nav-label">房间</span></button>
           <button class="theme-toggle nav-action" id="btnAgentRegistry" title="Agent 图谱：查看角色、任务标签和 Skill 绑定" aria-label="打开 Agent 图谱"><span class="nav-icon">🧠</span><span class="nav-label">Agent</span></button>
           <button class="theme-toggle nav-action" id="btnCodebaseCenter" title="Codebase Center：本地代码索引查询与上下文证据" aria-label="打开 Codebase Center"><span class="nav-icon">⌘</span><span class="nav-label">代码</span></button>
+          <button class="theme-toggle nav-action" id="btnKnowledgeCenter" title="知识库：跨 Agent Run / 工具结果 / 审计的本地证据全文检索" aria-label="打开知识库"><span class="nav-icon">📚</span><span class="nav-label">知识</span></button>
         </div>
       </section>
       <section class="brand-action-group" aria-label="治理">
@@ -510,6 +511,20 @@
           <button class="btn-icon" data-close-codebase-center aria-label="关闭" title="关闭（ESC）">✕</button>
         </div>
         <div class="codebase-center-modal-body" id="codebaseCenterBody">
+          <div class="muted small" style="padding:20px;">加载中…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 知识库（证据 FTS 检索）modal — P4/A2 -->
+    <div class="modal" id="knowledgeCenterModal" style="display:none;">
+      <div class="modal-bg" data-close-knowledge-center></div>
+      <div class="modal-body modal-wide">
+        <div class="project-modal-head">
+          <h2>知识库</h2>
+          <button class="btn-icon" data-close-knowledge-center aria-label="关闭" title="关闭（ESC）">✕</button>
+        </div>
+        <div class="codebase-center-modal-body" id="knowledgeCenterBody">
           <div class="muted small" style="padding:20px;">加载中…</div>
         </div>
       </div>

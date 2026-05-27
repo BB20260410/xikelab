@@ -98,6 +98,8 @@ import { ReportJobStore } from './src/report/ReportJobStore.js';
 import { mcpStore } from './src/mcp/McpStore.js';
 import { skillStore } from './src/skills/SkillStore.js';
 import { knowledgeStore } from './src/knowledge/KnowledgeStore.js';
+import { evidenceKnowledgeStore } from './src/knowledge/EvidenceKnowledgeStore.js';
+import { agentRunStore } from './src/agents/AgentRunStore.js';
 import { breakers } from './src/safety/CircuitBreaker.js';
 import { bulkheads } from './src/safety/Bulkhead.js';
 import { rateLimiters } from './src/safety/RateLimiter.js';
@@ -3914,7 +3916,7 @@ app.put('/api/safety/rate-limit/:key', requireOwnerToken, (req, res) => {
 
 // ============ v0.55 Sprint 13-B：知识库（KB）API ============
 // S18-2g：7 个 routes 提取
-registerKnowledgeRoutes(app, { knowledgeStore });
+registerKnowledgeRoutes(app, { knowledgeStore, evidenceKnowledgeStore, agentRunStore, activityLog });
 
 // ============ v0.55 Sprint 13-C：Skills 系统 ============
 // S18-2f：6 个 routes 提取
