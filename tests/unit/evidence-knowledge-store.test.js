@@ -71,8 +71,12 @@ describe('EvidenceKnowledgeStore', () => {
     const activityLog = { list: () => [{ id: 'e1', action: 'webhook.delivered', summary: 'archived report' }] };
     const res = store.indexFromStores({ agentRunStore, activityLog });
     expect(res.indexed).toBe(3);
-    expect(store.search('budget').some((h) => h.refId === 'm1')).toBe(true);
+    const budgetHit = store.search('budget').find((h) => h.refId === 'm1');
+    expect(budgetHit).toBeTruthy();
+    expect(budgetHit.runId).toBe('r1'); // F1：agent 证据命中带 runId，供前端开对应 Agent Run
     expect(store.search('archived').some((h) => h.refKind === 'activity')).toBe(true);
+    // activity 命中无 runId
+    expect(store.search('archived').find((h) => h.refKind === 'activity').runId).toBe('');
     // 再次派生应被 ref dedupe 跳过
     expect(store.indexFromStores({ agentRunStore, activityLog }).indexed).toBe(0);
   });
@@ -93,7 +97,9 @@ describe('EvidenceKnowledgeStore', () => {
       toolResults: [{ id: 't9', toolName: 'npm', outputSummary: 'budget gate passed' }],
     };
     expect(store.indexRunTimeline(run, timeline)).toEqual({ indexed: 2, skipped: 0 });
-    expect(store.search('budget').some((h) => h.refId === 'm9')).toBe(true);
+    const m9 = store.search('budget').find((h) => h.refId === 'm9');
+    expect(m9).toBeTruthy();
+    expect(m9.runId).toBe('r9'); // F1：命中带 runId
     // 同一 run 再次索引（如重复归档）应被 ref dedupe 跳过
     expect(store.indexRunTimeline(run, timeline)).toEqual({ indexed: 0, skipped: 2 });
   });

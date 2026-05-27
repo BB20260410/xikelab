@@ -32,11 +32,11 @@ function runTimelineToItems(run, timeline) {
   if (!run || !timeline) return items;
   for (const m of timeline.messages || []) {
     const content = `${m.summary || ''} ${m.content || ''}`.trim();
-    if (m.id && content) items.push({ refKind: 'agent_message', refId: m.id, content, roomId: run.roomId, sessionId: run.sessionId });
+    if (m.id && content) items.push({ refKind: 'agent_message', refId: m.id, content, roomId: run.roomId, sessionId: run.sessionId, runId: run.id });
   }
   for (const t of timeline.toolResults || []) {
     const content = `${t.toolName || ''} ${t.outputSummary || t.output_summary || ''}`.trim();
-    if (t.id && content) items.push({ refKind: 'tool_result', refId: t.id, content, roomId: run.roomId, sessionId: run.sessionId });
+    if (t.id && content) items.push({ refKind: 'tool_result', refId: t.id, content, roomId: run.roomId, sessionId: run.sessionId, runId: run.id });
   }
   return items;
 }
@@ -58,9 +58,13 @@ export class EvidenceKnowledgeStore {
       CREATE TABLE IF NOT EXISTS evidence_index_meta (
         ref_key TEXT PRIMARY KEY,
         fts_rowid INTEGER,
+        run_id TEXT,
         created_at INTEGER NOT NULL
       );
     `);
+    // 旧库幂等补列（F1：run_id 用于命中精准跳转对应 Agent Run）
+    const cols = new Set(this.db.prepare('PRAGMA table_info(evidence_index_meta)').all().map((c) => c.name));
+    if (!cols.has('run_id')) this.db.exec('ALTER TABLE evidence_index_meta ADD COLUMN run_id TEXT');
     this._ready = true;
   }
 
@@ -70,7 +74,7 @@ export class EvidenceKnowledgeStore {
     const now = Date.now();
     const hasMeta = this.db.prepare('SELECT 1 FROM evidence_index_meta WHERE ref_key = ?');
     const insertFts = this.db.prepare('INSERT INTO evidence_fts(content, ref_kind, ref_id, room_id, session_id) VALUES (?, ?, ?, ?, ?)');
-    const insertMeta = this.db.prepare('INSERT INTO evidence_index_meta(ref_key, fts_rowid, created_at) VALUES (?, ?, ?)');
+    const insertMeta = this.db.prepare('INSERT INTO evidence_index_meta(ref_key, fts_rowid, run_id, created_at) VALUES (?, ?, ?, ?)');
     let indexed = 0;
     let skipped = 0;
     for (const it of items || []) {
@@ -81,7 +85,7 @@ export class EvidenceKnowledgeStore {
       const refKey = `${refKind}:${refId}`;
       if (hasMeta.get(refKey)) { skipped += 1; continue; }
       const info = insertFts.run(content, refKind, refId, String(it?.roomId || '').slice(0, 160), String(it?.sessionId || '').slice(0, 160));
-      insertMeta.run(refKey, info.lastInsertRowid, now);
+      insertMeta.run(refKey, info.lastInsertRowid, String(it?.runId || '').slice(0, 200) || null, now);
       indexed += 1;
     }
     return { indexed, skipped };
@@ -126,11 +130,13 @@ export class EvidenceKnowledgeStore {
     let rows;
     try {
       rows = this.db.prepare(`
-        SELECT ref_kind, ref_id, room_id, session_id,
+        SELECT evidence_fts.ref_kind, evidence_fts.ref_id, evidence_fts.room_id, evidence_fts.session_id,
+               evidence_index_meta.run_id AS run_id,
                snippet(evidence_fts, 0, '[', ']', '…', 12) AS snip,
                bm25(evidence_fts) AS rank
         FROM evidence_fts
-        WHERE evidence_fts MATCH ?${kind ? ' AND ref_kind = ?' : ''}
+        LEFT JOIN evidence_index_meta ON evidence_index_meta.fts_rowid = evidence_fts.rowid
+        WHERE evidence_fts MATCH ?${kind ? ' AND evidence_fts.ref_kind = ?' : ''}
         ORDER BY rank
         LIMIT ?
       `).all(...(kind ? [cleaned, String(kind), safeLimit] : [cleaned, safeLimit]));
@@ -142,6 +148,7 @@ export class EvidenceKnowledgeStore {
       refId: r.ref_id,
       roomId: r.room_id || '',
       sessionId: r.session_id || '',
+      runId: r.run_id || '',
       snippet: r.snip || '',
       score: Number(r.rank) || 0,
     }));

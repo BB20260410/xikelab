@@ -109,12 +109,16 @@ async function saveFailureArtifact(page, label = 'panel-ui-walkthrough') {
     if (kcHit) {
       await page.click('[data-knowledge-open="0"]');
       await page.waitForTimeout(300);
-      const activityOpen = await page.evaluate(() => document.querySelector('#activityModal')?.style.display === 'flex');
-      track('4b. Knowledge 命中跳转审计时间线', activityOpen);
+      // F1：带 runId 的证据开 Agent Run（agentRegistryModal）；否则按 sessionId/事件 id 开审计（activityModal）
+      const jumped = await page.evaluate(() => (
+        document.querySelector('#activityModal')?.style.display === 'flex' ||
+        document.querySelector('#agentRegistryModal')?.style.display === 'flex'
+      ));
+      track('4b. Knowledge 命中跳转（审计/Agent Run）', jumped);
       await page.keyboard.press('Escape');
       await page.waitForTimeout(100);
     } else {
-      track('4b. Knowledge 命中跳转审计时间线', true, '(本地无证据数据，跳过跳转校验)');
+      track('4b. Knowledge 命中跳转（审计/Agent Run）', true, '(本地无证据数据，跳过跳转校验)');
     }
     await page.keyboard.press('Escape');
     await page.waitForTimeout(100);
