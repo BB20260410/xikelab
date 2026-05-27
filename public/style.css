@@ -5788,6 +5788,10 @@ kbd {
   color: var(--color-text-foreground-tertiary);
   white-space: nowrap;
 }
+/* 知识库状态框：满宽 + 仅「标题 + 计数」两列（不继承 Codebase 的三列幻影列）*/
+.knowledge-center-status {
+  grid-template-columns: auto minmax(0, 1fr);
+}
 .codebase-query-bar,
 .codebase-result-actions {
   display: flex;

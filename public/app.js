@@ -10064,11 +10064,9 @@ function renderKnowledgeCenter() {
   const hits = knowledgeCenterState.hits || [];
   const kind = knowledgeCenterState.kind;
   root.innerHTML = `
-    <div class="codebase-center-head">
-      <div class="codebase-index-status">
-        <strong>本地证据知识库</strong>
-        <span>已索引 ${escapeHtml(knowledgeCenterState.indexed)} 条（Agent 消息 / 工具结果 / 审计）</span>
-      </div>
+    <div class="codebase-index-status knowledge-center-status">
+      <strong>本地证据知识库</strong>
+      <span>已索引 ${escapeHtml(knowledgeCenterState.indexed)} 条（Agent 消息 / 工具结果 / 审计）</span>
     </div>
     <div class="codebase-query-bar">
       <input id="knowledgeQueryInput" type="search" value="${escapeHtml(knowledgeCenterState.query)}" placeholder="检索本地证据，例如：预算审批 / RoomAdapter 错误" />
@@ -10095,7 +10093,7 @@ function renderKnowledgeHit(hit, idx) {
   return `<article class="codebase-result-card">
     <div class="codebase-result-title">
       <strong>${escapeHtml(kindLabel)}</strong>
-      <em>score ${escapeHtml(Number(hit.score || 0).toFixed(2))}</em>
+      <em title="按相关度排序">#${Number(idx) + 1}</em>
     </div>
     <div class="codebase-result-meta">
       <span>${escapeHtml(hit.refKind || '-')}:${escapeHtml(hit.refId || '-')}</span>
