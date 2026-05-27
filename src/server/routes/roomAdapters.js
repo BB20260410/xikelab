@@ -17,14 +17,17 @@ export function registerRoomAdaptersRoutes(app, deps) {
   } = deps;
 
   app.get('/api/room-adapters', requireOwnerToken, (req, res) => {
-    res.json({
-      ok: true,
-      config: maskRoomAdaptersConfig(getRoomAdaptersConfig()),
-      geminiCliAvailable: hasGeminiCli,
-    });
+    try {
+      res.json({
+        ok: true,
+        config: maskRoomAdaptersConfig(getRoomAdaptersConfig()),
+        geminiCliAvailable: hasGeminiCli,
+      });
+    } catch (e) { send500(res, e, 'room-adapters get'); }
   });
 
   app.put('/api/room-adapters', requireOwnerToken, (req, res) => {
+   try {
     const r = cleanRoomAdaptersConfig(req.body || {}, getRoomAdaptersConfig());
     if (!r.ok) return res.status(422).json({ error: r.error });
 
@@ -69,13 +72,16 @@ export function registerRoomAdaptersRoutes(app, deps) {
       geminiCliAvailable: hasGeminiCli,
       activeProviders: [...roomAdapterPool.keys()],
     });
+   } catch (e) { send500(res, e, 'room-adapters put'); }
   });
 
   app.get('/api/room-adapters/providers', requireOwnerToken, (req, res) => {
-    const providers = [];
-    for (const [id, adapter] of roomAdapterPool.entries()) {
-      providers.push({ id, displayName: adapter.displayName || id });
-    }
-    res.json({ ok: true, providers });
+    try {
+      const providers = [];
+      for (const [id, adapter] of roomAdapterPool.entries()) {
+        providers.push({ id, displayName: adapter.displayName || id });
+      }
+      res.json({ ok: true, providers });
+    } catch (e) { send500(res, e, 'room-adapters providers'); }
   });
 }
