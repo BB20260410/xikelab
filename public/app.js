@@ -11983,6 +11983,33 @@ document.addEventListener('keydown', (e) => {
   if (closeTopOverlay()) e.stopPropagation();
 });
 
+// a11y focus-trap：modal 打开时把 Tab 焦点限制在最上层 modal 内（键盘用户不会 Tab 到背景）。
+// 仅在有 .modal display:flex 时介入、仅处理 Tab；其余按键/无 modal 时完全不干预。
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const open = [...document.querySelectorAll('.modal')].filter(m => m.style.display === 'flex');
+  if (!open.length) return;
+  const modal = open[open.length - 1]; // 最上层
+  const focusables = [...modal.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter(el => el.offsetParent !== null || el === document.activeElement); // 可见的
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+  // 焦点不在本 modal 内 → 拉回首个；否则在首/尾按 Tab/Shift+Tab 时回绕
+  if (!modal.contains(active)) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  } else if (e.shiftKey && active === first) {
+    e.preventDefault();
+    last.focus();
+  }
+});
+
 // v0.56 U9+S17-4：点 modal-bg 关 modal，但要 mousedown + mouseup 都在 bg 上才算
 // 避免用户在 modal 内拖选文本，鼠标抬起在 bg 上时误关
 let _bgMouseDownTarget = null;
