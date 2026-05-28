@@ -16,6 +16,7 @@
     "start:electron": "electron electron-main.js",
     "package": "electron-builder --mac --dir",
     "build:app": "node scripts/release-build.mjs",
+    "dist:signed": "node scripts/dist-signed.mjs",
     "dist": "electron-builder --mac",
     "dist:all": "electron-builder --mac --win --linux",
     "test": "vitest run",
