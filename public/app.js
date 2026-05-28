@@ -59,8 +59,24 @@ function wsUrl(path) {
   const portal = () => document.querySelectorAll('.modal').forEach(m => {
     if (m.parentElement !== document.body) document.body.appendChild(m);
   });
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', portal, { once: true });
-  else portal();
+  // a11y：统一给所有 .modal 补 ARIA dialog 语义（role/aria-modal/aria-labelledby）。
+  // 纯加属性、幂等，覆盖现有及未来所有 modal；屏幕阅读器可识别为模态对话框。
+  const ariaEnrich = () => document.querySelectorAll('.modal').forEach(m => {
+    if (!m.getAttribute('role')) m.setAttribute('role', 'dialog');
+    if (!m.getAttribute('aria-modal')) m.setAttribute('aria-modal', 'true');
+    if (!m.getAttribute('aria-labelledby') && !m.getAttribute('aria-label')) {
+      const h = m.querySelector('.project-modal-head h2, .modal-body h2, h2, .modal-title');
+      if (h) {
+        if (!h.id) h.id = `${m.id || 'modal'}-title`;
+        m.setAttribute('aria-labelledby', h.id);
+      } else {
+        m.setAttribute('aria-label', '对话框');
+      }
+    }
+  });
+  const init = () => { portal(); ariaEnrich(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
 })();
 
 const state = {
