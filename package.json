@@ -15,6 +15,7 @@
     "electron": "electron electron-main.js",
     "start:electron": "electron electron-main.js",
     "package": "electron-builder --mac --dir",
+    "build:app": "node scripts/release-build.mjs",
     "dist": "electron-builder --mac",
     "dist:all": "electron-builder --mac --win --linux",
     "test": "vitest run",
@@ -67,7 +68,7 @@
   "build": {
     "appId": "com.hxx.xikelab",
     "productName": "Xike Lab",
-    "asar": true,
+    "asar": false,
     "asarUnpack": [
       "node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
     ],
@@ -87,6 +88,7 @@
       "electron-main.js",
       "public/**",
       "src/**",
+      "docs/plugin-manifest.schema.json",
       "package.json",
       "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
       "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
