@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-05-28
+## [2.1.0] - 2026-05-28
 
-桌面端首个真正可发布版本。本版本完成了 Paperclip 本地治理能力吸收、Crow5 技术精髓吸收、知识库与证据全链路、a11y 闭环;同时通过深度 QA / 构建验证揪出并修复了 12 个真实 bug(含 3 个发布阻断)。
+承接 origin 上的 `v2.0.0`(2026-05-21,SQLite 数据底座 + 向量搜索 + 多 workspace + Pino 日志),本版本是其后 126 commit 的累积增量。完成了 Paperclip 本地治理能力吸收、Crow5 技术精髓吸收、知识库与证据全链路、a11y 闭环;同时通过深度 QA / 构建验证揪出并修复了 12 个真实 bug(含 3 个发布阻断)。按 SemVer 属 minor 升(新增功能 + 向后兼容)。
 
 ### Added
 - **知识库(Knowledge Center)**:跨 Agent Run / 工具结果 / 审计的本地 FTS 证据检索。新增 `/api/knowledge/evidence/{search,stats,reindex}`(owner-token,3 段子路径避开既有 `/api/knowledge/:name`),顶栏「📚 知识」入口,状态框/查询/重建/命中卡/精准跳转 Agent Run。(`3ac3647`, `74a1c7f`, `a6eaac4`, `ea9ff00`)
@@ -55,5 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **证据脱敏先于截断**(W5 单测锁定):`EvidenceKnowledgeStore.indexItems` 先 `redactSecrets`(sk-/ghp-/gho-/xox-/AKIA/PEM 私钥头)再 slice(0, MAX_CONTENT=4000),长内容末尾(超 4000)的密钥仍被脱敏后不入索引、不可搜。(`4da3af8`)
 - **路由错误处理审计**:全库 143 处 handler 仅返 `e.message` 不含 stack;`send500` 仅在 `PANEL_DEBUG=1` 露 message。补齐 2 个无 try/catch 文件(见 Fixed)。无 stack 泄漏路径。(`4804b1f`)
 
-[Unreleased]: https://github.com/BB20260410/xikelab/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/BB20260410/xikelab/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/BB20260410/xikelab/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/BB20260410/xikelab/releases/tag/v2.0.0
