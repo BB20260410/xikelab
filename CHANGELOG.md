@@ -55,6 +55,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **证据脱敏先于截断**(W5 单测锁定):`EvidenceKnowledgeStore.indexItems` 先 `redactSecrets`(sk-/ghp-/gho-/xox-/AKIA/PEM 私钥头)再 slice(0, MAX_CONTENT=4000),长内容末尾(超 4000)的密钥仍被脱敏后不入索引、不可搜。(`4da3af8`)
 - **路由错误处理审计**:全库 143 处 handler 仅返 `e.message` 不含 stack;`send500` 仅在 `PANEL_DEBUG=1` 露 message。补齐 2 个无 try/catch 文件(见 Fixed)。无 stack 泄漏路径。(`4804b1f`)
 
+## [2.0.0] - 2026-05-21
+
+历史发布(承接前接力,本文件由 v2.1.0 回补条目)。Commit `61e547b`。
+
+### Added
+- SQLite 数据底座(`src/storage/SqliteStore.js`,better-sqlite3),取代 jsonl 流式追加。
+- 向量搜索(hash-vector 嵌入 + 余弦相似度,本地不出网)。
+- 多 workspace 支持。
+- Pino 日志框架。
+
+### Notes
+- 完整提交清单见 origin `v2.0.0` tag(`61e547b`)前后的 git log。本会话(v2.1.0)在此基础上累积 126 commit。
+
 [Unreleased]: https://github.com/BB20260410/xikelab/compare/v2.1.0...HEAD
 [2.1.0]: https://github.com/BB20260410/xikelab/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/BB20260410/xikelab/releases/tag/v2.0.0
